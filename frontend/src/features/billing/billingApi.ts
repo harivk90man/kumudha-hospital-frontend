@@ -3,9 +3,11 @@ import type {
   Counter,
   Invoice,
   InvoiceLine,
+  InvoiceStatus,
   InvoicesListParams,
   LineDiscount,
   Payment,
+  PaymentMethod,
   PaymentsListParams,
   RecordPaymentInput,
   RefundPaymentInput,
@@ -19,11 +21,12 @@ import {
   mockPayments,
   mockServices,
 } from './__mocks__/billingMocks';
-import { isoDate } from '@/utils/dateRange';
 import { sortAndPaginate, type PageResult } from '@/utils/listQuery';
 import { isShiftLocked, useShiftCloseStore } from './shiftCloseStore';
 import { useCurrentCounterStore, DEFAULT_COUNTER_ID } from './currentCounterStore';
 import { HttpError } from '@/lib/http/httpError';
+import { supabase, DEMO_USER_ID } from '@/lib/supabase/supabaseClient';
+import type { PatientSummary, Gender } from '@/features/patient';
 
 /**
  * Server-side sort whitelist for the cashier’s invoices grid.
@@ -126,7 +129,125 @@ export const fetchServices = async (category?: ServiceCategory): Promise<Service
   return delay(rows);
 };
 
-/* ---------- Invoices ---------- */
+/* ---------- Invoices (Supabase-backed for demo) ---------- */
+
+/** Map DB invoice row + joined patient → FE Invoice shape. */
+const ageFromDob = (dob: string | null): number => {
+  if (!dob) return 0;
+  const d = new Date(dob);
+  const now = new Date();
+  return Math.max(0, now.getFullYear() - d.getFullYear() - (now < new Date(now.getFullYear(), d.getMonth(), d.getDate()) ? 1 : 0));
+};
+
+interface SupabaseInvoiceRow {
+  id: string;
+  invoice_number: string;
+  invoice_type: string;
+  patient_id: string;
+  op_visit_id: string | null;
+  subtotal: string | number;
+  total_tax: string | number;
+  total_amount: string | number;
+  amount_paid: string | number;
+  balance: string | number;
+  payment_status: string;
+  created_at: string;
+  finalized_at: string | null;
+  patients: {
+    id: string;
+    uhid: string;
+    first_name: string;
+    last_name: string;
+    gender: string;
+    date_of_birth: string | null;
+    mobile: string | null;
+    blood_group: string | null;
+  } | null;
+  op_visits: { op_number: string } | null;
+}
+
+interface SupabasePaymentRow {
+  id: string;
+  patient_id: string | null;
+  payment_mode: string;
+  amount: string | number;
+  transaction_ref: string | null;
+  received_by: string | null;
+  created_at: string;
+  notes: string | null;
+  patients: SupabaseInvoiceRow['patients'];
+  payment_allocations: { invoice_id: string | null; invoices: { invoice_number: string } | null }[];
+}
+
+const DB_TO_FE_INVOICE_STATUS: Record<string, InvoiceStatus> = {
+  draft: 'draft',
+  finalized: 'billed',
+  paid: 'paid',
+  partially_paid: 'partially_paid',
+  refunded: 'cancelled',
+  cancelled: 'cancelled',
+};
+
+const DB_TO_FE_INVOICE_STATION = (invoiceType: string): Invoice['station'] => {
+  switch (invoiceType) {
+    case 'pharmacy':         return 'pharmacy';
+    case 'lab_direct':       return 'lab';
+    case 'radiology_direct': return 'radiology';
+    default:                 return 'front_desk';
+  }
+};
+
+const DB_TO_FE_PAYMENT_METHOD: Record<string, PaymentMethod> = {
+  cash:        'cash',
+  card:        'card',
+  upi:         'upi',
+  net_banking: 'netbanking',
+  cheque:      'cash',
+  other:       'cash',
+};
+
+const mapPatient = (p: SupabaseInvoiceRow['patients']): PatientSummary => {
+  if (!p) {
+    return {
+      id: '', uhid: '', firstName: '', lastName: '', fullName: '(unknown)',
+      gender: 'o', ageYears: 0, mobile: '', allergies: [], chronicConditions: [],
+    } as PatientSummary;
+  }
+  return {
+    id: p.id,
+    uhid: p.uhid,
+    firstName: p.first_name,
+    lastName: p.last_name,
+    fullName: `${p.first_name} ${p.last_name}`.trim(),
+    gender: p.gender as Gender,
+    ageYears: ageFromDob(p.date_of_birth),
+    mobile: p.mobile ?? '',
+    bloodGroup: p.blood_group ?? undefined,
+    allergies: [],
+    chronicConditions: [],
+  } as PatientSummary;
+};
+
+const mapInvoice = (r: SupabaseInvoiceRow): Invoice => {
+  const total = Number(r.total_amount);
+  const paid  = Number(r.amount_paid);
+  return {
+    id: r.id,
+    invoiceNumber: r.invoice_number,
+    patient: mapPatient(r.patients),
+    opNumber: r.op_visits?.op_number,
+    station: DB_TO_FE_INVOICE_STATION(r.invoice_type),
+    status: DB_TO_FE_INVOICE_STATUS[r.payment_status] ?? 'billed',
+    lines: [],  // dashboard tiles only need totals; line detail loads in fetchInvoice
+    subtotal: Number(r.subtotal),
+    tax: Number(r.total_tax),
+    total,
+    balance: Number(r.balance),
+    createdBy: DEMO_USER_ID,
+    createdAt: r.created_at,
+    lastPaidAt: paid > 0 ? (r.finalized_at ?? r.created_at) : undefined,
+  };
+};
 
 export const fetchInvoices = async (
   params: InvoicesListParams = {},
@@ -134,46 +255,61 @@ export const fetchInvoices = async (
   void params.page;
   void params.limit;
   void params.sort;
-  let rows = mockInvoiceState;
-  if (params.statuses && params.statuses.length > 0) {
-    const set = new Set(params.statuses);
-    rows = rows.filter((r) => set.has(r.status));
-  } else if (params.status && params.status !== 'all') {
-    rows = rows.filter((r) => r.status === params.status);
+
+  let qb = supabase
+    .from('invoices')
+    .select(`
+      id, invoice_number, invoice_type, patient_id, op_visit_id,
+      subtotal, total_tax, total_amount, amount_paid, balance,
+      payment_status, created_at, finalized_at,
+      patients ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
+      op_visits ( op_number )
+    `)
+    .is('deleted_at', null);
+
+  // Status filtering
+  const dbStatuses: string[] = [];
+  const feStatuses = params.statuses && params.statuses.length > 0
+    ? params.statuses
+    : (params.status && params.status !== 'all' ? [params.status] : []);
+  for (const fe of feStatuses) {
+    for (const [db, mapped] of Object.entries(DB_TO_FE_INVOICE_STATUS)) {
+      if (mapped === fe) dbStatuses.push(db);
+    }
   }
+  if (dbStatuses.length > 0) qb = qb.in('payment_status', dbStatuses);
+
+  // Station → invoice_type filter
   if (params.station && params.station !== 'all') {
-    rows = rows.filter((r) => r.station === params.station);
+    const typeFilter: Record<string, string> = {
+      pharmacy:   'pharmacy',
+      lab:        'lab_direct',
+      radiology:  'radiology_direct',
+      front_desk: 'op',
+      billing:    'op',
+    };
+    const t = typeFilter[params.station];
+    if (t) qb = qb.eq('invoice_type', t);
   }
+
+  // Date filter — by created_at (UTC) using local-date bounds expanded to a 24h window.
   if (params.dateFrom || params.dateTo) {
-    // Range query takes precedence — used by the owner dashboard
-    // when a preset (week / month / quarter / year / custom) is
-    // active. Both bounds inclusive, local calendar dates.
-    const from = params.dateFrom;
-    const to = params.dateTo;
-    rows = rows.filter((r) => {
-      const d = isoDate(new Date(r.createdAt));
-      if (from && d < from) return false;
-      if (to && d > to) return false;
-      return true;
-    });
+    if (params.dateFrom) qb = qb.gte('created_at', `${params.dateFrom}T00:00:00`);
+    if (params.dateTo)   qb = qb.lte('created_at', `${params.dateTo}T23:59:59`);
   } else if (params.date) {
-    // Compare LOCAL calendar dates so the cashier’s "today" matches the
-    // front-desk’s "today" even when the user crosses UTC midnight (5:30 AM
-    // IST). Both sides resolve to the same local YYYY-MM-DD.
-    const target = params.date;
-    rows = rows.filter((r) => isoDate(new Date(r.createdAt)) === target);
+    qb = qb.gte('created_at', `${params.date}T00:00:00`).lte('created_at', `${params.date}T23:59:59`);
   }
+
   if (params.q) {
-    const q = params.q.toLowerCase();
-    rows = rows.filter(
-      (r) =>
-        r.invoiceNumber.toLowerCase().includes(q) ||
-        r.patient.fullName.toLowerCase().includes(q) ||
-        r.patient.uhid.toLowerCase().includes(q) ||
-        (r.opNumber ?? '').toLowerCase().includes(q),
-    );
+    qb = qb.ilike('invoice_number', `%${params.q}%`);
   }
-  return delay(rows);
+
+  qb = qb.order('created_at', { ascending: false }).limit(500);
+
+  const { data, error } = await qb;
+  if (error) throw new Error(error.message);
+  const rows = ((data ?? []) as unknown) as SupabaseInvoiceRow[];
+  return rows.map(mapInvoice);
 };
 
 /**
@@ -492,34 +628,54 @@ export const fetchPayments = async (
   void params.page;
   void params.limit;
   void params.sort;
-  let rows = mockPaymentState;
+
+  let qb = supabase
+    .from('payments')
+    .select(`
+      id, patient_id, payment_mode, amount, transaction_ref, received_by, created_at, notes,
+      patients ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
+      payment_allocations ( invoice_id, invoices ( invoice_number ) )
+    `)
+    .is('deleted_at', null)
+    .eq('payment_direction', 'in');
+
   if (params.method && params.method !== 'all') {
-    rows = rows.filter((r) => r.method === params.method);
+    const dbModes: Record<PaymentMethod, string> = {
+      cash: 'cash', card: 'card', upi: 'upi', netbanking: 'net_banking', insurance: 'other',
+    };
+    qb = qb.eq('payment_mode', dbModes[params.method]);
   }
+
   if (params.dateFrom || params.dateTo) {
-    const from = params.dateFrom;
-    const to = params.dateTo;
-    rows = rows.filter((r) => {
-      const d = isoDate(new Date(r.receivedAt));
-      if (from && d < from) return false;
-      if (to && d > to) return false;
-      return true;
-    });
+    if (params.dateFrom) qb = qb.gte('created_at', `${params.dateFrom}T00:00:00`);
+    if (params.dateTo)   qb = qb.lte('created_at', `${params.dateTo}T23:59:59`);
   } else if (params.date) {
-    const target = params.date;
-    rows = rows.filter((r) => isoDate(new Date(r.receivedAt)) === target);
+    qb = qb.gte('created_at', `${params.date}T00:00:00`).lte('created_at', `${params.date}T23:59:59`);
   }
-  if (params.q) {
-    const q = params.q.toLowerCase();
-    rows = rows.filter(
-      (r) =>
-        r.invoiceNumber.toLowerCase().includes(q) ||
-        r.patient.fullName.toLowerCase().includes(q) ||
-        r.patient.uhid.toLowerCase().includes(q) ||
-        (r.referenceNo ?? '').toLowerCase().includes(q),
-    );
-  }
-  return delay(rows);
+
+  qb = qb.order('created_at', { ascending: false }).limit(500);
+
+  const { data, error } = await qb;
+  if (error) throw new Error(error.message);
+  const rows = ((data ?? []) as unknown) as SupabasePaymentRow[];
+
+  return rows.map((r) => {
+    const firstAlloc = r.payment_allocations?.[0];
+    return {
+      id: r.id,
+      invoiceId: firstAlloc?.invoice_id ?? '',
+      invoiceNumber: firstAlloc?.invoices?.invoice_number ?? '',
+      patient: mapPatient(r.patients),
+      amount: Number(r.amount),
+      method: DB_TO_FE_PAYMENT_METHOD[r.payment_mode] ?? 'cash',
+      referenceNo: r.transaction_ref ?? undefined,
+      status: 'succeeded',
+      receivedBy: r.received_by ?? DEMO_USER_ID,
+      receivedAt: r.created_at,
+      notes: r.notes ?? undefined,
+      counterId: DEFAULT_COUNTER_ID,
+    } as Payment;
+  });
 };
 
 /**

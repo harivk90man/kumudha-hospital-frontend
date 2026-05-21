@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+﻿import { useMemo, useState } from 'react';
 import {
   CheckCircle2,
   ChevronDown,
@@ -29,9 +29,9 @@ import type { InvoiceLine, LineDiscount, PaymentMethod } from '@/features/billin
 import { ShiftLockedBanner, useShiftLock } from '@/features/billing';
 import type { Uuid } from '@/features/patient/patientTypes';
 
-/* ─────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Local Types
-───────────────────────────────────────────── */
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 type BillType = 'consult' | 'lab' | 'pharma' | 'due' | 'refund' | 'advance';
 type QueueStatus = 'waiting' | 'in_prog' | 'on_hold';
@@ -87,20 +87,20 @@ interface TodayStats {
   refundCount: number;
 }
 
-/* ─────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Static Mock Data
-───────────────────────────────────────────── */
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 const QUEUE_PATIENTS: QueuePatient[] = [
   {
     id: 'p1',
     token: 'T-041',
     opNumber: 'KH-2026-00041',
-    name: 'Arun Sharma',
+    name: 'Arun K.',
     uhid: 'KH-2026-00041',
     age: 34,
     gender: 'm',
-    doctor: 'Dr. Priya Mathew',
+    doctor: 'Dr. Priya',
     department: 'General Medicine',
     billType: 'consult',
     amount: 800,
@@ -116,7 +116,7 @@ const QUEUE_PATIENTS: QueuePatient[] = [
     uhid: 'KH-2026-00042',
     age: 28,
     gender: 'f',
-    doctor: 'Dr. Ramesh Babu',
+    doctor: 'Dr. Ramesh B.',
     department: 'Pathology',
     billType: 'lab',
     amount: 1250,
@@ -132,7 +132,7 @@ const QUEUE_PATIENTS: QueuePatient[] = [
     uhid: 'KH-2024-04405',
     age: 52,
     gender: 'm',
-    doctor: 'Dr. Meena Selvam',
+    doctor: 'Dr. Meena',
     department: 'Pharmacy',
     billType: 'pharma',
     amount: 540,
@@ -148,7 +148,7 @@ const QUEUE_PATIENTS: QueuePatient[] = [
     uhid: 'KH-2025-09012',
     age: 67,
     gender: 'f',
-    doctor: 'Dr. Suresh Antony',
+    doctor: 'Dr. Suresh',
     department: 'Cardiology',
     billType: 'due',
     amount: 3200,
@@ -160,11 +160,11 @@ const QUEUE_PATIENTS: QueuePatient[] = [
     id: 'p5',
     token: 'T-045',
     opNumber: 'KH-2026-00043',
-    name: 'Suresh Babu',
+    name: 'Suresh B.',
     uhid: 'KH-2026-00043',
     age: 41,
     gender: 'm',
-    doctor: 'Dr. Anjali Mathew',
+    doctor: 'Dr. Anjali',
     department: 'Orthopedics',
     billType: 'consult',
     amount: 600,
@@ -176,11 +176,11 @@ const QUEUE_PATIENTS: QueuePatient[] = [
     id: 'p6',
     token: 'T-046',
     opNumber: 'KH-2024-04410',
-    name: 'Kavitha Antony',
+    name: 'Kavitha A.',
     uhid: 'KH-2024-04410',
     age: 39,
     gender: 'f',
-    doctor: 'Dr. Rajan Krishnan',
+    doctor: 'Dr. Rajan',
     department: 'Billing',
     billType: 'refund',
     amount: 500,
@@ -208,11 +208,11 @@ const QUEUE_PATIENTS: QueuePatient[] = [
     id: 'p8',
     token: 'T-048',
     opNumber: 'KH-2025-09020',
-    name: 'Saranya Krishnan',
+    name: 'Saranya K.',
     uhid: 'KH-2025-09020',
     age: 31,
     gender: 'f',
-    doctor: 'Dr. Ramesh Babu',
+    doctor: 'Dr. Ramesh B.',
     department: 'Pathology',
     billType: 'lab',
     amount: 870,
@@ -277,13 +277,13 @@ const TODAY_STATS: TodayStats = {
 const RECENT_PAYMENTS: RecentPayment[] = [
   { id: 'r1', name: 'Anitha Rajan', opNumber: 'KH-2026-00039', amount: 1200, method: 'upi', time: '11:42 AM' },
   { id: 'r2', name: 'Vijay Kumar', opNumber: 'KH-2026-00038', amount: 3500, method: 'insurance', time: '11:35 AM' },
-  { id: 'r3', name: 'Lakshmi Bharath', opNumber: 'KH-2026-00037', amount: 650, method: 'cash', time: '11:20 AM' },
+  { id: 'r3', name: 'Lakshmi B.', opNumber: 'KH-2026-00037', amount: 650, method: 'cash', time: '11:20 AM' },
   { id: 'r4', name: 'Mohan Das', opNumber: 'KH-2024-04401', amount: 900, method: 'card', time: '11:08 AM' },
 ];
 
-/* ─────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Helpers / Constants
-───────────────────────────────────────────── */
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 const BILL_TYPE_COLORS: Record<BillType, string> = {
   consult:  'bg-blue-100 text-blue-700',
@@ -353,22 +353,22 @@ function computeGlobalDiscount(subtotal: number, discount: { kind: 'pct' | 'amt'
   return Math.min(subtotal, discount.value);
 }
 
-/* ─────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Main Page Component
-───────────────────────────────────────────── */
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /**
- * CashierWorkspacePage — full-screen 3-panel billing workspace.
+ * CashierWorkspacePage â€” full-screen 3-panel billing workspace.
  * Left: patient queue. Center: active bill + payment. Right: shift stats.
  */
 export function CashierWorkspacePage(): JSX.Element {
   const shiftLock = useShiftLock();
-  /* ─── queue state ─── */
+  /* â”€â”€â”€ queue state â”€â”€â”€ */
   const [searchQuery, setSearchQuery] = useState('');
   const [filterTab, setFilterTab] = useState<FilterTab>('all');
   const [selectedPatientId, setSelectedPatientId] = useState<Uuid>('p1');
 
-  /* ─── bill line state ─── */
+  /* â”€â”€â”€ bill line state â”€â”€â”€ */
   const [lines, setLines] = useState<WorkspaceInvoiceLine[]>(INITIAL_LINES);
   const [globalDiscount, setGlobalDiscount] = useState<{ kind: 'pct' | 'amt'; value: number }>({
     kind: 'pct',
@@ -376,7 +376,7 @@ export function CashierWorkspacePage(): JSX.Element {
   });
   const [globalDiscountInput, setGlobalDiscountInput] = useState('0');
 
-  /* ─── payment state ─── */
+  /* â”€â”€â”€ payment state â”€â”€â”€ */
   const [payMode, setPayMode] = useState<PayMode>('cash');
   const [cashInput, setCashInput] = useState('');
   const [upiRef, setUpiRef] = useState('');
@@ -385,7 +385,7 @@ export function CashierWorkspacePage(): JSX.Element {
     { id: 's2', method: 'upi', amount: '', reference: '' },
   ]);
 
-  /* ─── drawer/modal state ─── */
+  /* â”€â”€â”€ drawer/modal state â”€â”€â”€ */
   const [showShiftClose, setShowShiftClose] = useState(false);
   const [showCounterClose, setShowCounterClose] = useState(false);
   const [showAccountClose, setShowAccountClose] = useState(false);
@@ -394,15 +394,15 @@ export function CashierWorkspacePage(): JSX.Element {
   const [density, setDensity] = useState<Density>('comfortable');
   const [showQueue, setShowQueue] = useState(true);
 
-  /* ─── shift close form state ─── */
+  /* â”€â”€â”€ shift close form state â”€â”€â”€ */
   const [openingBalance, setOpeningBalance] = useState('');
   const [actualCash, setActualCash] = useState('');
   const [varianceRemarks, setVarianceRemarks] = useState('');
 
-  /* ─── account close form state ─── */
+  /* â”€â”€â”€ account close form state â”€â”€â”€ */
   const [accountCloseConfirmed, setAccountCloseConfirmed] = useState(false);
 
-  /* ─── last payment result ─── */
+  /* â”€â”€â”€ last payment result â”€â”€â”€ */
   const [lastPaymentResult, setLastPaymentResult] = useState<{
     amount: number;
     change: number;
@@ -410,7 +410,7 @@ export function CashierWorkspacePage(): JSX.Element {
     token: string;
   } | null>(null);
 
-  /* ─── computed values ─── */
+  /* â”€â”€â”€ computed values â”€â”€â”€ */
   const filteredQueue = useMemo(() => {
     const q = searchQuery.toLowerCase();
     return QUEUE_PATIENTS.filter((p) => {
@@ -447,7 +447,7 @@ export function CashierWorkspacePage(): JSX.Element {
   const shiftActualCash = parseFloat(actualCash) || 0;
   const shiftVariance = shiftActualCash - shiftExpectedCash;
 
-  /* ─── handlers ─── */
+  /* â”€â”€â”€ handlers â”€â”€â”€ */
   function handleSelectPatient(id: Uuid): void {
     setSelectedPatientId(id);
     setLines(INITIAL_LINES);
@@ -582,7 +582,7 @@ export function CashierWorkspacePage(): JSX.Element {
     }
   }
 
-  /* ─────────────── render ─────────────── */
+  /* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   return (
     <div className="h-screen overflow-hidden flex flex-col bg-page relative">
       <div className="px-4 pt-3">
@@ -590,9 +590,9 @@ export function CashierWorkspacePage(): JSX.Element {
       </div>
       <div className="flex flex-1 min-h-0 overflow-hidden">
 
-      {/* ══════════════════════════════════════
-          LEFT PANEL — Patient Queue
-      ══════════════════════════════════════ */}
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+          LEFT PANEL â€” Patient Queue
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       {showQueue && (
         <aside className="w-72 flex-shrink-0 border-r border-hairline flex flex-col bg-card overflow-hidden">
           {/* Search */}
@@ -601,7 +601,7 @@ export function CashierWorkspacePage(): JSX.Element {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Name, UHID, mobile, OP…"
+              placeholder="Name, UHID, mobile, OPâ€¦"
               className="w-full rounded-none border-x-0 border-t-0 border-b border-hairline bg-transparent px-0 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:border-primary"
             />
           </div>
@@ -647,11 +647,11 @@ export function CashierWorkspacePage(): JSX.Element {
         </aside>
       )}
 
-      {/* ══════════════════════════════════════
-          CENTER PANEL — Active Bill
-      ══════════════════════════════════════ */}
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+          CENTER PANEL â€” Active Bill
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       <main className="flex-1 flex flex-col overflow-hidden min-w-0">
-        {/* Patient header bar — non-scrolling */}
+        {/* Patient header bar â€” non-scrolling */}
         <header className="flex-shrink-0 border-b border-hairline px-5 py-3 bg-card flex items-center justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0">
             <div className="min-w-0">
@@ -668,9 +668,9 @@ export function CashierWorkspacePage(): JSX.Element {
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
                 <span>{selectedPatient.doctor}</span>
-                <span className="text-hairline">·</span>
+                <span className="text-hairline">Â·</span>
                 <span>{selectedPatient.department}</span>
-                <span className="text-hairline">·</span>
+                <span className="text-hairline">Â·</span>
                 <span className="font-mono">{selectedPatient.opNumber}</span>
               </div>
             </div>
@@ -754,7 +754,7 @@ export function CashierWorkspacePage(): JSX.Element {
                 onClick={handleGlobalDiscountKindToggle}
                 className="text-[11px] font-medium px-2 py-0.5 rounded bg-muted text-muted-foreground hover:bg-muted/70 transition-colors"
               >
-                {globalDiscount.kind === 'pct' ? '%' : '₹'}
+                {globalDiscount.kind === 'pct' ? '%' : 'â‚¹'}
               </button>
               <input
                 type="number"
@@ -765,7 +765,7 @@ export function CashierWorkspacePage(): JSX.Element {
               />
               {billTotals.discountAmt > 0 && (
                 <span className="text-muted-foreground font-mono tabular-nums text-xs w-24 text-right">
-                  − {formatCurrency(billTotals.discountAmt)}
+                  âˆ’ {formatCurrency(billTotals.discountAmt)}
                 </span>
               )}
             </div>
@@ -778,7 +778,7 @@ export function CashierWorkspacePage(): JSX.Element {
             </div>
           </div>
 
-          {/* ── Payment section ── */}
+          {/* â”€â”€ Payment section â”€â”€ */}
           <div className="pt-2 border-t border-hairline space-y-3">
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Payment
@@ -842,7 +842,7 @@ export function CashierWorkspacePage(): JSX.Element {
                     <div className="text-right">
                       <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Change to return</p>
                       <p className="text-base font-semibold text-success tabular-nums">
-                        ₹ {changeDue.toFixed(2)}
+                        â‚¹ {changeDue.toFixed(2)}
                       </p>
                     </div>
                   )}
@@ -917,7 +917,7 @@ export function CashierWorkspacePage(): JSX.Element {
           </div>
         </div>
 
-        {/* ── Sticky bottom action bar ── */}
+        {/* â”€â”€ Sticky bottom action bar â”€â”€ */}
         <footer className="flex-shrink-0 border-t border-hairline bg-card px-5 py-3 flex items-center gap-2 justify-between">
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="sm" onClick={() => {}}>
@@ -939,14 +939,14 @@ export function CashierWorkspacePage(): JSX.Element {
           </div>
           <Button size="lg" onClick={handlePayNow} disabled={lines.length === 0}>
             <IndianRupee className="h-4 w-4" />
-            Pay Now — {formatCurrency(billTotals.total)}
+            Pay Now â€” {formatCurrency(billTotals.total)}
           </Button>
         </footer>
       </main>
 
-      {/* ══════════════════════════════════════
-          RIGHT PANEL — Shift Stats
-      ══════════════════════════════════════ */}
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+          RIGHT PANEL â€” Shift Stats
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       <aside className="w-64 flex-shrink-0 border-l border-hairline flex flex-col overflow-y-auto bg-card">
         {/* Header */}
         <div className="px-4 py-3 border-b border-hairline flex items-start justify-between flex-shrink-0">
@@ -1021,7 +1021,7 @@ export function CashierWorkspacePage(): JSX.Element {
                 </div>
                 <div className="text-right flex-shrink-0">
                   <p className="text-xs font-semibold tabular-nums">{formatCurrency(rp.amount)}</p>
-                  <p className="text-[10px] text-muted-foreground capitalize">{rp.method} · {rp.time}</p>
+                  <p className="text-[10px] text-muted-foreground capitalize">{rp.method} Â· {rp.time}</p>
                 </div>
               </li>
             ))}
@@ -1057,9 +1057,9 @@ export function CashierWorkspacePage(): JSX.Element {
         </div>
       </aside>
 
-      {/* ══════════════════════════════════════
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
           DRAWERS / MODALS
-      ══════════════════════════════════════ */}
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
 
       {/* Shift Close Drawer */}
       {showShiftClose && (
@@ -1156,9 +1156,9 @@ export function CashierWorkspacePage(): JSX.Element {
   );
 }
 
-/* ─────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Queue Card Component
-───────────────────────────────────────────── */
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 interface QueueCardProps {
   patient: QueuePatient;
@@ -1199,7 +1199,7 @@ function QueueCard({ patient, isSelected, onSelect, density }: QueueCardProps): 
             <div className="flex items-center gap-1 mt-0.5 flex-wrap">
               <span className="font-mono text-[10px] text-muted-foreground">{patient.uhid}</span>
               <span className="text-[10px] text-muted-foreground">
-                · {patient.age}y/{patient.gender === 'm' ? 'M' : 'F'}
+                Â· {patient.age}y/{patient.gender === 'm' ? 'M' : 'F'}
               </span>
             </div>
           </div>
@@ -1223,7 +1223,7 @@ function QueueCard({ patient, isSelected, onSelect, density }: QueueCardProps): 
         <span className="text-[10px] text-muted-foreground">{STATUS_LABEL[patient.status]}</span>
         {patient.waitMinutes !== null && (
           <>
-            <span className="text-[10px] text-hairline">·</span>
+            <span className="text-[10px] text-hairline">Â·</span>
             <span
               className={cn(
                 'inline-flex items-center gap-0.5 text-[10px]',
@@ -1245,9 +1245,9 @@ function QueueCard({ patient, isSelected, onSelect, density }: QueueCardProps): 
   );
 }
 
-/* ─────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Bill Line Row Component
-───────────────────────────────────────────── */
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 interface BillLineRowProps {
   line: WorkspaceInvoiceLine;
@@ -1308,7 +1308,7 @@ function BillLineRow({
             onClick={() => onDiscountKindToggle(line.id)}
             className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground hover:bg-muted/70 flex-shrink-0"
           >
-            {line.editDiscount.kind === 'pct' ? '%' : '₹'}
+            {line.editDiscount.kind === 'pct' ? '%' : 'â‚¹'}
           </button>
           <input
             type="number"
@@ -1321,7 +1321,7 @@ function BillLineRow({
         </div>
       </td>
       <td className="py-2 pl-1 text-right text-xs text-muted-foreground">
-        {line.gstPct > 0 ? `${line.gstPct}%` : '—'}
+        {line.gstPct > 0 ? `${line.gstPct}%` : 'â€”'}
       </td>
       <td className="py-2 pl-1 text-right text-sm font-mono tabular-nums font-medium">
         {formatCurrency(lineTotal)}
@@ -1339,9 +1339,9 @@ function BillLineRow({
   );
 }
 
-/* ─────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Drawer / Modal Shell Components
-───────────────────────────────────────────── */
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function Backdrop({ children, onClose }: { children: React.ReactNode; onClose: () => void }): JSX.Element {
   return (
@@ -1407,9 +1407,9 @@ function CenteredModal({
   );
 }
 
-/* ─────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Shift Close Content
-───────────────────────────────────────────── */
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 interface ShiftCloseContentProps {
   openingBalance: string;
@@ -1441,7 +1441,7 @@ function ShiftCloseContent({
       {/* Opening balance */}
       <div>
         <label className="text-[11px] uppercase tracking-wider font-medium text-muted-foreground block mb-1">
-          Opening cash balance (₹)
+          Opening cash balance (â‚¹)
         </label>
         <input
           type="number"
@@ -1501,7 +1501,7 @@ function ShiftCloseContent({
         </div>
         <div>
           <label className="text-[11px] uppercase tracking-wider font-medium text-muted-foreground block mb-1">
-            Actual cash in drawer (₹)
+            Actual cash in drawer (â‚¹)
           </label>
           <input
             type="number"
@@ -1531,7 +1531,7 @@ function ShiftCloseContent({
           <textarea
             value={varianceRemarks}
             onChange={(e) => setVarianceRemarks(e.target.value)}
-            placeholder="Explain the variance…"
+            placeholder="Explain the varianceâ€¦"
             rows={3}
             className="w-full rounded-none border-x-0 border-t-0 border-b border-hairline bg-transparent py-2 text-sm resize-none focus:outline-none focus:border-primary"
           />
@@ -1542,7 +1542,7 @@ function ShiftCloseContent({
       <div className="flex gap-4 text-sm">
         <div>
           <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Refunds</p>
-          <p className="font-semibold tabular-nums">{todayStats.refundCount} · {formatCurrency(1200)}</p>
+          <p className="font-semibold tabular-nums">{todayStats.refundCount} Â· {formatCurrency(1200)}</p>
         </div>
         <div>
           <p className="text-[11px] text-muted-foreground uppercase tracking-wider">Cancelled</p>
@@ -1597,9 +1597,9 @@ function ShiftCloseContent({
   );
 }
 
-/* ─────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Counter Close Content
-───────────────────────────────────────────── */
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 interface CounterCloseContentProps {
   onClose: () => void;
@@ -1692,7 +1692,7 @@ function CounterCloseContent({ onClose, todayStats }: CounterCloseContentProps):
         </div>
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">Device / Printer</span>
-          <span className="font-mono text-xs">Counter 1 — HP LaserJet</span>
+          <span className="font-mono text-xs">Counter 1 â€” HP LaserJet</span>
         </div>
       </div>
 
@@ -1709,9 +1709,9 @@ function CounterCloseContent({ onClose, todayStats }: CounterCloseContentProps):
   );
 }
 
-/* ─────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Account Close Content
-───────────────────────────────────────────── */
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 interface AccountCloseContentProps {
   patient: QueuePatient;
@@ -1828,9 +1828,9 @@ function AccountCloseContent({
   );
 }
 
-/* ─────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Payment Success Modal Content
-───────────────────────────────────────────── */
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 interface PaymentSuccessContentProps {
   result: { amount: number; change: number; opId: string; token: string };
@@ -1863,7 +1863,7 @@ function PaymentSuccessContent({
       {payMode === 'cash' && result.change > 0 && (
         <div className="bg-success/10 rounded-lg py-2 px-4">
           <p className="text-[11px] uppercase tracking-wider text-success/70">Change to return</p>
-          <p className="text-xl font-bold text-success tabular-nums">₹ {result.change.toFixed(2)}</p>
+          <p className="text-xl font-bold text-success tabular-nums">â‚¹ {result.change.toFixed(2)}</p>
         </div>
       )}
 
@@ -1902,9 +1902,9 @@ function PaymentSuccessContent({
   );
 }
 
-/* ─────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Tweaks Panel Content
-───────────────────────────────────────────── */
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 interface TweaksPanelContentProps {
   density: Density;
@@ -1978,7 +1978,7 @@ function TweaksPanelContent({
       <div className="rounded-lg bg-muted/50 px-3 py-2">
         <p className="text-[11px] text-muted-foreground">
           <span className="font-medium text-foreground">Light / Dark mode</span>
-          {' '}— uses system preference.
+          {' '}â€” uses system preference.
         </p>
       </div>
 
@@ -1989,9 +1989,9 @@ function TweaksPanelContent({
   );
 }
 
-/* ─────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
    Icon re-exports used inline (no barrel)
-───────────────────────────────────────────── */
+â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 // Icons used in JSX: CheckCircle2, ChevronDown, ChevronUp, Clock,
 // CreditCard, IndianRupee, MessageCircle, Minus, Phone, Plus,

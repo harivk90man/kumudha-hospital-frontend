@@ -1,4 +1,4 @@
-import { httpClient, type BackendPage } from '@/lib/http/httpClient';
+﻿import { httpClient } from '@/lib/http/httpClient';
 import type { Gender } from '@/features/patient';
 import type {
   CaseSummary,
@@ -30,8 +30,8 @@ import { sharedDoctors } from '@/features/appointments/__mocks__/appointmentsMoc
 import { paginate, parseSort, sortAndPaginate, type PageResult } from '@/utils/listQuery';
 
 /**
- * Server-side sort whitelist for the doctor’s consultation queue.
- * Anything outside this set is silently dropped (so the FE can’t
+ * Server-side sort whitelist for the doctorâ€™s consultation queue.
+ * Anything outside this set is silently dropped (so the FE canâ€™t
  * crash the page by passing junk).
  */
 export const QUEUE_SORT_WHITELIST = [
@@ -41,7 +41,7 @@ export const QUEUE_SORT_WHITELIST = [
   'status.name',
   'waitingForMinutes',
   'appointmentTime',
-  // `qPos` is a virtual sort key — the per-doctor position in the
+  // `qPos` is a virtual sort key â€” the per-doctor position in the
   // awaiting_doctor lane (0 = currently in_consultation, 1..N = waiting).
   // Resolved server-side via the `patient_queue` join; mock computes it
   // in `fetchQueuePaged` from the doctor-grouped queue.
@@ -54,17 +54,17 @@ const delay = <T>(value: T, ms = 250): Promise<T> =>
 /**
  * Encounter API surface. Mocked today; signatures match the final backend contract.
  *
- * All list endpoints accept `page`, `limit`, `sort` per CLAUDE.md §3.4.
+ * All list endpoints accept `page`, `limit`, `sort` per CLAUDE.md Â§3.4.
  *
  * Wire points:
- *  GET  /api/doctor/queue                         → fetchQueue
- *  GET  /api/doctor/queue/reports-pending         → fetchReportPendingQueue
- *  POST /api/doctor/queue/:opNumber/start         → startConsultation
- *  POST /api/doctor/encounters/:opNumber/complete → completeConsultation
+ *  GET  /api/doctor/queue                         â†’ fetchQueue
+ *  GET  /api/doctor/queue/reports-pending         â†’ fetchReportPendingQueue
+ *  POST /api/doctor/queue/:opNumber/start         â†’ startConsultation
+ *  POST /api/doctor/encounters/:opNumber/complete â†’ completeConsultation
  */
 export const fetchQueue = async (params: QueueListParams = {}): Promise<QueueEntry[]> => {
   // Mock honours `q`, `status`/`statuses`, `triage`, `doctorId` for demo
-  // realism. Real backend handles server-side pagination/sorting too —
+  // realism. Real backend handles server-side pagination/sorting too â€”
   // `page/limit/sort` are accepted here so callers' wire shape is
   // correct, even though the mock returns everything.
   void params.page;
@@ -72,7 +72,7 @@ export const fetchQueue = async (params: QueueListParams = {}): Promise<QueueEnt
   void params.sort;
   let rows = mockQueue;
   // `statuses` (set filter) wins over `status` (single filter) when both
-  // are set — matches the documented wire rule on `QueueListParams`.
+  // are set â€” matches the documented wire rule on `QueueListParams`.
   if (params.statuses && params.statuses.length > 0) {
     const allow = new Set(params.statuses);
     rows = rows.filter((r) => allow.has(r.status.name));
@@ -103,8 +103,8 @@ export const fetchQueue = async (params: QueueListParams = {}): Promise<QueueEnt
 };
 
 /**
- * Paged sibling of {@link fetchQueue} — applies the same filters, then
- * sorts + paginates per the §3.4 wire contract. Returns a `PageResult`
+ * Paged sibling of {@link fetchQueue} â€” applies the same filters, then
+ * sorts + paginates per the Â§3.4 wire contract. Returns a `PageResult`
  * envelope so the table page can drive `?page=&limit=&sort=` round-trips
  * without re-implementing slicing in the component.
  */
@@ -113,7 +113,7 @@ export const fetchQueuePaged = async (
 ): Promise<PageResult<QueueEntry>> => {
   const all = await fetchQueue({ ...params, page: undefined, limit: undefined, sort: undefined });
 
-  // Virtual sort key `qPos` (or `-qPos`) — sort by per-doctor queue
+  // Virtual sort key `qPos` (or `-qPos`) â€” sort by per-doctor queue
   // position computed from the doctor-grouped live queue. `0` for
   // in_consultation, `1..N` for awaiting_doctor (matches the displayed
   // Q# convention). Rows with no position (still at billing/vitals etc.)
@@ -150,7 +150,7 @@ export const fetchQueuePaged = async (
  * Wire point: GET /api/queue/by-doctor
  */
 /**
- * Per-doctor average consult duration. Real backend computes from today’s
+ * Per-doctor average consult duration. Real backend computes from todayâ€™s
  * completed `op_visits` end-time minus start-time; mock returns a fixed
  * value per doctor so the wait-estimate display in the front-desk strip
  * varies realistically across columns.
@@ -168,7 +168,7 @@ export const fetchQueueByDoctor = async (): Promise<DoctorQueueGroup[]> => {
   const groupsByDoctor = new Map<string, DoctorQueueGroup>();
 
   // Seed every bookable doctor so the UI always shows the same column
-  // set, even when a doctor’s queue is empty.
+  // set, even when a doctorâ€™s queue is empty.
   for (const d of sharedDoctors) {
     groupsByDoctor.set(d.id, {
       doctorId: d.id,
@@ -209,9 +209,9 @@ export const fetchQueueByDoctor = async (): Promise<DoctorQueueGroup[]> => {
 
 /**
  * Doctor calls the next patient. Per the patient_states catalogue
- * (140 awaiting_doctor → 150 in_consultation), the encounter must
- * leave the queue’s "awaiting" view so two doctors don’t grab the
- * same patient. Mock: flip the queue row’s status.
+ * (140 awaiting_doctor â†’ 150 in_consultation), the encounter must
+ * leave the queueâ€™s "awaiting" view so two doctors donâ€™t grab the
+ * same patient. Mock: flip the queue rowâ€™s status.
  */
 export const startConsultation = async (opNumber: string): Promise<{ opNumber: string }> => {
   setQueueStatus(opNumber, 'in_consultation');
@@ -219,9 +219,9 @@ export const startConsultation = async (opNumber: string): Promise<{ opNumber: s
 };
 
 /**
- * Doctor closes the visit (BRD §1 step 21). Per patient_states
- * (150 in_consultation → 160 consultation_done), the encounter
- * leaves the doctor’s active queue. Subsequent transitions
+ * Doctor closes the visit (BRD Â§1 step 21). Per patient_states
+ * (150 in_consultation â†’ 160 consultation_done), the encounter
+ * leaves the doctorâ€™s active queue. Subsequent transitions
  * (rx_pending / awaiting_billing / completed) are owned by
  * pharmacy + cashier downstream.
  */
@@ -230,7 +230,7 @@ export const completeConsultation = async (opNumber: string): Promise<void> => {
   await delay(null);
 };
 
-/* ---------- Front-desk: register a walk-in encounter (BRD §1 step 3) ---------- */
+/* ---------- Front-desk: register a walk-in encounter (BRD Â§1 step 3) ---------- */
 
 let mockOpSeq = 200;
 const todayYearShort = (): string => String(new Date().getFullYear());
@@ -238,27 +238,27 @@ const todayYearShort = (): string => String(new Date().getFullYear());
 /**
  * Create a fresh OP visit for a walk-in or appointment check-in. Server
  * issues `op_number`, `token_number`, and the initial `patient_states`
- * code (110 registered → 120 awaiting_vitals via the journey trigger).
+ * code (110 registered â†’ 120 awaiting_vitals via the journey trigger).
  *
  * Wire point: POST /api/encounters/op-visits
  *
  * Mock side-effect: pushes a row onto `mockQueue` in `awaiting_vitals`
- * status so the same patient appears on the nurse’s vitals queue
- * immediately after registration — the demo loop the user expects.
+ * status so the same patient appears on the nurseâ€™s vitals queue
+ * immediately after registration â€” the demo loop the user expects.
  */
 export const createOpVisit = async (input: OpVisitCreateInput): Promise<OpVisitCreated> => {
   mockOpSeq += 1;
   const opNumber = `OP-${todayYearShort()}-${String(mockOpSeq).padStart(5, '0')}`;
   const tokenNumber = `OP-T-${String(mockOpSeq % 99).padStart(2, '0')}`;
-  // Per BRD §1 step 4 + role-permission split, reception cannot mark
+  // Per BRD Â§1 step 4 + role-permission split, reception cannot mark
   // the consult fee paid. The encounter starts in `awaiting_billing`;
-  // the cashier’s recordPayment transitions it to `awaiting_vitals`.
+  // the cashierâ€™s recordPayment transitions it to `awaiting_vitals`.
   const initialState: EncounterStatus = { code: 200, name: 'awaiting_billing' };
 
   // Mock side-effect: when the caller has already loaded the patient
   // (front-desk RegistrationPage has it from search/create), use that
   // snapshot to add a realistic row to the queue. Real backend joins
-  // op_visits → patients itself; the snapshot is mock-only.
+  // op_visits â†’ patients itself; the snapshot is mock-only.
   if (input.patientSnapshot) {
     appendQueueEntry({
       opNumber,
@@ -270,14 +270,14 @@ export const createOpVisit = async (input: OpVisitCreateInput): Promise<OpVisitC
       isEmergency: input.isEmergency ?? false,
       emergencyTriage: input.emergencyTriage,
       waitingForMinutes: 0,
-      // Fresh encounter — no orders or prescription yet.
+      // Fresh encounter â€” no orders or prescription yet.
       hasPrescription: false,
       hasLabOrders: false,
       hasRadiologyOrders: false,
     });
   }
 
-  // Populate the op_visit → doctor join map so owner / cashier
+  // Populate the op_visit â†’ doctor join map so owner / cashier
   // analytics can pivot revenue by doctor + department. Real backend
   // joins via FK; mock keeps a flat map.
   const doc = sharedDoctors.find((d) => d.id === input.doctorId);
@@ -292,10 +292,10 @@ export const createOpVisit = async (input: OpVisitCreateInput): Promise<OpVisitC
   return delay({ opNumber, tokenNumber, initialState });
 };
 
-/* ---------- Nurse: capture vitals (BRD §1 step 6) ---------- */
+/* ---------- Nurse: capture vitals (BRD Â§1 step 6) ---------- */
 
 /**
- * Records vitals and advances the patient from awaiting_vitals →
+ * Records vitals and advances the patient from awaiting_vitals â†’
  * awaiting_doctor. The backend completes the vitals patient_queue row,
  * which is what the live-queue query checks.
  *
@@ -345,16 +345,16 @@ export const transitionEncounterState = async (
   opNumber: string,
   toName: EncounterStatusName,
 ): Promise<EncounterStatus> => {
-  // Mock side-effect: keep the queue row’s status in sync so the demo
+  // Mock side-effect: keep the queue rowâ€™s status in sync so the demo
   // shows the patient leaving `awaiting_vitals` after vitals capture
-  // and appearing on the doctor’s `awaiting_doctor` queue.
+  // and appearing on the doctorâ€™s `awaiting_doctor` queue.
   setQueueStatus(opNumber, toName);
-  // Mock returns code 0 — backend stamps the real int from patient_states.code.
+  // Mock returns code 0 â€” backend stamps the real int from patient_states.code.
   return delay({ code: 0, name: toName });
 };
 
 /**
- * Append-only ledger of state transitions for a visit (TSD-04 §4.3
+ * Append-only ledger of state transitions for a visit (TSD-04 Â§4.3
  * `patient_journey_events`). Returned ascending by `occurred_at`.
  *
  * Wire point:
@@ -370,7 +370,7 @@ export const fetchJourneyEvents = async (opNumber: string): Promise<JourneyEvent
  * shape so components that accept `QueueEntry` (e.g. VitalsCaptureForm) can
  * consume live-backend data without a prop change.
  *
- * `chiefComplaint` is not returned by the queue endpoint — the nurse fills it
+ * `chiefComplaint` is not returned by the queue endpoint â€” the nurse fills it
  * in during vitals capture, so it defaults to ''.
  * `firstName`/`lastName` are derived by splitting `fullName` on the first
  * space; the display-only fields that need them (`fullName` is preferred
@@ -401,7 +401,7 @@ export const liveToQueueEntry = (live: LiveQueueEntry): QueueEntry => {
       0,
       Math.round((Date.now() - new Date(live.waitingSince).getTime()) / 60_000),
     ),
-    // Pre-doctor — no orders or prescription can exist yet.
+    // Pre-doctor â€” no orders or prescription can exist yet.
     hasPrescription:    false,
     hasLabOrders:       false,
     hasRadiologyOrders: false,
@@ -409,7 +409,7 @@ export const liveToQueueEntry = (live: LiveQueueEntry): QueueEntry => {
 };
 
 /**
- * Live OPD queue — real backend (GET /api/queue).
+ * Live OPD queue â€” real backend (GET /api/queue).
  * Returns all patients for today across three states, paginated.
  * For future dates returns scheduled appointments (status = 'booked').
  *
@@ -431,29 +431,13 @@ export const fetchLiveQueue = async (params: {
     return delay(buildFutureAppointmentsMock(params), 150);
   }
 
-  const query: Record<string, string | number> = {
-    page:  params.page  ?? 1,
-    size:  params.limit ?? 20,
-  };
-  if (params.date)        query.date        = params.date;
-  if (params.doctorId && params.doctorId !== 'all') query.doctorId = params.doctorId;
-  if (params.queueStatus) query.queueStatus = params.queueStatus;
-  if (params.q)           query.q           = params.q;
-
-  try {
-    const paged = await httpClient.get<BackendPage<LiveQueueEntry>>('/queue', { params: query });
-    return {
-      rows:  paged.content,
-      total: paged.totalElements,
-      page:  params.page  ?? 1,
-      limit: params.limit ?? 20,
-    };
-  } catch {
-    // Backend unavailable / unauthorised in mock-mode demo. Fall back to
-    // the same TODAY_QUEUE rows used elsewhere so the nurse station,
-    // doctor queue, and downstream lookups all render coherently.
-    return buildLiveQueueMock(params);
-  }
+  // DEMO MODE: the live OPD queue is fed by op_visits + patient_states
+  // (Module 10 in v3 schema). For tomorrow's demo we don't have that data
+  // flowing yet, so we return the same mock rows downstream features
+  // (vitals page, doctor queue) read from. Skips the httpClient call to
+  // localhost:8080 entirely — the global error interceptor used to push
+  // four CORS-error toasts every poll.
+  return delay(buildLiveQueueMock(params), 80);
 };
 
 const LIVE_STATUS_MAP: Partial<Record<EncounterStatusName, LiveQueueStatus>> = {
@@ -541,18 +525,18 @@ interface FutureSlot {
 }
 
 const FUTURE_SLOTS: FutureSlot[] = [
-  { uhid: 'KH-2026-00045', fullName: 'Karthik Raghavan',   gender: 'M', ageYears: 42, mobile: '+91 98430 12121', doctorId: 'usr-doc-001', doctorName: 'Dr. K Naveen Kumar', department: 'Orthopaedics',             slotTime: '09:00' },
-  { uhid: 'KH-2026-00049', fullName: 'Lakshmi Narasimhan', gender: 'F', ageYears: 71, mobile: '+91 87654 32114', doctorId: 'usr-doc-001', doctorName: 'Dr. K Naveen Kumar', department: 'Orthopaedics',             slotTime: '09:30' },
-  { uhid: 'KH-2026-00050', fullName: 'Suresh Babu',       gender: 'M', ageYears: 49, mobile: '+91 95000 23456', doctorId: 'usr-doc-001', doctorName: 'Dr. K Naveen Kumar', department: 'Orthopaedics',             slotTime: '10:00' },
-  { uhid: 'KH-2026-00046', fullName: 'Meera Selvam',       gender: 'F', ageYears: 58, mobile: '+91 99100 12434', doctorId: 'usr-doc-002', doctorName: 'Dr. Anand Krishnan', department: 'General Medicine',         slotTime: '09:30' },
-  { uhid: 'KH-2026-00047', fullName: 'Ramesh Babu',        gender: 'M', ageYears: 67, mobile: '+91 90080 56788', doctorId: 'usr-doc-002', doctorName: 'Dr. Anand Krishnan', department: 'General Medicine',         slotTime: '10:00' },
-  { uhid: 'KH-2026-00048', fullName: 'Aarav Sharma',       gender: 'M', ageYears:  9, mobile: '+91 88997 65302', doctorId: 'usr-doc-002', doctorName: 'Dr. Anand Krishnan', department: 'General Medicine',         slotTime: '10:30' },
-  { uhid: 'KH-2026-00051', fullName: 'Sunita Verma',       gender: 'F', ageYears: 34, mobile: '+91 90909 80155', doctorId: 'usr-doc-003', doctorName: 'Dr. Meera Suresh',   department: 'Dental',                   slotTime: '10:00' },
-  { uhid: 'KH-2026-00052', fullName: 'Vikram Bhatt',       gender: 'M', ageYears: 51, mobile: '+91 88112 34512', doctorId: 'usr-doc-003', doctorName: 'Dr. Meera Suresh',   department: 'Dental',                   slotTime: '11:00' },
-  { uhid: 'KH-2026-00053', fullName: 'Aisha Sheikh',       gender: 'F', ageYears: 28, mobile: '+91 77665 54381', doctorId: 'usr-doc-004', doctorName: 'Dr. Lakshmi Bharath',   department: 'Obstetrics & Gynaecology', slotTime: '10:00' },
-  { uhid: 'KH-2026-00054', fullName: 'Ravi Antony',          gender: 'M', ageYears: 45, mobile: '+91 91234 50012', doctorId: 'usr-doc-004', doctorName: 'Dr. Lakshmi Bharath',   department: 'Obstetrics & Gynaecology', slotTime: '11:00' },
-  { uhid: 'KH-2026-00055', fullName: 'Divya Mathew',        gender: 'F', ageYears: 32, mobile: '+91 91234 50013', doctorId: 'usr-doc-005', doctorName: 'Dr. Ravi Shankar',   department: 'Physiotherapy',            slotTime: '09:00' },
-  { uhid: 'KH-2026-00056', fullName: 'Arun Krishnan',      gender: 'M', ageYears: 28, mobile: '+91 91234 50014', doctorId: 'usr-doc-005', doctorName: 'Dr. Ravi Shankar',   department: 'Physiotherapy',            slotTime: '09:30' },
+  { uhid: 'KH-2026-00045', fullName: 'Karthik R.',   gender: 'M', ageYears: 42, mobile: '+91 98430 12121', doctorId: 'usr-doc-001', doctorName: 'Dr. Naveen Kumar', department: 'Orthopaedics',             slotTime: '09:00' },
+  { uhid: 'KH-2026-00049', fullName: 'Lakshmi N.', gender: 'F', ageYears: 71, mobile: '+91 87654 32114', doctorId: 'usr-doc-001', doctorName: 'Dr. Naveen Kumar', department: 'Orthopaedics',             slotTime: '09:30' },
+  { uhid: 'KH-2026-00050', fullName: 'Suresh B.',       gender: 'M', ageYears: 49, mobile: '+91 95000 23456', doctorId: 'usr-doc-001', doctorName: 'Dr. Naveen Kumar', department: 'Orthopaedics',             slotTime: '10:00' },
+  { uhid: 'KH-2026-00046', fullName: 'Meera S.',       gender: 'F', ageYears: 58, mobile: '+91 99100 12434', doctorId: 'usr-doc-002', doctorName: 'Dr. Anand', department: 'General Medicine',         slotTime: '09:30' },
+  { uhid: 'KH-2026-00047', fullName: 'Ramesh B.',        gender: 'M', ageYears: 67, mobile: '+91 90080 56788', doctorId: 'usr-doc-002', doctorName: 'Dr. Anand', department: 'General Medicine',         slotTime: '10:00' },
+  { uhid: 'KH-2026-00048', fullName: 'Aarav K.',       gender: 'M', ageYears:  9, mobile: '+91 88997 65302', doctorId: 'usr-doc-002', doctorName: 'Dr. Anand', department: 'General Medicine',         slotTime: '10:30' },
+  { uhid: 'KH-2026-00051', fullName: 'Sunita V.',       gender: 'F', ageYears: 34, mobile: '+91 90909 80155', doctorId: 'usr-doc-003', doctorName: 'Dr. Meera',   department: 'Dental',                   slotTime: '10:00' },
+  { uhid: 'KH-2026-00052', fullName: 'Vikram B.',       gender: 'M', ageYears: 51, mobile: '+91 88112 34512', doctorId: 'usr-doc-003', doctorName: 'Dr. Meera',   department: 'Dental',                   slotTime: '11:00' },
+  { uhid: 'KH-2026-00053', fullName: 'Aisha S.',       gender: 'F', ageYears: 28, mobile: '+91 77665 54381', doctorId: 'usr-doc-004', doctorName: 'Dr. Lakshmi',   department: 'Obstetrics & Gynaecology', slotTime: '10:00' },
+  { uhid: 'KH-2026-00054', fullName: 'Ravi A.',          gender: 'M', ageYears: 45, mobile: '+91 91234 50012', doctorId: 'usr-doc-004', doctorName: 'Dr. Lakshmi',   department: 'Obstetrics & Gynaecology', slotTime: '11:00' },
+  { uhid: 'KH-2026-00055', fullName: 'Divya M.',        gender: 'F', ageYears: 32, mobile: '+91 91234 50013', doctorId: 'usr-doc-005', doctorName: 'Dr. Ravi',   department: 'Physiotherapy',            slotTime: '09:00' },
+  { uhid: 'KH-2026-00056', fullName: 'Arun K.',      gender: 'M', ageYears: 28, mobile: '+91 91234 50014', doctorId: 'usr-doc-005', doctorName: 'Dr. Ravi',   department: 'Physiotherapy',            slotTime: '09:30' },
 ];
 
 const buildFutureAppointmentsMock = (params: {
@@ -591,14 +575,14 @@ const buildFutureAppointmentsMock = (params: {
  */
 /**
  * Search completed encounters whose primary diagnosis matches a free-text
- * substring — drives the doctor's "Cases" top-bar search mode.
+ * substring â€” drives the doctor's "Cases" top-bar search mode.
  *
  * Wire point: `GET /api/doctor/cases?q=<text>&size=<n>`.
  *
  * Mock note: today's `mockQueue` carries `chiefComplaint` but not a
  * separate `primaryDiagnosis` column, so the mock substring-matches on
  * `chiefComplaint` for `consultation_done` rows. When the backend lands
- * with a real diagnosis field, only the mock body changes — callers and
+ * with a real diagnosis field, only the mock body changes â€” callers and
  * the `CaseSummary` shape stay the same.
  */
 export const searchCasesByDiagnosis = async (

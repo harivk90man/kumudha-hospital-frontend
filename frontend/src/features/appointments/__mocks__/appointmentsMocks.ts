@@ -14,11 +14,11 @@ const today = isoDate(new Date());
 /* ---------- Doctor roster (5) ---------- */
 
 const sharedDoctors = [
-  { id: 'usr-doc-001', name: 'Dr. K Naveen Kumar', dept: 'Orthopaedics' },
-  { id: 'usr-doc-002', name: 'Dr. Anand Krishnan', dept: 'General Medicine' },
-  { id: 'usr-doc-003', name: 'Dr. Meera Suresh',   dept: 'Dental' },
-  { id: 'usr-doc-004', name: 'Dr. Lakshmi Bharath',   dept: 'Obstetrics & Gynaecology' },
-  { id: 'usr-doc-005', name: 'Dr. Ravi Shankar',   dept: 'Physiotherapy' },
+  { id: 'usr-doc-001', name: 'Dr. Naveen Kumar', dept: 'Orthopaedics' },
+  { id: 'usr-doc-002', name: 'Dr. Anand',        dept: 'General Medicine' },
+  { id: 'usr-doc-003', name: 'Dr. Meera',        dept: 'Dental' },
+  { id: 'usr-doc-004', name: 'Dr. Lakshmi',      dept: 'Obstetrics & Gynaecology' },
+  { id: 'usr-doc-005', name: 'Dr. Ravi',         dept: 'Physiotherapy' },
 ];
 
 /* ---------- Slot grid ---------- */

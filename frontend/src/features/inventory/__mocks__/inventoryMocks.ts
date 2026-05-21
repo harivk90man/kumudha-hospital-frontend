@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   Grn,
   Medicine,
   MedicineBatch,
@@ -38,7 +38,7 @@ const med = (
   isNarcotic: isNarcotic || undefined,
   requiresPrescription: requiresPrescription || undefined,
   // shelfQty isn't part of the Medicine type but is referenced by the
-  // pharmacy RxItem snapshot — store it inline so the dispense screen
+  // pharmacy RxItem snapshot â€” store it inline so the dispense screen
   // can find it via medicineId join (mock-only field).
   ...(shelfQty !== undefined ? { shelfQty } : {}),
 });
@@ -98,7 +98,7 @@ export const mockMedicines: Medicine[] = [
   med('med-161', 'Vitamin B12',           'Methylcobalamin',              '1000 mcg','inj', 28,   25, 'ok',          '2026-10-31', 'supplement',     12),
   med('med-162', 'Iron + Folic Acid',     'Ferrous fumarate + Folic acid','60 mg',  'tab', 450,  120, 'ok',          '2027-11-30', 'supplement',    180),
   med('med-163', 'Calcium + Vit D3',      'Calcium carbonate + D3',       '500 mg', 'tab',  40,   60, 'near_expiry', '2026-06-15', 'supplement',     20),
-  med('med-164', 'Multivitamin',          'Multivitamin + minerals',      '—',      'cap', 240,   80, 'ok',          '2027-08-31', 'supplement',    100),
+  med('med-164', 'Multivitamin',          'Multivitamin + minerals',      'â€”',      'cap', 240,   80, 'ok',          '2027-08-31', 'supplement',    100),
 
   /* Topical (4) */
   med('med-170', 'Diclofenac gel',        'Diclofenac diethylamine',      '1.16%',  'oint',105,   40, 'ok',          '2027-03-31', 'nsaid',          50),
@@ -117,7 +117,7 @@ export const mockMedicines: Medicine[] = [
   med('med-192', 'ORS sachets',           'Oral Rehydration Salt',        '21.8 g', 'syrup',420,  120, 'ok',          '2028-04-30', 'rehydration',   180),
   med('med-193', 'Cefixime syrup',        'Cefixime',                     '100 mg/5mL','syrup', 26,   25, 'ok',       '2026-09-30', 'cephalosporin',  12, false, true),
 
-  /* Narcotics (1 — already covered Tramadol above; add Pentazocine) */
+  /* Narcotics (1 â€” already covered Tramadol above; add Pentazocine) */
   med('med-200', 'Pentazocine',           'Pentazocine',                  '30 mg',  'inj',   8,   15, 'low',         '2026-08-30', 'opioid',          4, true,  true),
 
   /* Older / expired entry (1) */
@@ -133,7 +133,7 @@ export const mockMedicines: Medicine[] = [
 ];
 
 /**
- * Mock-only side-table for the dispensing surface — `RxItem.shelfQty`.
+ * Mock-only side-table for the dispensing surface â€” `RxItem.shelfQty`.
  * Looked up by medicineId; defaults to availableQty when not set.
  */
 export const mockShelfQty: Record<string, number> = Object.fromEntries(
@@ -158,7 +158,7 @@ export const mockPharmacyAlerts: PharmacyAlert[] = mockMedicines
     severity: m.severity,
   }));
 
-/* ---------- Suppliers (15 — Indian pharma distributors) ---------- */
+/* ---------- Suppliers (15 â€” Indian pharma distributors) ---------- */
 
 export const mockSuppliers: Supplier[] = [
   { id: 'sup-001', name: 'Apollo Pharma Distributors', gstin: '33ABCDE1234F1Z5', contactPerson: 'Suresh Kumar', phone: '+91 80808 70010', email: 'orders@apollo-pharma.in',  address: '14 Chetpet, Chennai 600031',           outstandingBalance: 124500, isActive: true },
@@ -167,9 +167,9 @@ export const mockSuppliers: Supplier[] = [
   { id: 'sup-004', name: 'Sun Pharma Distribution',    gstin: '24QRSTU4567V6W2', contactPerson: 'Latha Mehta',  phone: '+91 83838 40077', email: 'tn-orders@sunpharma.com',  address: '11 Mount Road, Chennai 600015',         outstandingBalance:  87600, isActive: true },
   { id: 'sup-005', name: 'Alkem Labs',                 gstin: '27VWXYZ1234A5B6', contactPerson: 'Manoj Kumar',   phone: '+91 84848 30099', email: 'orders@alkem.com',         address: '33 Velachery Tambaram Road, Chennai 600100', outstandingBalance:  52300, isActive: true },
   { id: 'sup-006', name: 'Lupin Distributors',         gstin: '27CDEFG7890H1I2', contactPerson: 'Reshma Pawar', phone: '+91 85858 20011', email: 'south.tn@lupin.com',       address: '8 OMR, Chennai 600097',                 outstandingBalance:  19400, isActive: true },
-  { id: 'sup-007', name: "Dr. Reddy's Wholesale",      gstin: '36JKLMN1234O5P6', contactPerson: 'Ravi Kishan',  phone: '+91 86868 10022', email: 'south@drreddys.com',       address: '17 Adyar, Chennai 600020',              outstandingBalance:  64800, isActive: true },
+  { id: 'sup-007', name: "Dr. Reddy's Wholesale",      gstin: '36JKLMN1234O5P6', contactPerson: 'Ravi K.',  phone: '+91 86868 10022', email: 'south@drreddys.com',       address: '17 Adyar, Chennai 600020',              outstandingBalance:  64800, isActive: true },
   { id: 'sup-008', name: 'Aurobindo Pharma',           gstin: '36QRSTU4567V8W9', contactPerson: 'Anil Kumar',   phone: '+91 87878 90033', email: 'tn-orders@aurobindo.com',  address: '5 Tambaram East, Chennai 600059',       outstandingBalance:      0, isActive: true },
-  { id: 'sup-009', name: 'Mankind Pharma',             gstin: '07XYZAB1234C5D6', contactPerson: 'Neha Sharma',  phone: '+91 88888 80044', email: 'south@mankindpharma.com',  address: '22 Porur, Chennai 600116',              outstandingBalance:  31200, isActive: true },
+  { id: 'sup-009', name: 'Mankind Pharma',             gstin: '07XYZAB1234C5D6', contactPerson: 'Neha K.',  phone: '+91 88888 80044', email: 'south@mankindpharma.com',  address: '22 Porur, Chennai 600116',              outstandingBalance:  31200, isActive: true },
   { id: 'sup-010', name: 'Zydus Cadila',               gstin: '24EFGHI7890J1K2', contactPerson: 'Bhavin Shah',  phone: '+91 89898 70055', email: 'south@zyduscadila.com',    address: '11 OMR Karapakkam, Chennai 600097',     outstandingBalance:  45600, isActive: true },
   { id: 'sup-011', name: 'Glenmark',                   gstin: '27LMNOP1234Q5R6', contactPerson: 'Sandeep Joshi',phone: '+91 90909 60066', email: 'distrib.south@glenmark.com', address: '14 Anna Nagar, Chennai 600040',       outstandingBalance:      0, isActive: true },
   { id: 'sup-012', name: 'Torrent Pharma',             gstin: '24STUVW7890X1Y2', contactPerson: 'Mehul Patel',  phone: '+91 91919 50077', email: 'south.tn@torrentpharma.com', address: '6 Saidapet, Chennai 600015',          outstandingBalance:  92100, isActive: true },
@@ -178,7 +178,7 @@ export const mockSuppliers: Supplier[] = [
   { id: 'sup-015', name: 'Biocon Distributors',        gstin: '29NOPQR1234S5T6', contactPerson: 'Anitha Suresh',phone: '+91 94949 20011', email: 'tn-distrib@biocon.com',    address: '7 Besant Nagar, Chennai 600090',        outstandingBalance:  17800, isActive: true },
 ];
 
-/* ---------- Batches (~20) — references real medicines + suppliers ---------- */
+/* ---------- Batches (~20) â€” references real medicines + suppliers ---------- */
 
 const ymdPlusDays = (n: number): string => {
   const d = new Date('2026-05-17T00:00:00Z');
@@ -210,7 +210,7 @@ export const mockMedicineBatches: MedicineBatch[] = [
 ];
 
 /**
- * FEFO consume — deduct `qty` from the earliest-expiring active batches.
+ * FEFO consume â€” deduct `qty` from the earliest-expiring active batches.
  */
 export const consumeStockFefo = (medicineId: string, qty: number): number => {
   let remaining = qty;
@@ -229,7 +229,7 @@ export const consumeStockFefo = (medicineId: string, qty: number): number => {
   return consumed;
 };
 
-/* ---------- GRNs (~17) — referenced suppliers, last 60 days ---------- */
+/* ---------- GRNs (~17) â€” referenced suppliers, last 60 days ---------- */
 
 export const mockGrns: Grn[] = [
   { id: 'grn-001', grnNumber: 'GRN-2026-000118', supplierId: 'sup-001', supplierName: 'Apollo Pharma Distributors', supplierInvoiceNo: 'APO-INV-44219', receivedAt: '2026-03-22T10:30:00Z', receivedBy: 'usr-inv-001', lineCount:  6, totalQuantity:  1640, totalCost: 152400 },

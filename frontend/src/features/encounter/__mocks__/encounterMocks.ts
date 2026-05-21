@@ -71,7 +71,7 @@ const TODAY_QUEUE: QueueSeed[] = [
      a time so we never seed >1 `in_consultation` row per doctorId. */
   { opNumber: 'OP-2026-00121', uhid: 'KH-2026-00045', doctorId: 'usr-doc-001', status: 'in_consultation',  chiefComplaint: 'Lower back pain × 3 weeks',              appointmentMinsAgo: 20, waitingForMinutes:  0 },
   { opNumber: 'OP-2026-00154', uhid: 'KH-2024-06210', doctorId: 'usr-doc-002', status: 'in_consultation',  chiefComplaint: 'Diabetes follow-up',                     appointmentMinsAgo: 35, waitingForMinutes:  0 },
-  // Lakshmi Narasimhan moved from in_consultation → awaiting_doctor so
+  // Lakshmi N. moved from in_consultation → awaiting_doctor so
   // Naveen has exactly one active consult. She's still next in line.
   { opNumber: 'OP-2026-00155', uhid: 'KH-2026-00049', doctorId: 'usr-doc-001', status: 'awaiting_doctor',  chiefComplaint: 'Hip pain — follow-up',                   appointmentMinsAgo: 50, waitingForMinutes: 12 },
 
@@ -159,11 +159,11 @@ export interface OpVisitDoctor {
 }
 
 const DOC_BY_ID: Record<string, OpVisitDoctor> = {
-  'usr-doc-001': { doctorId: 'usr-doc-001', doctorName: 'Dr. K Naveen Kumar', department: 'Orthopaedics' },
-  'usr-doc-002': { doctorId: 'usr-doc-002', doctorName: 'Dr. Anand Krishnan', department: 'General Medicine' },
-  'usr-doc-003': { doctorId: 'usr-doc-003', doctorName: 'Dr. Meera Suresh',   department: 'Dental' },
-  'usr-doc-004': { doctorId: 'usr-doc-004', doctorName: 'Dr. Lakshmi Bharath',   department: 'Obstetrics & Gynaecology' },
-  'usr-doc-005': { doctorId: 'usr-doc-005', doctorName: 'Dr. Ravi Shankar',   department: 'Physiotherapy' },
+  'usr-doc-001': { doctorId: 'usr-doc-001', doctorName: 'Dr. Naveen Kumar', department: 'Orthopaedics' },
+  'usr-doc-002': { doctorId: 'usr-doc-002', doctorName: 'Dr. Anand', department: 'General Medicine' },
+  'usr-doc-003': { doctorId: 'usr-doc-003', doctorName: 'Dr. Meera',   department: 'Dental' },
+  'usr-doc-004': { doctorId: 'usr-doc-004', doctorName: 'Dr. Lakshmi',   department: 'Obstetrics & Gynaecology' },
+  'usr-doc-005': { doctorId: 'usr-doc-005', doctorName: 'Dr. Ravi',   department: 'Physiotherapy' },
 };
 
 /* ---------- Past-day completed OP visits ----------
@@ -300,10 +300,10 @@ interface JourneyStep {
 const steps: JourneyStep[] = [
   { toStateName: 'walk_in_arrived',    station: 'front_desk',      stationType: 'front_desk',      actorName: 'Front desk — Latha',                                       offsetMinutes: 0 },
   { toStateName: 'awaiting_vitals',    station: 'vitals',          stationType: 'vitals',          actorName: 'Nurse Saritha',     reason: 'Vitals captured.',           offsetMinutes: 8 },
-  { toStateName: 'in_consultation',    station: 'doctor:naveen',   stationType: 'doctor',          actorName: 'Dr. K Naveen Kumar',                                       offsetMinutes: 22 },
-  { toStateName: 'lab_pending',        station: 'lab_collection',  stationType: 'lab_collection',  actorName: 'Dr. K Naveen Kumar', reason: 'Lab order placed (CBC, LFT).', offsetMinutes: 38 },
-  { toStateName: 'in_consultation',    station: 'doctor:naveen',   stationType: 'doctor',          actorName: 'Dr. K Naveen Kumar', reason: 'Reports back, patient re-called.', offsetMinutes: 95 },
-  { toStateName: 'consultation_done',  station: 'doctor:naveen',   stationType: 'doctor',          actorName: 'Dr. K Naveen Kumar', reason: 'Rx finalised; pharmacy hand-off.', offsetMinutes: 110 },
+  { toStateName: 'in_consultation',    station: 'doctor:naveen',   stationType: 'doctor',          actorName: 'Dr. Naveen Kumar',                                       offsetMinutes: 22 },
+  { toStateName: 'lab_pending',        station: 'lab_collection',  stationType: 'lab_collection',  actorName: 'Dr. Naveen Kumar', reason: 'Lab order placed (CBC, LFT).', offsetMinutes: 38 },
+  { toStateName: 'in_consultation',    station: 'doctor:naveen',   stationType: 'doctor',          actorName: 'Dr. Naveen Kumar', reason: 'Reports back, patient re-called.', offsetMinutes: 95 },
+  { toStateName: 'consultation_done',  station: 'doctor:naveen',   stationType: 'doctor',          actorName: 'Dr. Naveen Kumar', reason: 'Rx finalised; pharmacy hand-off.', offsetMinutes: 110 },
 ];
 
 const journeyForVisit = (visitId: string, startedAt: string): JourneyEvent[] =>

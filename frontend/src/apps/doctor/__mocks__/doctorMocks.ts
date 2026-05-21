@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   ActivityEvent,
   AdmissionAdvisedPatient,
   DashboardCounters,
@@ -20,7 +20,7 @@ export const mockFollowUps: FollowUpReminder[] = [
     patientName: 'Anita Kumar',
     uhid: 'KH-2026-00012',
     dueOn: new Date().toISOString(),
-    reason: 'Post-op review — Knee arthroscopy',
+    reason: 'Post-op review â€” Knee arthroscopy',
   },
   {
     patientName: 'Suresh Kumar',
@@ -38,17 +38,17 @@ export const mockFollowUps: FollowUpReminder[] = [
 
 export const mockAdmissionAdvised: AdmissionAdvisedPatient[] = [
   {
-    patientName: 'Ramesh Babu',
+    patientName: 'Ramesh B.',
     uhid: 'KH-2026-00044',
     advisedAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-    reason: 'Severe lumbar disc prolapse — for surgery workup',
+    reason: 'Severe lumbar disc prolapse â€” for surgery workup',
     wardType: 'private',
   },
   {
     patientName: 'Geetha S.',
     uhid: 'KH-2026-00047',
     advisedAt: new Date(Date.now() - 1000 * 60 * 90).toISOString(),
-    reason: 'Septic arthritis — IV antibiotics',
+    reason: 'Septic arthritis â€” IV antibiotics',
     wardType: 'general',
   },
 ];

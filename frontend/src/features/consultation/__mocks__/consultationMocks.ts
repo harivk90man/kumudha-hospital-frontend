@@ -1,4 +1,4 @@
-import { mockDoctor } from '@/features/auth/__mocks__/authMocks';
+﻿import { mockDoctor } from '@/features/auth/__mocks__/authMocks';
 import type { EncounterStatus, EncounterStatusName } from '@/features/encounter';
 import type {
   ConsultationContext,
@@ -13,7 +13,7 @@ import type { Modality, RadiologyOrder } from '@/features/radiology';
 import { findPatient, mockPatients } from '@/features/patient/__mocks__/patientMocks';
 import type { PatientSummary } from '@/features/patient';
 
-/* ──────────────────────────────────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  *  Mock past-encounter generator
  *  --------------------------------------------------------------------------
  *  `mockPastEncounters` is the master source for everything visit-history-
@@ -27,8 +27,8 @@ import type { PatientSummary } from '@/features/patient';
  *    - a VISIT DATE.
  *
  *  The chip/badge on a visit-history row therefore always matches what the
- *  consultation page actually contains — they share a single record.
- * ────────────────────────────────────────────────────────────────────────── */
+ *  consultation page actually contains â€” they share a single record.
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /** Mock-only status factory; real backend issues `code` from `patient_states`. */
 const status = (name: EncounterStatusName): EncounterStatus => ({ code: 0, name });
@@ -38,21 +38,21 @@ const PDF_LAB = (opNumber: string, testCode: string): string =>
 const PDF_RAD = (opNumber: string, testCode: string): string =>
   `/mock-reports/radiology/${testCode}-${opNumber}.pdf`;
 
-/* ──────────────────────────────────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  *  Doctor roster (mirrors `sharedDoctors` in appointmentsMocks)
- * ────────────────────────────────────────────────────────────────────────── */
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 interface DoctorRef { id: string; name: string; department: string; }
 
-const DR_NAVEEN:  DoctorRef = { id: 'usr-doc-001', name: 'Dr. K Naveen Kumar', department: 'Orthopaedics' };
-const DR_ANAND:   DoctorRef = { id: 'usr-doc-002', name: 'Dr. Anand Krishnan', department: 'General Medicine' };
-const DR_MEERA:   DoctorRef = { id: 'usr-doc-003', name: 'Dr. Meera Suresh',   department: 'Dental' };
-const DR_LAKSHMI: DoctorRef = { id: 'usr-doc-004', name: 'Dr. Lakshmi Bharath',   department: 'Obstetrics & Gynaecology' };
-const DR_RAVI:    DoctorRef = { id: 'usr-doc-005', name: 'Dr. Ravi Shankar',   department: 'Physiotherapy' };
+const DR_NAVEEN:  DoctorRef = { id: 'usr-doc-001', name: 'Dr. Naveen Kumar', department: 'Orthopaedics' };
+const DR_ANAND:   DoctorRef = { id: 'usr-doc-002', name: 'Dr. Anand', department: 'General Medicine' };
+const DR_MEERA:   DoctorRef = { id: 'usr-doc-003', name: 'Dr. Meera',   department: 'Dental' };
+const DR_LAKSHMI: DoctorRef = { id: 'usr-doc-004', name: 'Dr. Lakshmi',   department: 'Obstetrics & Gynaecology' };
+const DR_RAVI:    DoctorRef = { id: 'usr-doc-005', name: 'Dr. Ravi',   department: 'Physiotherapy' };
 
-/* ──────────────────────────────────────────────────────────────────────────
- *  Encounter templates — clinical archetypes that drive each visit
- * ────────────────────────────────────────────────────────────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  Encounter templates â€” clinical archetypes that drive each visit
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 interface RxSeed {
   medicineId: string;
@@ -113,14 +113,14 @@ const RX_AMOXICILLIN_CHILD: RxSeed = { medicineId: 'med-820', name: 'Amoxicillin
 /* --- Lab + radiology seeds --- */
 
 const LAB_HBA1C_HIGH:  LabSeed = { testCode: 'HBA1C', testName: 'HbA1c',                  resultSummary: 'HbA1c 7.8% (ref < 6.5)',           flag: 'high' };
-const LAB_LIPID_HIGH:  LabSeed = { testCode: 'LIPID', testName: 'Lipid Profile',          resultSummary: 'LDL 156 mg/dL — borderline-high',  flag: 'high' };
-const LAB_LIPID_NORMAL: LabSeed = { testCode: 'LIPID', testName: 'Lipid Profile',          resultSummary: 'LDL 102 mg/dL — within target',   flag: 'normal' };
+const LAB_LIPID_HIGH:  LabSeed = { testCode: 'LIPID', testName: 'Lipid Profile',          resultSummary: 'LDL 156 mg/dL â€” borderline-high',  flag: 'high' };
+const LAB_LIPID_NORMAL: LabSeed = { testCode: 'LIPID', testName: 'Lipid Profile',          resultSummary: 'LDL 102 mg/dL â€” within target',   flag: 'normal' };
 const LAB_TSH_HIGH:    LabSeed = { testCode: 'TSH',   testName: 'TSH',                    resultSummary: 'TSH 6.2 mIU/L (ref 0.4-4.0)',      flag: 'high' };
-const LAB_TSH_NORMAL:  LabSeed = { testCode: 'TSH',   testName: 'TSH',                    resultSummary: 'TSH 2.4 mIU/L — euthyroid',       flag: 'normal' };
+const LAB_TSH_NORMAL:  LabSeed = { testCode: 'TSH',   testName: 'TSH',                    resultSummary: 'TSH 2.4 mIU/L â€” euthyroid',       flag: 'normal' };
 const LAB_RFT_HIGH:    LabSeed = { testCode: 'RFT',   testName: 'Renal Function Test',    resultSummary: 'Creatinine 1.4, eGFR 52 mL/min',   flag: 'high' };
 const LAB_CBC_NORMAL:  LabSeed = { testCode: 'CBC',   testName: 'Complete Blood Count',   resultSummary: 'Hb 14.1, WBC 7.4, Plt 230',         flag: 'normal' };
-const LAB_CBC_ABN:     LabSeed = { testCode: 'CBC',   testName: 'Complete Blood Count',   resultSummary: 'WBC 12.6 — mild leukocytosis',     flag: 'high' };
-const LAB_LFT_NORMAL:  LabSeed = { testCode: 'LFT',   testName: 'Liver Function Test',    resultSummary: 'ALT 28, AST 30 — normal',           flag: 'normal' };
+const LAB_CBC_ABN:     LabSeed = { testCode: 'CBC',   testName: 'Complete Blood Count',   resultSummary: 'WBC 12.6 â€” mild leukocytosis',     flag: 'high' };
+const LAB_LFT_NORMAL:  LabSeed = { testCode: 'LFT',   testName: 'Liver Function Test',    resultSummary: 'ALT 28, AST 30 â€” normal',           flag: 'normal' };
 const LAB_URINE_NORMAL: LabSeed = { testCode: 'URINE', testName: 'Urine Routine',          resultSummary: 'No protein, no glucose, no RBC',  flag: 'normal' };
 
 const RAD_XR_LSPINE:   RadSeed = { testCode: 'XR-LSP', testName: 'X-Ray L-Spine AP/Lat', modality: 'xray', resultSummary: 'Mild loss of lumbar lordosis. Disc spaces preserved. No fracture.' };
@@ -140,7 +140,7 @@ const TPL = {
       chiefComplaint: 'BP review + Rx refill',
       historyOfPresentIllness: 'Known hypertensive on Telmisartan. No headache or chest pain. Compliant with medication.',
       examinationFindings: 'BP 138/86 mmHg. Pulse 78/min regular. Heart sounds normal.',
-      clinicalImpression: 'Hypertension — adequately controlled.',
+      clinicalImpression: 'Hypertension â€” adequately controlled.',
       advice: 'Continue current regime. DASH diet, daily walk 30 min.',
     },
     diagnoses: [{ icd10: 'I10', description: 'Essential hypertension', type: 'primary' }],
@@ -155,7 +155,7 @@ const TPL = {
       chiefComplaint: 'BP review + lipid follow-up',
       historyOfPresentIllness: 'On HTN therapy. Concerned about cholesterol.',
       examinationFindings: 'BP 134/82 mmHg. Pulse 76/min. BMI 27.',
-      clinicalImpression: 'Hypertension controlled. LDL borderline — start statin.',
+      clinicalImpression: 'Hypertension controlled. LDL borderline â€” start statin.',
       advice: 'Continue antihypertensives. Started statin. Recheck lipids in 12 weeks.',
     },
     diagnoses: [
@@ -173,7 +173,7 @@ const TPL = {
       chiefComplaint: 'T2DM follow-up + HbA1c',
       historyOfPresentIllness: 'Diabetic for several years. Mixed compliance, occasional polyuria.',
       examinationFindings: 'BP 130/82 mmHg. Pulse 80/min. Feet: no ulcers, sensation intact.',
-      clinicalImpression: 'Type 2 diabetes — sub-optimal control.',
+      clinicalImpression: 'Type 2 diabetes â€” sub-optimal control.',
       advice: 'Step up Metformin to 1g BD. Diet review. HbA1c in 12 weeks.',
     },
     diagnoses: [{ icd10: 'E11.9', description: 'Type 2 diabetes mellitus', type: 'primary' }],
@@ -187,8 +187,8 @@ const TPL = {
     notes: {
       chiefComplaint: 'Diabetes review',
       historyOfPresentIllness: 'Stable on oral agents. No hypoglycaemic episodes.',
-      examinationFindings: 'BP 128/78 mmHg. Vitals stable. Feet examined — intact.',
-      clinicalImpression: 'Type 2 diabetes — controlled.',
+      examinationFindings: 'BP 128/78 mmHg. Vitals stable. Feet examined â€” intact.',
+      clinicalImpression: 'Type 2 diabetes â€” controlled.',
       advice: 'Continue current regime. Re-check HbA1c next quarter.',
     },
     diagnoses: [{ icd10: 'E11.9', description: 'Type 2 diabetes mellitus', type: 'primary' }],
@@ -203,10 +203,10 @@ const TPL = {
       chiefComplaint: 'Cardiac follow-up',
       historyOfPresentIllness: 'Known CAD on dual antiplatelet + statin. No fresh chest pain.',
       examinationFindings: 'BP 132/82. Pulse 72. Heart sounds normal. No pedal oedema.',
-      clinicalImpression: 'CAD — clinically stable on optimal medical therapy.',
+      clinicalImpression: 'CAD â€” clinically stable on optimal medical therapy.',
       advice: 'Continue current Rx. ECG annually. Lipid in 6 months.',
     },
-    diagnoses: [{ icd10: 'I25.10', description: 'CAD — stable', type: 'primary' }],
+    diagnoses: [{ icd10: 'I25.10', description: 'CAD â€” stable', type: 'primary' }],
     prescriptions: [RX_ASPIRIN, RX_ATORVASTATIN, RX_TELMISARTAN],
     labs: [],
     radiology: [],
@@ -218,10 +218,10 @@ const TPL = {
       chiefComplaint: 'Cardiac review + Chest X-Ray',
       historyOfPresentIllness: 'Mild exertional dyspnoea past week.',
       examinationFindings: 'BP 138/86. Lungs: bibasal fine crepitations. JVP normal.',
-      clinicalImpression: 'CAD — stable. CXR done to rule out failure.',
+      clinicalImpression: 'CAD â€” stable. CXR done to rule out failure.',
       advice: 'Continue Rx. Repeat ECG. Salt restriction reinforced.',
     },
-    diagnoses: [{ icd10: 'I25.10', description: 'CAD — stable', type: 'primary' }],
+    diagnoses: [{ icd10: 'I25.10', description: 'CAD â€” stable', type: 'primary' }],
     prescriptions: [RX_ASPIRIN, RX_ATORVASTATIN, RX_TELMISARTAN, RX_AMLODIPINE],
     labs: [],
     radiology: [RAD_XR_CHEST],
@@ -233,7 +233,7 @@ const TPL = {
       chiefComplaint: 'KFT review',
       historyOfPresentIllness: 'Known CKD. No oedema or oliguria.',
       examinationFindings: 'BP 138/84. No pedal oedema. Bladder not palpable.',
-      clinicalImpression: 'CKD Stage 3a — stable.',
+      clinicalImpression: 'CKD Stage 3a â€” stable.',
       advice: 'Renal-safe analgesia only. Avoid NSAIDs. KFT in 3 months.',
     },
     diagnoses: [{ icd10: 'N18.30', description: 'Chronic kidney disease, stage 3a', type: 'primary' }],
@@ -248,7 +248,7 @@ const TPL = {
       chiefComplaint: 'TSH review',
       historyOfPresentIllness: 'On Levothyroxine. No fresh symptoms of hypo/hyperthyroidism.',
       examinationFindings: 'Thyroid not enlarged. Pulse 76/min.',
-      clinicalImpression: 'Hypothyroidism — controlled.',
+      clinicalImpression: 'Hypothyroidism â€” controlled.',
       advice: 'Continue Levothyroxine. TSH every 6 months.',
     },
     diagnoses: [{ icd10: 'E03.9', description: 'Hypothyroidism, unspecified', type: 'primary' }],
@@ -260,10 +260,10 @@ const TPL = {
   thyroid_uncontrolled: (): EncounterTemplate => ({
     doctor: DR_ANAND,
     notes: {
-      chiefComplaint: 'TSH check — fatigue ++',
+      chiefComplaint: 'TSH check â€” fatigue ++',
       historyOfPresentIllness: 'Increasing tiredness, weight gain. On Levothyroxine 50 mcg.',
       examinationFindings: 'Pulse 64/min. Dry skin. No pedal oedema.',
-      clinicalImpression: 'Hypothyroidism — sub-optimal. Step up dose.',
+      clinicalImpression: 'Hypothyroidism â€” sub-optimal. Step up dose.',
       advice: 'Increase Levothyroxine to 75 mcg. Recheck TSH in 8 weeks.',
     },
     diagnoses: [{ icd10: 'E03.9', description: 'Hypothyroidism', type: 'primary' }],
@@ -278,7 +278,7 @@ const TPL = {
       chiefComplaint: 'COPD follow-up',
       historyOfPresentIllness: 'Chronic cough. No acute exacerbation this month.',
       examinationFindings: 'RR 18. SpO2 95% RA. Bilateral wheeze on auscultation.',
-      clinicalImpression: 'COPD — stable.',
+      clinicalImpression: 'COPD â€” stable.',
       advice: 'Continue inhalers. Influenza vaccine annually. Smoking cessation reinforced.',
     },
     diagnoses: [{ icd10: 'J44.9', description: 'COPD', type: 'primary' }],
@@ -290,10 +290,10 @@ const TPL = {
   copd_exacerbation: (): EncounterTemplate => ({
     doctor: DR_ANAND,
     notes: {
-      chiefComplaint: 'Cough + breathlessness × 4 days',
+      chiefComplaint: 'Cough + breathlessness Ã— 4 days',
       historyOfPresentIllness: 'Known COPD. Productive cough, mild breathlessness. No fever.',
       examinationFindings: 'RR 22. SpO2 93%. Diffuse wheeze bilaterally.',
-      clinicalImpression: 'COPD — mild exacerbation.',
+      clinicalImpression: 'COPD â€” mild exacerbation.',
       advice: 'Add antibiotic + oral steroid short course. Review in 5 days.',
     },
     diagnoses: [{ icd10: 'J44.1', description: 'COPD with acute exacerbation', type: 'primary' }],
@@ -308,7 +308,7 @@ const TPL = {
       chiefComplaint: 'Asthma review',
       historyOfPresentIllness: 'Episodic wheeze, well-controlled on ICS. No nocturnal symptoms.',
       examinationFindings: 'Chest clear. SpO2 98%. PEFR ~ 80% predicted.',
-      clinicalImpression: 'Bronchial asthma — controlled.',
+      clinicalImpression: 'Bronchial asthma â€” controlled.',
       advice: 'Continue maintenance inhaler. SOS Salbutamol. Avoid triggers.',
     },
     diagnoses: [{ icd10: 'J45.9', description: 'Bronchial asthma', type: 'primary' }],
@@ -320,10 +320,10 @@ const TPL = {
   osteoporosis_review: (): EncounterTemplate => ({
     doctor: DR_NAVEEN,
     notes: {
-      chiefComplaint: 'Hip/back stiffness — review',
+      chiefComplaint: 'Hip/back stiffness â€” review',
       historyOfPresentIllness: 'Post-menopausal female. Generalised aches. No fresh falls.',
       examinationFindings: 'Mild kyphosis. Tenderness over lumbar spine. No focal neuro deficit.',
-      clinicalImpression: 'Osteoporosis — fall-prevention emphasis.',
+      clinicalImpression: 'Osteoporosis â€” fall-prevention emphasis.',
       advice: 'Calcium + Vit D continued. Weight-bearing exercises. Fall-proofing at home.',
     },
     diagnoses: [{ icd10: 'M81.0', description: 'Postmenopausal osteoporosis', type: 'primary' }],
@@ -335,7 +335,7 @@ const TPL = {
   ortho_lbp_xray: (): EncounterTemplate => ({
     doctor: DR_NAVEEN,
     notes: {
-      chiefComplaint: 'Lower back pain × 2 weeks',
+      chiefComplaint: 'Lower back pain Ã— 2 weeks',
       historyOfPresentIllness: 'Onset insidious. Worse on prolonged sitting. No radiation, no bladder/bowel involvement.',
       examinationFindings: 'Lumbar paraspinal tenderness L4-L5. SLR negative bilaterally.',
       clinicalImpression: 'Mechanical low back pain.',
@@ -350,13 +350,13 @@ const TPL = {
   ortho_lbp_followup: (): EncounterTemplate => ({
     doctor: DR_NAVEEN,
     notes: {
-      chiefComplaint: 'LBP — review',
+      chiefComplaint: 'LBP â€” review',
       historyOfPresentIllness: 'Pain settling. Continuing exercises.',
       examinationFindings: 'Reduced paraspinal tenderness. ROM improving.',
-      clinicalImpression: 'Mechanical LBP — improving.',
+      clinicalImpression: 'Mechanical LBP â€” improving.',
       advice: 'Continue core exercises. SOS analgesia.',
     },
-    diagnoses: [{ icd10: 'M54.5', description: 'Mechanical LBP — resolving', type: 'primary' }],
+    diagnoses: [{ icd10: 'M54.5', description: 'Mechanical LBP â€” resolving', type: 'primary' }],
     prescriptions: [RX_PARACETAMOL],
     labs: [],
     radiology: [],
@@ -380,10 +380,10 @@ const TPL = {
   ortho_shoulder: (): EncounterTemplate => ({
     doctor: DR_NAVEEN,
     notes: {
-      chiefComplaint: 'Right shoulder stiffness × 2 months',
+      chiefComplaint: 'Right shoulder stiffness Ã— 2 months',
       historyOfPresentIllness: 'Painful overhead movement. No trauma.',
-      examinationFindings: 'Reduced abduction 90°, external rotation limited.',
-      clinicalImpression: 'Adhesive capsulitis — right shoulder.',
+      examinationFindings: 'Reduced abduction 90Â°, external rotation limited.',
+      clinicalImpression: 'Adhesive capsulitis â€” right shoulder.',
       advice: 'Capsular stretching. Physiotherapy referral. Re-assess in 6 weeks.',
     },
     diagnoses: [{ icd10: 'M75.0', description: 'Adhesive capsulitis of shoulder', type: 'primary' }],
@@ -410,10 +410,10 @@ const TPL = {
   viral_fever: (): EncounterTemplate => ({
     doctor: DR_ANAND,
     notes: {
-      chiefComplaint: 'Fever × 3 days, body ache',
+      chiefComplaint: 'Fever Ã— 3 days, body ache',
       historyOfPresentIllness: 'High-grade intermittent fever with myalgia and headache. No rash, no bleeding.',
-      examinationFindings: 'Temp 100.8°F. Throat mildly congested. No lymphadenopathy. Chest clear.',
-      clinicalImpression: 'Viral fever — self-limiting.',
+      examinationFindings: 'Temp 100.8Â°F. Throat mildly congested. No lymphadenopathy. Chest clear.',
+      clinicalImpression: 'Viral fever â€” self-limiting.',
       advice: 'Hydration, rest, symptomatic. Review if fever > 5 days or rash appears.',
     },
     diagnoses: [{ icd10: 'B34.9', description: 'Viral infection, unspecified', type: 'provisional' }],
@@ -425,10 +425,10 @@ const TPL = {
   uri: (): EncounterTemplate => ({
     doctor: DR_ANAND,
     notes: {
-      chiefComplaint: 'Cold, cough × 5 days',
+      chiefComplaint: 'Cold, cough Ã— 5 days',
       historyOfPresentIllness: 'Runny nose, sore throat, dry cough. No fever today.',
       examinationFindings: 'Pharynx mildly congested. Chest clear. No fever.',
-      clinicalImpression: 'Upper respiratory tract infection — viral.',
+      clinicalImpression: 'Upper respiratory tract infection â€” viral.',
       advice: 'Steam inhalation. Adequate fluids. SOS antipyretics.',
     },
     diagnoses: [{ icd10: 'J06.9', description: 'URI, unspecified', type: 'primary' }],
@@ -443,7 +443,7 @@ const TPL = {
       chiefComplaint: 'Annual health check-up',
       historyOfPresentIllness: 'No specific complaints. Routine review.',
       examinationFindings: 'Vitals within normal range. Systemic examination unremarkable.',
-      clinicalImpression: 'Healthy adult — routine screening completed.',
+      clinicalImpression: 'Healthy adult â€” routine screening completed.',
       advice: 'Lifestyle measures. Re-check in 12 months.',
     },
     diagnoses: [{ icd10: 'Z00.0', description: 'General medical examination', type: 'primary' }],
@@ -458,7 +458,7 @@ const TPL = {
       chiefComplaint: 'Antenatal check',
       historyOfPresentIllness: 'Current pregnancy progressing well. No bleeding, foetal movements adequate.',
       examinationFindings: 'BP 116/72. Fundal height appropriate. FHS heard.',
-      clinicalImpression: 'Pregnancy — routine antenatal care.',
+      clinicalImpression: 'Pregnancy â€” routine antenatal care.',
       advice: 'Continue iron + folic acid. Antenatal exercises. Next visit in 4 weeks.',
     },
     diagnoses: [{ icd10: 'Z34.9', description: 'Supervision of normal pregnancy', type: 'primary' }],
@@ -473,7 +473,7 @@ const TPL = {
       chiefComplaint: 'Cycle irregularity',
       historyOfPresentIllness: 'Cycles 35-50 days. No inter-menstrual bleeding.',
       examinationFindings: 'BMI 28. P/A soft, non-tender.',
-      clinicalImpression: 'Irregular cycles — likely hypothyroid-related.',
+      clinicalImpression: 'Irregular cycles â€” likely hypothyroid-related.',
       advice: 'Continue thyroid Rx. Diet + exercise advice. Follow up in 3 months.',
     },
     diagnoses: [{ icd10: 'N92.6', description: 'Irregular menstruation', type: 'primary' }],
@@ -485,11 +485,11 @@ const TPL = {
   paed_fever: (): EncounterTemplate => ({
     doctor: DR_ANAND,
     notes: {
-      chiefComplaint: 'Fever × 2 days, decreased intake',
+      chiefComplaint: 'Fever Ã— 2 days, decreased intake',
       historyOfPresentIllness: 'Moderate-grade fever, no rash, no vomiting.',
-      examinationFindings: 'Temp 101.2°F. Throat mildly congested. Chest clear. Active child.',
+      examinationFindings: 'Temp 101.2Â°F. Throat mildly congested. Chest clear. Active child.',
       clinicalImpression: 'Acute viral fever.',
-      advice: 'Hydration. Sponging if fever > 102°F. Review in 48h.',
+      advice: 'Hydration. Sponging if fever > 102Â°F. Review in 48h.',
     },
     diagnoses: [{ icd10: 'B34.9', description: 'Viral infection, unspecified', type: 'provisional' }],
     prescriptions: [RX_PARACETAMOL],
@@ -500,10 +500,10 @@ const TPL = {
   paed_otitis: (): EncounterTemplate => ({
     doctor: DR_ANAND,
     notes: {
-      chiefComplaint: 'Ear pain × 1 day, fever',
+      chiefComplaint: 'Ear pain Ã— 1 day, fever',
       historyOfPresentIllness: 'Restless overnight. Crying on swallowing. Some hearing reduction.',
       examinationFindings: 'Right TM red, bulging. No discharge. Throat normal.',
-      clinicalImpression: 'Acute otitis media — right ear.',
+      clinicalImpression: 'Acute otitis media â€” right ear.',
       advice: 'Antibiotic course + analgesia. Follow-up in 7 days.',
     },
     diagnoses: [{ icd10: 'H66.0', description: 'Acute suppurative otitis media', type: 'primary' }],
@@ -518,7 +518,7 @@ const TPL = {
       chiefComplaint: 'Dental cleaning + check',
       historyOfPresentIllness: 'Routine 6-month check. No specific pain.',
       examinationFindings: 'Generalised mild gingivitis. No carious lesions detected.',
-      clinicalImpression: 'Gingivitis — routine prophylaxis.',
+      clinicalImpression: 'Gingivitis â€” routine prophylaxis.',
       advice: 'Twice-daily brushing. Floss daily. Re-check in 6 months.',
     },
     diagnoses: [{ icd10: 'K05.10', description: 'Chronic gingivitis', type: 'primary' }],
@@ -530,11 +530,11 @@ const TPL = {
   dental_filling: (): EncounterTemplate => ({
     doctor: DR_MEERA,
     notes: {
-      chiefComplaint: 'Cold sensitivity — lower right molar',
+      chiefComplaint: 'Cold sensitivity â€” lower right molar',
       historyOfPresentIllness: 'Sharp pain on cold drinks last 2 weeks.',
       examinationFindings: 'Class I cavity in 46. No periapical involvement.',
-      clinicalImpression: 'Dental caries — 46.',
-      advice: 'Composite filling done. Avoid hard food × 24h.',
+      clinicalImpression: 'Dental caries â€” 46.',
+      advice: 'Composite filling done. Avoid hard food Ã— 24h.',
     },
     diagnoses: [{ icd10: 'K02.9', description: 'Dental caries', type: 'primary' }],
     prescriptions: [RX_IBUPROFEN],
@@ -545,13 +545,13 @@ const TPL = {
   physio_knee: (): EncounterTemplate => ({
     doctor: DR_RAVI,
     notes: {
-      chiefComplaint: 'Knee rehab — session',
+      chiefComplaint: 'Knee rehab â€” session',
       historyOfPresentIllness: 'Following OA management.',
       examinationFindings: 'Improving ROM. Quadriceps strength 4/5.',
-      clinicalImpression: 'Knee OA — progressing rehab.',
+      clinicalImpression: 'Knee OA â€” progressing rehab.',
       advice: 'Continue home exercises. Next session in 1 week.',
     },
-    diagnoses: [{ icd10: 'M17.0', description: 'Knee OA — rehab', type: 'primary' }],
+    diagnoses: [{ icd10: 'M17.0', description: 'Knee OA â€” rehab', type: 'primary' }],
     prescriptions: [],
     labs: [],
     radiology: [],
@@ -563,10 +563,10 @@ const TPL = {
       chiefComplaint: 'Lumbar mobilisation',
       historyOfPresentIllness: 'Chronic LBP, post-acute phase.',
       examinationFindings: 'Reduced lumbar paraspinal tone. ROM improving.',
-      clinicalImpression: 'Mechanical LBP — rehab.',
+      clinicalImpression: 'Mechanical LBP â€” rehab.',
       advice: 'Continue isometric exercises. Next session in 1 week.',
     },
-    diagnoses: [{ icd10: 'M54.5', description: 'Mechanical LBP — rehab', type: 'primary' }],
+    diagnoses: [{ icd10: 'M54.5', description: 'Mechanical LBP â€” rehab', type: 'primary' }],
     prescriptions: [],
     labs: [],
     radiology: [],
@@ -575,76 +575,76 @@ const TPL = {
 
 type TemplateKey = keyof typeof TPL;
 
-/* ──────────────────────────────────────────────────────────────────────────
- *  Patient profiles — drives which templates and how many visits each patient gets
- * ────────────────────────────────────────────────────────────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  Patient profiles â€” drives which templates and how many visits each patient gets
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 interface PatientProfile {
   uhid: string;
-  /** Months covered going back from 2026-05-15 — chronic patients have ~12 mo histories. */
+  /** Months covered going back from 2026-05-15 â€” chronic patients have ~12 mo histories. */
   monthsCovered: number;
   /** Approx visits over the period. */
   visitCount: number;
-  /** Template sequence the generator cycles through, oldest → newest. */
+  /** Template sequence the generator cycles through, oldest â†’ newest. */
   templates: TemplateKey[];
 }
 
 const PROFILES: PatientProfile[] = [
-  /* Karthik — HTN + recurrent LBP */
+  /* Karthik â€” HTN + recurrent LBP */
   { uhid: 'KH-2026-00045', monthsCovered: 12, visitCount: 12, templates: [
     'ortho_shoulder', 'viral_fever', 'annual_checkup', 'hypertension_review', 'hypertension_with_lipid',
     'ortho_lbp_xray', 'hypertension_review', 'uri', 'hypertension_review', 'ortho_lbp_followup',
     'hypertension_review', 'hypertension_with_lipid',
   ]},
-  /* Geetha — Hypothyroid + OBG */
+  /* Geetha â€” Hypothyroid + OBG */
   { uhid: 'KH-2024-08812', monthsCovered: 10, visitCount: 8, templates: [
     'thyroid_review', 'thyroid_uncontrolled', 'cycle_review', 'thyroid_review',
     'annual_checkup', 'thyroid_review', 'cycle_review', 'thyroid_review',
   ]},
-  /* Aarav R (11) — healthy paediatric */
+  /* Aarav R (11) â€” healthy paediatric */
   { uhid: 'KH-2025-11203', monthsCovered: 12, visitCount: 4, templates: [
     'paed_otitis', 'paed_fever', 'paed_fever', 'uri',
   ]},
-  /* Subramanian (71) — multi-comorbid, monthly */
+  /* Sundar (71) â€” multi-comorbid, monthly */
   { uhid: 'KH-2018-00094', monthsCovered: 12, visitCount: 13, templates: [
     'cad_review', 'diabetes_review_hba1c', 'hypertension_review', 'cad_review', 'cad_with_xray',
     'ckd_kft_review', 'hypertension_review', 'diabetes_review_hba1c', 'annual_checkup',
     'cad_review', 'diabetes_review', 'hypertension_review', 'diabetes_review_hba1c',
   ]},
-  /* Meera Selvam (58f) — DM + OA, monthly */
+  /* Meera S. (58f) â€” DM + OA, monthly */
   { uhid: 'KH-2026-00046', monthsCovered: 11, visitCount: 11, templates: [
     'diabetes_review', 'ortho_knee_oa', 'diabetes_review_hba1c', 'physio_knee',
     'diabetes_review_hba1c', 'ortho_knee_oa', 'diabetes_review', 'physio_knee',
     'diabetes_review', 'diabetes_review_hba1c', 'ortho_knee_oa',
   ]},
-  /* Rajan Selvam (62) — HTN + CKD */
+  /* Rajan S. (62) â€” HTN + CKD */
   { uhid: 'KH-2023-04501', monthsCovered: 10, visitCount: 9, templates: [
     'ckd_kft_review', 'hypertension_review', 'ckd_kft_review', 'hypertension_review',
     'ckd_kft_review', 'annual_checkup', 'hypertension_review', 'ckd_kft_review', 'hypertension_review',
   ]},
-  /* Anjali Selvam (26) — young healthy */
+  /* Anjali S. (26) â€” young healthy */
   { uhid: 'KH-2025-09812', monthsCovered: 12, visitCount: 3, templates: [
     'viral_fever', 'uri', 'annual_checkup',
   ]},
-  /* Ramesh Babu (67) — CAD + HTN, monthly */
+  /* Ramesh B. (67) â€” CAD + HTN, monthly */
   { uhid: 'KH-2026-00047', monthsCovered: 11, visitCount: 10, templates: [
     'hypertension_review', 'cad_review', 'cad_with_xray', 'hypertension_review', 'cad_review',
     'annual_checkup', 'cad_review', 'hypertension_review', 'cad_review', 'hypertension_review',
   ]},
-  /* Sundari Babu (64) — T2DM */
+  /* Sundari B. (64) â€” T2DM */
   { uhid: 'KH-2024-06210', monthsCovered: 11, visitCount: 8, templates: [
     'diabetes_review', 'diabetes_review_hba1c', 'diabetes_review', 'diabetes_review',
     'diabetes_review_hba1c', 'annual_checkup', 'diabetes_review', 'diabetes_review_hba1c',
   ]},
-  /* Aarav S (9) — paed */
+  /* Aarav S (9) â€” paed */
   { uhid: 'KH-2026-00048', monthsCovered: 12, visitCount: 4, templates: [
     'paed_fever', 'paed_otitis', 'uri', 'paed_fever',
   ]},
-  /* Vivek Sharma (41) — healthy */
+  /* Vivek K. (41) â€” healthy */
   { uhid: 'KH-2024-03301', monthsCovered: 12, visitCount: 4, templates: [
     'viral_fever', 'annual_checkup', 'uri', 'dental_cleaning',
   ]},
-  /* Priya Sharma (38, asthma) */
+  /* Priya K. (38, asthma) */
   { uhid: 'KH-2024-03302', monthsCovered: 12, visitCount: 6, templates: [
     'asthma_review', 'uri', 'asthma_review', 'asthma_review', 'viral_fever', 'asthma_review',
   ]},
@@ -656,101 +656,101 @@ const PROFILES: PatientProfile[] = [
   { uhid: 'KH-2025-08802', monthsCovered: 12, visitCount: 4, templates: [
     'cycle_review', 'annual_checkup', 'cycle_review', 'antenatal_check',
   ]},
-  /* Lakshmi Narasimhan (71) — Osteoporosis + HTN */
+  /* Lakshmi N. (71) â€” Osteoporosis + HTN */
   { uhid: 'KH-2026-00049', monthsCovered: 11, visitCount: 10, templates: [
     'osteoporosis_review', 'hypertension_review', 'osteoporosis_review', 'hypertension_review',
     'physio_lumbar', 'osteoporosis_review', 'hypertension_review', 'osteoporosis_review',
     'hypertension_review', 'osteoporosis_review',
   ]},
-  /* Narasimhan Krishnan (76) — multi-comorbid */
+  /* Naren K. (76) â€” multi-comorbid */
   { uhid: 'KH-2020-00721', monthsCovered: 11, visitCount: 11, templates: [
     'cad_review', 'hypertension_review', 'diabetes_review_hba1c', 'cad_with_xray',
     'hypertension_review', 'annual_checkup', 'cad_review', 'diabetes_review',
     'cad_review', 'hypertension_review', 'diabetes_review_hba1c',
   ]},
-  /* Suresh Babu (49) — HTN */
+  /* Suresh B. (49) â€” HTN */
   { uhid: 'KH-2026-00050', monthsCovered: 11, visitCount: 7, templates: [
     'hypertension_review', 'annual_checkup', 'hypertension_review', 'hypertension_with_lipid',
     'uri', 'hypertension_review', 'hypertension_review',
   ]},
-  /* Sunita (34) — healthy */
+  /* Sunita (34) â€” healthy */
   { uhid: 'KH-2026-00051', monthsCovered: 12, visitCount: 3, templates: [
     'viral_fever', 'annual_checkup', 'uri',
   ]},
-  /* Vikram (51) — HTN + Hyperlipidemia */
+  /* Vikram (51) â€” HTN + Hyperlipidemia */
   { uhid: 'KH-2026-00052', monthsCovered: 11, visitCount: 9, templates: [
     'annual_checkup', 'hypertension_with_lipid', 'hypertension_review', 'hypertension_with_lipid',
     'hypertension_review', 'hypertension_with_lipid', 'hypertension_review', 'hypertension_review',
     'hypertension_with_lipid',
   ]},
-  /* Aisha (28) — healthy + allergy */
+  /* Aisha (28) â€” healthy + allergy */
   { uhid: 'KH-2026-00053', monthsCovered: 12, visitCount: 3, templates: [
     'uri', 'viral_fever', 'annual_checkup',
   ]},
-  /* Ravi Antony (45) — T2DM */
+  /* Ravi A. (45) â€” T2DM */
   { uhid: 'KH-2026-00054', monthsCovered: 11, visitCount: 8, templates: [
     'diabetes_review_hba1c', 'diabetes_review', 'diabetes_review_hba1c', 'annual_checkup',
     'diabetes_review', 'diabetes_review_hba1c', 'diabetes_review', 'diabetes_review_hba1c',
   ]},
-  /* Divya (32) — healthy */
+  /* Divya (32) â€” healthy */
   { uhid: 'KH-2026-00055', monthsCovered: 12, visitCount: 3, templates: [
     'cycle_review', 'uri', 'annual_checkup',
   ]},
-  /* Sanjay (60) — HTN + COPD */
+  /* Sanjay (60) â€” HTN + COPD */
   { uhid: 'KH-2026-00058', monthsCovered: 11, visitCount: 10, templates: [
     'copd_exacerbation', 'copd_review', 'hypertension_review', 'copd_review',
     'hypertension_review', 'annual_checkup', 'copd_review', 'hypertension_review',
     'copd_exacerbation', 'copd_review',
   ]},
-  /* Latha Devi (67) — multi */
+  /* Latha Devi (67) â€” multi */
   { uhid: 'KH-2026-00061', monthsCovered: 11, visitCount: 10, templates: [
     'diabetes_review', 'ortho_knee_oa', 'hypertension_review', 'diabetes_review_hba1c',
     'physio_knee', 'hypertension_review', 'diabetes_review', 'ortho_knee_oa',
     'hypertension_review', 'diabetes_review_hba1c',
   ]},
-  /* Manjunath (71) — multi */
+  /* Manjunath (71) â€” multi */
   { uhid: 'KH-2026-00064', monthsCovered: 11, visitCount: 10, templates: [
     'ckd_kft_review', 'diabetes_review', 'cad_review', 'ckd_kft_review',
     'hypertension_review', 'annual_checkup', 'diabetes_review_hba1c', 'cad_review',
     'ckd_kft_review', 'diabetes_review_hba1c',
   ]},
-  /* Krishnan Bharath (78) — multi */
+  /* Kishore B. (78) â€” multi */
   { uhid: 'KH-2026-00068', monthsCovered: 11, visitCount: 11, templates: [
     'cad_review', 'hypertension_review', 'diabetes_review_hba1c', 'cad_with_xray',
     'hypertension_review', 'annual_checkup', 'cad_review', 'diabetes_review',
     'cad_review', 'hypertension_review', 'cad_review',
   ]},
-  /* Anand Mathew (88) — multi (highest visits) */
+  /* Anand M. (88) â€” multi (highest visits) */
   { uhid: 'KH-2024-04401', monthsCovered: 12, visitCount: 13, templates: [
     'hypertension_review', 'cad_review', 'ckd_kft_review', 'hypertension_review',
     'cad_review', 'ckd_kft_review', 'hypertension_review', 'annual_checkup',
     'cad_with_xray', 'cad_review', 'ckd_kft_review', 'hypertension_review', 'cad_review',
   ]},
-  /* Tamilarasan (80) — multi */
+  /* Tamilarasan (80) â€” multi */
   { uhid: 'KH-2024-04420', monthsCovered: 12, visitCount: 12, templates: [
     'cad_review', 'ckd_kft_review', 'hypertension_review', 'cad_review',
     'ckd_kft_review', 'hypertension_review', 'annual_checkup', 'cad_review',
     'ckd_kft_review', 'hypertension_review', 'cad_review', 'hypertension_review',
   ]},
-  /* Yogesh (5) — paed */
+  /* Yogesh (5) â€” paed */
   { uhid: 'KH-2024-04424', monthsCovered: 12, visitCount: 4, templates: [
     'paed_otitis', 'paed_fever', 'uri', 'paed_fever',
   ]},
-  /* Zara (1) — paed */
+  /* Zara (1) â€” paed */
   { uhid: 'KH-2024-04425', monthsCovered: 9, visitCount: 4, templates: [
     'paed_fever', 'paed_fever', 'paed_otitis', 'paed_fever',
   ]},
 ];
 
-/* ──────────────────────────────────────────────────────────────────────────
- *  Generator — turns (profile × template × date) into ConsultationContext
- * ────────────────────────────────────────────────────────────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  Generator â€” turns (profile Ã— template Ã— date) into ConsultationContext
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /** Reference "today" anchor used by the doctor app; visits are spaced backwards from here. */
 const TODAY = new Date('2026-05-15T00:00:00Z').getTime();
 const DAY = 24 * 60 * 60 * 1000;
 
-/** Deterministic vitals — varies slightly per opNumber so each visit doesn't look identical. */
+/** Deterministic vitals â€” varies slightly per opNumber so each visit doesn't look identical. */
 const vitalsFor = (patient: PatientSummary, opSeed: number): Vitals => {
   const isElderly = patient.ageYears >= 65;
   const sysBase = isElderly ? 138 : 124;
@@ -832,9 +832,9 @@ const buildEncounter = (
   };
 };
 
-/* ──────────────────────────────────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  *  Metadata + generation pass
- * ────────────────────────────────────────────────────────────────────────── */
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 export interface PastEncounterMeta {
   opNumber: string;
@@ -882,15 +882,15 @@ for (const profile of PROFILES) {
   }
 }
 
-/** All past encounters, keyed by opNumber — the single source of truth. */
+/** All past encounters, keyed by opNumber â€” the single source of truth. */
 export const mockPastEncounters: Record<string, ConsultationContext> = generatedEncounters;
 
 /** Parallel metadata exported for encounterMocks to derive past-visit maps. */
 export const mockPastEncounterMeta: PastEncounterMeta[] = generatedMeta;
 
-/* ──────────────────────────────────────────────────────────────────────────
- *  Live demo consultation (Karthik) — anchor for the doctor walkthrough
- * ────────────────────────────────────────────────────────────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  Live demo consultation (Karthik) â€” anchor for the doctor walkthrough
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 const sharedPatient = findPatient('KH-2026-00045');
 
@@ -907,12 +907,12 @@ export const mockConsultation: ConsultationContext = {
     weightKg: 78, heightCm: 173, bmi: 26.1, painScore: 6,
   },
   notes: {
-    chiefComplaint: 'Lower back pain × 3 weeks, worse on bending',
+    chiefComplaint: 'Lower back pain Ã— 3 weeks, worse on bending',
     historyOfPresentIllness:
       'Insidious onset, dull aching pain, radiates to right buttock. No bladder/bowel involvement. No trauma. Worse on prolonged sitting.',
     examinationFindings:
-      'Lumbar paraspinal tenderness L4-L5. SLR 60° right, negative left. No neurological deficit. Power 5/5 all groups.',
-    clinicalImpression: 'Mechanical low back pain — likely myofascial. R/O early disc bulge.',
+      'Lumbar paraspinal tenderness L4-L5. SLR 60Â° right, negative left. No neurological deficit. Power 5/5 all groups.',
+    clinicalImpression: 'Mechanical low back pain â€” likely myofascial. R/O early disc bulge.',
     advice: 'Activity modification. Postural correction. Lumbar isometrics.',
   },
   diagnoses: [
@@ -921,8 +921,8 @@ export const mockConsultation: ConsultationContext = {
   prescriptionItems: [],
   labOrders: [
     { id: 'lab-pending-1', orderedAt: new Date(Date.now() - 1000 * 60 * 40).toISOString(),  status: 'in_progress', testCode: 'CBC',       testName: 'Complete Blood Count' },
-    { id: 'lab-crit-1',    orderedAt: new Date(Date.now() - 1000 * 60 * 90).toISOString(),  status: 'reported',    testCode: 'POTASSIUM', testName: 'Serum Potassium', flag: 'critical_high', resultSummary: 'K+ 6.4 mmol/L (ref 3.5–5.1) — critical hyperkalaemia. Repeat sample sent.' },
-    { id: 'lab-abn-1',     orderedAt: new Date(Date.now() - 1000 * 60 * 120).toISOString(), status: 'reported',    testCode: 'CRP',       testName: 'C-Reactive Protein', flag: 'high',          resultSummary: 'CRP 48 mg/L (ref < 5) — elevated, consistent with active inflammation.' },
+    { id: 'lab-crit-1',    orderedAt: new Date(Date.now() - 1000 * 60 * 90).toISOString(),  status: 'reported',    testCode: 'POTASSIUM', testName: 'Serum Potassium', flag: 'critical_high', resultSummary: 'K+ 6.4 mmol/L (ref 3.5â€“5.1) â€” critical hyperkalaemia. Repeat sample sent.' },
+    { id: 'lab-abn-1',     orderedAt: new Date(Date.now() - 1000 * 60 * 120).toISOString(), status: 'reported',    testCode: 'CRP',       testName: 'C-Reactive Protein', flag: 'high',          resultSummary: 'CRP 48 mg/L (ref < 5) â€” elevated, consistent with active inflammation.' },
   ],
   radiologyOrders: [
     { id: 'rad-done-1', orderedAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(), status: 'reported', testCode: 'XR-LSP', testName: 'X-Ray L-Spine AP/Lat', modality: 'xray', resultSummary: 'Mild loss of lumbar lordosis. No fracture. Disc spaces preserved.' },
@@ -935,7 +935,7 @@ export const mockConsultation: ConsultationContext = {
       testCode: 'POTASSIUM',
       testName: 'Serum Potassium',
       flag: 'critical_high',
-      resultSummary: 'K+ 6.4 mmol/L (ref 3.5–5.1) — critical hyperkalaemia.',
+      resultSummary: 'K+ 6.4 mmol/L (ref 3.5â€“5.1) â€” critical hyperkalaemia.',
       occurredAt: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
       ackRequired: true,
     },
@@ -945,9 +945,9 @@ export const mockConsultation: ConsultationContext = {
 void mockDoctor;
 void mockPatients;
 
-/* ──────────────────────────────────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  *  Prescription templates (unchanged demo data)
- * ────────────────────────────────────────────────────────────────────────── */
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 const samplePrescriptionItems = (): PrescriptionItem[] => [
   { id: 'pi-1', medicineId: 'med-100', medicineNameSnapshot: 'Paracetamol',  strength: '500 mg', dosage: '1 tab', frequency: 'TDS', route: 'PO', durationDays: 5, instructions: 'After food',     severity: 'ok' },
@@ -955,9 +955,9 @@ const samplePrescriptionItems = (): PrescriptionItem[] => [
 ];
 
 export const mockPrescriptionTemplates: PrescriptionTemplate[] = [
-  { id: 'tpl-1', name: 'Acute mechanical LBP — short course', specialty: 'Orthopaedics',     itemCount: 3, updatedAt: '2026-03-12T10:30:00Z', items: samplePrescriptionItems() },
+  { id: 'tpl-1', name: 'Acute mechanical LBP â€” short course', specialty: 'Orthopaedics',     itemCount: 3, updatedAt: '2026-03-12T10:30:00Z', items: samplePrescriptionItems() },
   { id: 'tpl-2', name: 'Post-op knee arthroscopy day-1',      specialty: 'Orthopaedics',     itemCount: 4, updatedAt: '2026-02-21T14:05:00Z', items: samplePrescriptionItems() },
-  { id: 'tpl-3', name: 'OA Knee — symptomatic',                specialty: 'Orthopaedics',     itemCount: 3, updatedAt: '2025-12-30T08:55:00Z', items: samplePrescriptionItems() },
-  { id: 'tpl-4', name: 'Hypertension — first-line combo',     specialty: 'General Medicine', itemCount: 3, updatedAt: '2026-01-10T08:00:00Z', items: samplePrescriptionItems() },
-  { id: 'tpl-5', name: 'T2DM — Metformin + statin starter',   specialty: 'General Medicine', itemCount: 3, updatedAt: '2026-02-01T08:00:00Z', items: samplePrescriptionItems() },
+  { id: 'tpl-3', name: 'OA Knee â€” symptomatic',                specialty: 'Orthopaedics',     itemCount: 3, updatedAt: '2025-12-30T08:55:00Z', items: samplePrescriptionItems() },
+  { id: 'tpl-4', name: 'Hypertension â€” first-line combo',     specialty: 'General Medicine', itemCount: 3, updatedAt: '2026-01-10T08:00:00Z', items: samplePrescriptionItems() },
+  { id: 'tpl-5', name: 'T2DM â€” Metformin + statin starter',   specialty: 'General Medicine', itemCount: 3, updatedAt: '2026-02-01T08:00:00Z', items: samplePrescriptionItems() },
 ];

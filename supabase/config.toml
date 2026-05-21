@@ -1,0 +1,63 @@
+# Supabase CLI config — HMS v3 deployment
+#
+# To use this scaffold:
+#   1. Install the CLI:        npm install -g supabase
+#   2. Start a local stack:    supabase start          (boots Postgres 17 + Studio in Docker)
+#   3. Apply v3 migrations:    supabase db reset       (runs everything under supabase/migrations/)
+#   4. Link to a cloud project: supabase link --project-ref <YOUR-REF>
+#   5. Push to cloud:          supabase db push
+#
+# The migration files in supabase/migrations/ are symlinks (or copies) of
+# backend/db/v3-migrations/. Keep them in sync — backend/db/v3-migrations/
+# is the source of truth; supabase/migrations/ is what the Supabase CLI
+# scans by filename order.
+
+project_id = "hms-v3"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+# v3 requires Postgres 17 (built-in uuidv7); the helper file provides a
+# fallback if you must run on 15/16.
+major_version = 17
+
+[db.pooler]
+enabled = false
+port = 54329
+pool_mode = "transaction"
+default_pool_size = 20
+max_client_conn = 100
+
+[studio]
+enabled = true
+port = 54323
+api_url = "http://127.0.0.1"
+
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+# Auth and Realtime are NOT used — the Spring backend handles auth.
+# Disable them locally to avoid stray endpoints showing up.
+[auth]
+enabled = false
+
+[realtime]
+enabled = false
+
+[edge_runtime]
+enabled = false
+
+[analytics]
+enabled = false

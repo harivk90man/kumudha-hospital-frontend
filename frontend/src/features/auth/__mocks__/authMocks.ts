@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   ChiefDoctorProfile,
   DoctorProfile,
   FrontdeskProfile,
@@ -10,33 +10,33 @@ import type {
   UserRole,
 } from '../authTypes';
 
-/* ──────────────────────────────────────────────────────────────────────────
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
  *  Mock user catalogue + credentials
  *  --------------------------------------------------------------------------
  *  10 users covering the 7-role spec:
- *    - Priya  → frontdesk
+ *    - Priya  â†’ frontdesk
  *    - 5 doctors (Naveen, Anand, Meera, Lakshmi, Ravi); Naveen also
  *      holds chief_doctor as a secondary role so he sees both the
  *      doctor app AND the owner dashboard.
- *    - Amudha → pharma
- *    - Suresh → inventory
- *    - Gopi   → lab_radio (covers both lab + radiology in one role)
- *    - Kuppan → owner
+ *    - Amudha â†’ pharma
+ *    - Suresh â†’ inventory
+ *    - Gopi   â†’ lab_radio (covers both lab + radiology in one role)
+ *    - Kuppan â†’ owner
  *
- *  Password for every user is `123123` (`USER_PASSWORDS` map below) —
+ *  Password for every user is `123123` (`USER_PASSWORDS` map below) â€”
  *  the mock login fallback in `authApi.ts` validates against this.
- * ────────────────────────────────────────────────────────────────────────── */
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 /* ---------- Doctors (5) ---------- */
 
 /**
- * Demo anchor. Holds two roles — primary `doctor` (so the post-login
+ * Demo anchor. Holds two roles â€” primary `doctor` (so the post-login
  * landing is the queue) and secondary `chief_doctor` (so the owner
  * dashboard is also reachable from his account).
  */
 export const mockDoctor: DoctorProfile = {
   id: 'usr-doc-001',
-  fullName: 'Dr. K Naveen Kumar',
+  fullName: 'Dr. Naveen Kumar',
   role: 'doctor',
   allRoles: ['doctor', 'chief_doctor'],
   specialization: 'Orthopaedics',
@@ -45,7 +45,7 @@ export const mockDoctor: DoctorProfile = {
 
 export const mockDoctorAnand: DoctorProfile = {
   id: 'usr-doc-002',
-  fullName: 'Dr. Anand Krishnan',
+  fullName: 'Dr. Anand',
   role: 'doctor',
   allRoles: ['doctor'],
   specialization: 'General Medicine',
@@ -54,7 +54,7 @@ export const mockDoctorAnand: DoctorProfile = {
 
 export const mockDoctorMeera: DoctorProfile = {
   id: 'usr-doc-003',
-  fullName: 'Dr. Meera Suresh',
+  fullName: 'Dr. Meera',
   role: 'doctor',
   allRoles: ['doctor'],
   specialization: 'Dental',
@@ -63,7 +63,7 @@ export const mockDoctorMeera: DoctorProfile = {
 
 export const mockDoctorLakshmi: DoctorProfile = {
   id: 'usr-doc-004',
-  fullName: 'Dr. Lakshmi Bharath',
+  fullName: 'Dr. Lakshmi',
   role: 'doctor',
   allRoles: ['doctor'],
   specialization: 'Obstetrics & Gynaecology',
@@ -72,7 +72,7 @@ export const mockDoctorLakshmi: DoctorProfile = {
 
 export const mockDoctorRavi: DoctorProfile = {
   id: 'usr-doc-005',
-  fullName: 'Dr. Ravi Shankar',
+  fullName: 'Dr. Ravi',
   role: 'doctor',
   allRoles: ['doctor'],
   specialization: 'Physiotherapy',
@@ -83,7 +83,7 @@ export const mockDoctorRavi: DoctorProfile = {
 
 export const mockFrontdesk: FrontdeskProfile = {
   id: 'usr-fro-001',
-  fullName: 'Priya Subramanian',
+  fullName: 'Priya',
   role: 'frontdesk',
   allRoles: ['frontdesk'],
   stationSlug: 'front_desk',
@@ -108,7 +108,7 @@ export const mockInventory: InventoryProfile = {
 
 export const mockLabRadio: LabRadioProfile = {
   id: 'usr-lab-001',
-  fullName: 'Gopi Selvam',
+  fullName: 'Gopi',
   role: 'lab_radio',
   allRoles: ['lab_radio'],
   stationSlug: 'lab_processing',
@@ -123,7 +123,7 @@ export const mockOwner: OwnerProfile = {
 
 /* ---------- User catalogue (drives the mock-login fallback) ---------- */
 
-/** Master list — login looks up by username (lowercased first name). */
+/** Master list â€” login looks up by username (lowercased first name). */
 export const mockUsers: UserProfile[] = [
   mockFrontdesk,
   mockDoctor,
@@ -138,7 +138,7 @@ export const mockUsers: UserProfile[] = [
 ];
 
 /**
- * Username key (lowercased first name) → user. The mock login flow
+ * Username key (lowercased first name) â†’ user. The mock login flow
  * accepts the username (e.g., `priya`, `naveen`, `kuppan`) when the
  * password matches `123123`. Real backend would do credentials check.
  */

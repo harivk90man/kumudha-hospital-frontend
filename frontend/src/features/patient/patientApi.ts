@@ -1,62 +1,272 @@
-import { httpClient } from '@/lib/http/httpClient';
+import { supabase, DEMO_USER_ID } from '@/lib/supabase/supabaseClient';
 import type {
   CreatePatientInput,
+  Gender,
   KinRelationship,
   LinkedPatient,
+  PatientAddress,
   PatientSummary,
   UpdatePatientInput,
 } from './patientTypes';
-// Cross-feature mock fallbacks for fetchPatient — see its TSDoc. Real
-// backend doesn't need these (one patients table, FK joins). Imports
-// are deep-pathed to the mock files (NOT the feature barrels) to avoid
-// any risk of pulling the runtime feature index into a cycle.
-import { mockQueue } from '@/features/encounter/__mocks__/encounterMocks';
-import { mockAppointments } from '@/features/appointments/__mocks__/appointmentsMocks';
 import { mockPatientsByUhid as seedPatientsByUhid } from './__mocks__/patientMocks';
 
-const delay = <T>(value: T, ms = 250): Promise<T> =>
-  new Promise((resolve) => setTimeout(() => resolve(value), ms));
-
 /**
- * Patient API surface. Mocked today; signatures match the final backend contract.
+ * Patient API surface. DEMO-mode — queries Supabase directly until the
+ * Spring backend is built. Schema source of truth:
+ *   backend/db/v3-migrations/030_07_patient.sql
  *
- * Wire points:
- *  GET  /api/patients/:uhid                       → fetchPatient
- *  GET  /api/patients?mobile=...                  → searchPatientsByMobile
- *  POST /api/patients                             → createPatient
- *  GET  /api/patients/:uhid/linked                → findLinkedPatients
- *      Backend joins patient_kin (TSD-03) + patients sharing the same
- *      mobile_e164 (BRD §5 same-mobile family lookup) and returns the
- *      relationship label ('mother' | 'father' | 'spouse' | ...).
+ * Tables touched here:
+ *   - patients                       (core entity, snake_case columns)
+ *   - uhid_sequences                 (per-year atomic counter)
+ *   - hospital_profile               (UHID prefix / separator / padding)
+ *
+ * Allergies + chronic conditions live in child tables
+ * (`patient_allergies`, `patient_chronic_conditions`) joined to lookups —
+ * not wired here because the demo only needs the parent row to flow
+ * through the UI. Allergy / chronic write paths are planned (see PROJECT.md).
  */
 
+/* ---------- Row mapping (snake_case ↔ camelCase boundary) ---------- */
+
+const ageFromDob = (dateOfBirth: string): number => {
+  const d = new Date(dateOfBirth);
+  const now = new Date();
+  return Math.max(
+    0,
+    now.getFullYear() -
+      d.getFullYear() -
+      (now < new Date(now.getFullYear(), d.getMonth(), d.getDate()) ? 1 : 0),
+  );
+};
+
+const mapRowToPatient = (r: Record<string, unknown>): PatientSummary => {
+  const firstName = (r.first_name as string) ?? '';
+  const lastName  = (r.last_name  as string) ?? '';
+  const dob       = r.date_of_birth as string | undefined;
+  return {
+    id:           r.id as string,
+    uhid:         r.uhid as string,
+    firstName,
+    lastName,
+    fullName:     `${firstName} ${lastName}`.trim(),
+    gender:       r.gender as Gender,
+    ageYears:     dob ? ageFromDob(dob) : 0,
+    dateOfBirth:  dob,
+    mobile:       (r.mobile     as string | null) ?? undefined,
+    altMobile:    (r.alt_mobile as string | null) ?? undefined,
+    email:        (r.email      as string | null) ?? undefined,
+    bloodGroup:   (r.blood_group as string | null) ?? undefined,
+    address:      (r.address as PatientAddress | null) ?? undefined,
+  };
+};
+
+/* ---------- UHID generation ---------- */
+
+interface HospitalProfileRow {
+  uhid_prefix: string;
+  uhid_separator: string;
+  uhid_sequence_padding: number;
+  uhid_include_year: boolean;
+}
+
 /**
- * Mock-only declared-kin map. Mirrors the `patient_kin` table TSD-03
- * §4.5 — a hand-curated list of declared family relationships across
- * different mobiles (so they wouldn't be picked up by the
- * shared-mobile join). Empty for any UHID not listed.
+ * Generates the next UHID by reading the singleton hospital_profile row
+ * for formatting and atomically bumping uhid_sequences for the current
+ * year. Real backend does this in a single transaction with row-level
+ * locking — for the demo we accept a small race window.
+ */
+async function generateNextUhid(): Promise<string> {
+  const { data: profile, error: profileError } = await supabase
+    .from('hospital_profile')
+    .select('uhid_prefix, uhid_separator, uhid_sequence_padding, uhid_include_year')
+    .limit(1)
+    .maybeSingle();
+
+  if (profileError) throw new Error(profileError.message);
+  if (!profile) throw new Error('Hospital profile not configured.');
+
+  const p = profile as HospitalProfileRow;
+  const year = new Date().getFullYear();
+
+  // Read current counter (if any) then increment.
+  const { data: seqRow, error: readError } = await supabase
+    .from('uhid_sequences')
+    .select('last_seq')
+    .eq('year', year)
+    .maybeSingle();
+  if (readError) throw new Error(readError.message);
+
+  const next = ((seqRow?.last_seq as number | undefined) ?? 0) + 1;
+
+  const { error: upsertError } = await supabase
+    .from('uhid_sequences')
+    .upsert({ year, last_seq: next }, { onConflict: 'year' });
+  if (upsertError) throw new Error(upsertError.message);
+
+  const padded = String(next).padStart(p.uhid_sequence_padding, '0');
+  const parts = p.uhid_include_year
+    ? [p.uhid_prefix, String(year), padded]
+    : [p.uhid_prefix, padded];
+  return parts.join(p.uhid_separator);
+}
+
+/* ---------- Fallback mock registry (read-only safety net) ----------
+ *
+ * Patient profile pages may be reached via deep-links into encounter /
+ * appointment snapshots whose patient rows pre-date the Supabase DB
+ * (legacy seed data only). For these we fall back to the existing
+ * mock catalogue so the UI doesn't 404. Real backend doesn't need this.
+ */
+const mockPatientsByUhid: Record<string, PatientSummary> = { ...seedPatientsByUhid };
+
+/* ---------- API functions ---------- */
+
+/**
+ * Exact lookup by UHID. Returns null when no row exists (and no mock
+ * fallback matches) — caller decides whether that's a 404.
+ */
+export const fetchPatient = async (uhid: string): Promise<PatientSummary | null> => {
+  const normalized = uhid.toUpperCase();
+  const { data, error } = await supabase
+    .from('patients')
+    .select('*')
+    .eq('uhid', normalized)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (data) return mapRowToPatient(data);
+  // Fall back to mock data for encounter/appointment snapshots not in DB.
+  return mockPatientsByUhid[uhid] ?? mockPatientsByUhid[normalized] ?? null;
+};
+
+/**
+ * Search patients by mobile number (or partial mobile). The frontend
+ * registration flow calls this as a pre-flight to surface possible
+ * duplicates before creating a new patient.
+ */
+export const searchPatientsByMobile = async (q: string): Promise<PatientSummary[]> => {
+  const trimmed = q.trim();
+  if (!trimmed) return [];
+  // Treat as a prefix search; ilike makes it case-insensitive (mobiles
+  // are digits but UHIDs may also be passed in by the same input).
+  const pattern = `%${trimmed}%`;
+  const { data, error } = await supabase
+    .from('patients')
+    .select('*')
+    .or(`mobile.ilike.${pattern},uhid.ilike.${pattern}`)
+    .is('deleted_at', null)
+    .order('updated_at', { ascending: false })
+    .limit(10);
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as Record<string, unknown>[]).map(mapRowToPatient);
+};
+
+/**
+ * Insert a new patient row and return the persisted shape. UHID is
+ * generated server-side from `hospital_profile` + `uhid_sequences`.
+ * Allergies + chronic conditions are accepted on the input but NOT
+ * persisted yet (lookup-table resolution not wired for the demo).
+ */
+export const createPatient = async (input: CreatePatientInput): Promise<PatientSummary> => {
+  const uhid = await generateNextUhid();
+
+  const insertRow = {
+    uhid,
+    first_name:    input.firstName,
+    last_name:     input.lastName,
+    date_of_birth: input.dateOfBirth,
+    gender:        input.gender,
+    blood_group:   input.bloodGroup ?? null,
+    mobile:        input.mobile,
+    alt_mobile:    input.altMobile ?? null,
+    email:         input.email ?? null,
+    address:       input.address ?? null,
+    created_by:    DEMO_USER_ID,
+    updated_by:    DEMO_USER_ID,
+    version:       0,
+  };
+
+  const { data, error } = await supabase
+    .from('patients')
+    .insert(insertRow)
+    .select('*')
+    .single();
+
+  if (error) throw new Error(error.message);
+  return mapRowToPatient(data as Record<string, unknown>);
+};
+
+/**
+ * Patch an existing patient by UHID. UHID itself is immutable
+ * (TSD-03 §4.1) so it's the lookup key, not a payload field.
+ */
+export const updatePatient = async (
+  uhid: string,
+  input: UpdatePatientInput,
+): Promise<PatientSummary> => {
+  const updateRow: Record<string, unknown> = {
+    first_name:  input.firstName,
+    last_name:   input.lastName,
+    gender:      input.gender,
+    blood_group: input.bloodGroup ?? null,
+    mobile:      input.mobile ?? null,
+    alt_mobile:  input.altMobile ?? null,
+    email:       input.email ?? null,
+    address:     input.address ?? null,
+    updated_by:  DEMO_USER_ID,
+  };
+  if (input.dateOfBirth) updateRow.date_of_birth = input.dateOfBirth;
+
+  const { data, error } = await supabase
+    .from('patients')
+    .update(updateRow)
+    .eq('uhid', uhid.toUpperCase())
+    .is('deleted_at', null)
+    .select('*')
+    .single();
+
+  if (error) throw new Error(error.message);
+  return mapRowToPatient(data as Record<string, unknown>);
+};
+
+/* ---------- Linked patients (same-mobile family lookup) ---------- */
+
+/**
+ * Mock-only declared-kin map. Mirrors the `patient_kin` table TSD-03 §4.5
+ * which does NOT exist in v3 yet. Kept here so the linked-patients popover
+ * still surfaces a known cross-mobile relationship for the demo anchor.
  */
 const declaredKinByUhid: Record<
   string,
   Array<{ uhid: string; relationship: KinRelationship; relationshipSpecific?: string }>
 > = {
-  // Karthik's father — different mobile from the rest of his family.
-  'KH-2026-00045': [
-    { uhid: 'KH-2018-00094', relationship: 'father' },
-  ],
+  'KH-2026-00045': [{ uhid: 'KH-2018-00094', relationship: 'father' }],
 };
 
+/**
+ * Returns every patient who shares this patient's mobile (real DB lookup)
+ * plus any declared cross-mobile kin (mock fallback — patient_kin table
+ * is not in v3). Empty list when the patient isn't found or has no kin.
+ */
 export const findLinkedPatients = async (uhid: string): Promise<LinkedPatient[]> => {
-  const me = mockPatientsByUhid[uhid];
-  if (!me) return delay([]);
+  const me = await fetchPatient(uhid);
+  if (!me) return [];
 
-  const seen = new Set<string>([uhid]);
   const links: LinkedPatient[] = [];
+  const seen = new Set<string>([uhid]);
 
-  // Same-mobile family (BRD §5: one mobile shared across kin).
-  for (const other of Object.values(mockPatientsByUhid)) {
-    if (seen.has(other.uhid)) continue;
-    if (other.mobile === me.mobile) {
+  // Same-mobile family — straight DB lookup.
+  if (me.mobile) {
+    const { data, error } = await supabase
+      .from('patients')
+      .select('*')
+      .eq('mobile', me.mobile)
+      .neq('id', me.id)
+      .is('deleted_at', null);
+    if (error) throw new Error(error.message);
+    for (const row of (data ?? []) as Record<string, unknown>[]) {
+      const other = mapRowToPatient(row);
+      if (seen.has(other.uhid)) continue;
       links.push({
         patient: other,
         relationship: 'other',
@@ -67,7 +277,7 @@ export const findLinkedPatients = async (uhid: string): Promise<LinkedPatient[]>
     }
   }
 
-  // Declared kin with a different mobile (real backend reads patient_kin).
+  // Declared kin with a different mobile — mock until patient_kin lands.
   for (const k of declaredKinByUhid[uhid] ?? []) {
     if (seen.has(k.uhid)) continue;
     const other = mockPatientsByUhid[k.uhid];
@@ -81,116 +291,5 @@ export const findLinkedPatients = async (uhid: string): Promise<LinkedPatient[]>
     seen.add(k.uhid);
   }
 
-  return delay(links);
-};
-
-/* ---------- Front-desk: lookup + register (BRD §1 step 2) ---------- */
-
-/**
- * In-memory patient registry — seeded from the master `mockPatients`
- * catalogue in `__mocks__/patientMocks.ts` (single source of truth) so
- * encounter / appointment / billing / lab / radiology / pharmacy mocks
- * all reference the same identities. Kept module-mutable so
- * `createPatient` can append new walk-ins.
- *
- * Real backend has the same single `patients` table indexed by UHID;
- * this just mirrors that registry for the demo.
- */
-const mockPatientsByUhid: Record<string, PatientSummary> = { ...seedPatientsByUhid };
-
-/**
- * Exact lookup by UHID — used by the patient profile page.
- * Falls back to mock data for encounter/appointment records not yet in DB.
- */
-export const fetchPatient = async (uhid: string): Promise<PatientSummary | null> => {
-  try {
-    return await httpClient.get<PatientSummary>(`/patients/${uhid.toUpperCase()}`);
-  } catch {
-    // Fall back to mock for encounter/appointment snapshots not in DB yet
-    let found: PatientSummary | null = mockPatientsByUhid[uhid] ?? null;
-    if (!found) found = mockQueue.find((q) => q.patient.uhid === uhid)?.patient ?? null;
-    if (!found) found = mockAppointments.find((a) => a.patient.uhid === uhid)?.patient ?? null;
-    return found;
-  }
-};
-
-/**
- * Search patients by UHID prefix or mobile — real API, paginated.
- * Returns the content array from the paginated response.
- */
-export const searchPatientsByMobile = async (q: string): Promise<PatientSummary[]> => {
-  const trimmed = q.trim();
-  if (!trimmed) return [];
-  try {
-    const result = await httpClient.get<{ content: PatientSummary[] }>(
-      '/patients',
-      { params: { q: trimmed, size: 10 } },
-    );
-    return result.content;
-  } catch {
-    return [];
-  }
-};
-
-/**
- * Server issues `uhid` from `uhid_sequences` (per-tenant, per-year). Mock
- * stores the freshly-created patient so subsequent lookups find them.
- */
-export const createPatient = async (input: CreatePatientInput): Promise<PatientSummary> => {
-  const created = await httpClient.post<PatientSummary>('/patients', input);
-  mockPatientsByUhid[created.uhid] = created;
-  return created;
-};
-
-const ageFromDob = (dateOfBirth: string): number => {
-  const d = new Date(dateOfBirth);
-  const now = new Date();
-  return Math.max(
-    0,
-    now.getFullYear() -
-      d.getFullYear() -
-      (now < new Date(now.getFullYear(), d.getMonth(), d.getDate()) ? 1 : 0),
-  );
-};
-
-/**
- * Update an existing patient. UHID is immutable per TSD-03 §4.1 (and is
- * therefore a path param, not a field). Real backend wire point:
- *   PATCH /api/patients/:uhid
- */
-export const updatePatient = async (
-  uhid: string,
-  input: UpdatePatientInput,
-): Promise<PatientSummary> => {
-  // Same fallback chain as fetchPatient — find the patient via queue
-  // or appointment snapshots when they're not in the patients registry
-  // yet. The first edit "promotes" the snapshot to the registry so
-  // subsequent reads + writes are consistent. Real backend doesn't
-  // need this — the patients table is the single source.
-  let existing: PatientSummary | undefined = mockPatientsByUhid[uhid];
-  if (!existing) {
-    existing = mockQueue.find((q) => q.patient.uhid === uhid)?.patient;
-  }
-  if (!existing) {
-    existing = mockAppointments.find((a) => a.patient.uhid === uhid)?.patient;
-  }
-  if (!existing) throw new Error(`Patient ${uhid} not found`);
-  const next: PatientSummary = {
-    ...existing,
-    firstName: input.firstName,
-    lastName: input.lastName,
-    fullName: `${input.firstName} ${input.lastName}`.trim(),
-    gender: input.gender,
-    dateOfBirth: input.dateOfBirth ?? existing.dateOfBirth,
-    ageYears: input.dateOfBirth ? ageFromDob(input.dateOfBirth) : existing.ageYears,
-    mobile: input.mobile,
-    altMobile: input.altMobile,
-    email: input.email,
-    bloodGroup: input.bloodGroup,
-    address: input.address ?? existing.address,
-    allergies: (input.allergies ?? []).map((a) => ({ allergen: a })),
-    chronicConditions: input.chronicConditions ?? [],
-  };
-  mockPatientsByUhid[uhid] = next;
-  return delay(next, 200);
+  return links;
 };

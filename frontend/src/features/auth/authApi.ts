@@ -1,128 +1,200 @@
-import { httpClient } from '@/lib/http/httpClient';
+import { supabase } from '@/lib/supabase/supabaseClient';
 import type { AuthSession, UserProfile, UserRole } from './authTypes';
-import { mockAuthenticate } from './__mocks__/authMocks';
 
-// ── Backend response shape ────────────────────────────────────────────────────
+/**
+ * DEMO-MODE auth surface.
+ *
+ * Wired directly to Supabase via `@/lib/supabase/supabaseClient` because the
+ * planned Spring backend doesn't exist yet. Long-term this whole file goes
+ * back to calling `httpClient.post('/auth/login', ...)` — see the migration
+ * note in `supabaseClient.ts`.
+ *
+ * Auth model:
+ *   - No real password verification — login looks up the `users` row by
+ *     username, checks `status = 'active'`, and returns a session.
+ *   - `accessToken` is a marker (`supabase-demo-<userId>`), NOT a JWT. It
+ *     just lets `restoreSession` rehydrate the user on page reload.
+ *   - `expiresAt` is set 8 hours in the future.
+ *   - DB `roles.role_code` matches the frontend `UserRole` union exactly
+ *     (frontdesk | doctor | chief_doctor | pharma | inventory | lab_radio |
+ *     owner). The owner-managed role-assignment page is the single source
+ *     of truth for who holds what.
+ */
 
-interface BackendLoginUserDto {
+const DEMO_TOKEN_PREFIX = 'supabase-demo-';
+const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+
+const UI_ROLES: ReadonlySet<UserRole> = new Set([
+  'frontdesk',
+  'doctor',
+  'chief_doctor',
+  'pharma',
+  'inventory',
+  'lab_radio',
+  'owner',
+]);
+
+/** Accept only role codes the frontend knows about; silently drop anything else. */
+function asUserRole(code: string): UserRole | null {
+  return UI_ROLES.has(code as UserRole) ? (code as UserRole) : null;
+}
+
+/* ---------- DB row shapes (snake_case mirrors of the schema) ---------- */
+
+interface UserRow {
   id: string;
-  employeeId: string;
-  fullName: string;
+  full_name: string;
   username: string;
-  email: string | null;
-  mobile: string;
-  departmentId: string | null;
-  designation: string | null;
-  primaryRole: string;
-  allRoles: string[];
-  profileData: Record<string, unknown> | null;
-  profilePicture: string | null;
   status: string;
-  mustChangePassword: boolean;
-  mfaEnabled: boolean;
+  profile_data: Record<string, unknown> | null;
+  profile_picture: string | null;
 }
 
-interface BackendLoginResponse {
-  token: string;
-  expiresAt: string;
-  user: BackendLoginUserDto;
+interface RoleRow {
+  role_code: string;
 }
 
-// ── Response mapper ───────────────────────────────────────────────────────────
+interface UserRoleRow {
+  role_id: string;
+  is_primary: boolean;
+  roles: RoleRow | null;
+}
 
-function mapToUserProfile(dto: BackendLoginUserDto): UserProfile {
-  const role = dto.primaryRole as UserRole;
-  const allRoles = (dto.allRoles as UserRole[] | undefined) ?? [role];
+/* ---------- Helpers ---------- */
+
+/**
+ * Loads every active role the user holds, picks the primary, and runs both
+ * the primary code and the full set through the DB-to-FE role mapper.
+ * Returns null if the user has no mappable role (defensive — should not
+ * happen for any seeded account).
+ */
+async function loadUserRoles(
+  userId: string,
+): Promise<{ primary: UserRole; all: UserRole[] } | null> {
+  const { data, error } = await supabase
+    .from('user_roles')
+    .select('role_id, is_primary, roles ( role_code )')
+    .eq('user_id', userId)
+    .is('deleted_at', null);
+
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as unknown as UserRoleRow[];
+  if (rows.length === 0) return null;
+
+  const mapped: { role: UserRole; isPrimary: boolean }[] = [];
+  for (const row of rows) {
+    const code = row.roles?.role_code;
+    if (!code) continue;
+    const fe = asUserRole(code);
+    if (!fe) continue;
+    mapped.push({ role: fe, isPrimary: row.is_primary });
+  }
+  if (mapped.length === 0) return null;
+
+  const primary = (mapped.find((m) => m.isPrimary)?.role) ?? mapped[0].role;
+  const all = Array.from(new Set(mapped.map((m) => m.role)));
+  return { primary, all };
+}
+
+function buildUserProfile(
+  row: UserRow,
+  primary: UserRole,
+  allRoles: UserRole[],
+): UserProfile {
   const base = {
-    id: dto.id,
-    fullName: dto.fullName,
+    id:           row.id,
+    fullName:     row.full_name,
     allRoles,
-    avatarUrl: dto.profilePicture
-      ? `data:image/jpeg;base64,${dto.profilePicture}`
+    avatarUrl:    row.profile_picture
+      ? `data:image/jpeg;base64,${row.profile_picture}`
       : undefined,
-    stationSlug: (dto.profileData?.stationSlug as string | undefined),
+    stationSlug:  (row.profile_data?.stationSlug as string | undefined),
   };
 
-  if (role === 'doctor' || role === 'chief_doctor') {
+  if (primary === 'doctor' || primary === 'chief_doctor') {
     return {
       ...base,
-      role,
-      specialization: (dto.profileData?.specialization as string) ?? '',
-      registrationNo: (dto.profileData?.registrationNo as string) ?? '',
+      role: primary,
+      specialization: (row.profile_data?.specialization as string) ?? '',
+      registrationNo: (row.profile_data?.registrationNo as string) ?? '',
     };
   }
 
-  // All other roles share the base shape — cast is safe because role is a valid UserRole.
-  return { ...base, role } as UserProfile;
+  return { ...base, role: primary } as UserProfile;
 }
 
-function mapToAuthSession(res: BackendLoginResponse): AuthSession {
+function buildSession(user: UserProfile): AuthSession {
   return {
-    accessToken: res.token,
-    expiresAt:   res.expiresAt,
-    user:        mapToUserProfile(res.user),
+    accessToken: `${DEMO_TOKEN_PREFIX}${user.id}`,
+    expiresAt:   new Date(Date.now() + SESSION_TTL_MS).toISOString(),
+    user,
   };
 }
 
-// ── Mock-only session ─────────────────────────────────────────────────────────
+/* ---------- API functions ---------- */
 
 /**
- * Wrap a mock user as an AuthSession. The token is just a marker so the
- * `restoreSession` flow can identify mock logins on page reload.
+ * Credential login. Looks up `users` by `username`, requires
+ * `status = 'active'`. Password is NOT validated — this is a demo.
  */
-function mockSessionFor(user: UserProfile): AuthSession {
-  const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString(); // +8h
-  return { accessToken: `mock-token-${user.id}`, expiresAt, user };
-}
+export const login = async (username: string, _password: string): Promise<AuthSession> => {
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, full_name, username, status, profile_data, profile_picture')
+    .eq('username', username.trim().toLowerCase())
+    .is('deleted_at', null)
+    .maybeSingle();
 
-// ── API functions ─────────────────────────────────────────────────────────────
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error('Invalid username or password.');
 
-/**
- * Credential login. Tries the real backend first; if the request fails
- * (no backend running in dev / mock mode), falls back to the mock user
- * catalogue. The mock fallback accepts a username (lowercased first
- * name — e.g. `priya`, `naveen`, `kuppan`) with password `123123`.
- */
-export const login = async (username: string, password: string): Promise<AuthSession> => {
-  try {
-    const res = await httpClient.post<BackendLoginResponse>('/auth/login', { username, password });
-    return mapToAuthSession(res);
-  } catch {
-    const mockUser = mockAuthenticate(username, password);
-    if (!mockUser) throw new Error('Invalid username or password.');
-    return mockSessionFor(mockUser);
+  const row = data as UserRow;
+  if (row.status !== 'active') {
+    throw new Error('Account is not active.');
   }
+
+  const roles = await loadUserRoles(row.id);
+  if (!roles) throw new Error('No roles assigned — contact your administrator.');
+
+  return buildSession(buildUserProfile(row, roles.primary, roles.all));
 };
 
 /**
  * Token revalidation — called on page load when a stored token exists.
- * Mock tokens (`mock-token-<userId>`) resolve locally so refreshes keep
- * the demo signed in without a backend.
+ * For demo tokens (`supabase-demo-<userId>`) we re-fetch the user from
+ * `users` and reissue a fresh session. Any other token shape is rejected.
  */
 export const restoreSession = async (token: string): Promise<AuthSession> => {
-  if (token.startsWith('mock-token-')) {
-    const userId = token.slice('mock-token-'.length);
-    const { mockUsers } = await import('./__mocks__/authMocks');
-    const user = mockUsers.find((u) => u.id === userId);
-    if (!user) throw new Error('Mock session no longer valid.');
-    return mockSessionFor(user);
+  if (!token.startsWith(DEMO_TOKEN_PREFIX)) {
+    throw new Error('Session token format not recognised.');
   }
-  const res = await httpClient.post<BackendLoginResponse>(
-    '/auth/login',
-    undefined,
-    { headers: { Authorization: `Bearer ${token}` } },
-  );
-  return mapToAuthSession(res);
+  const userId = token.slice(DEMO_TOKEN_PREFIX.length);
+  if (!userId) throw new Error('Session no longer valid.');
+
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, full_name, username, status, profile_data, profile_picture')
+    .eq('id', userId)
+    .is('deleted_at', null)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error('Session no longer valid.');
+
+  const row = data as UserRow;
+  if (row.status !== 'active') throw new Error('Account is not active.');
+
+  const roles = await loadUserRoles(row.id);
+  if (!roles) throw new Error('No roles assigned — contact your administrator.');
+
+  return buildSession(buildUserProfile(row, roles.primary, roles.all));
 };
 
 /**
- * Logout — notifies the server (no-op until token blacklist is implemented).
- * The caller must clear the local session store after this resolves.
+ * Logout — no-op in demo mode (no server-side token blacklist). The
+ * caller must clear the local session store after this resolves.
  */
 export const logout = async (): Promise<void> => {
-  try {
-    await httpClient.post('/auth/logout');
-  } catch {
-    // Mock mode — nothing to notify.
-  }
+  // Nothing to revoke server-side — demo tokens are stateless markers.
 };

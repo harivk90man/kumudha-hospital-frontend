@@ -1,25 +1,26 @@
-import { httpClient } from '@/lib/http/httpClient';
+import { supabase } from '@/lib/supabase/supabaseClient';
 
-interface AllergyItem {
-  id: string;
-  code: string;
-  name: string;
-  category: string;
-}
+/**
+ * Allergy + chronic-condition catalogue lookups. Demo-wired to Supabase
+ * directly; replace with httpClient calls once the Spring backend lands.
+ */
 
-interface ConditionItem {
-  id: string;
-  code: string;
-  name: string;
-  category: string;
-}
+export const fetchAllergySuggestions = async (): Promise<string[]> => {
+  const { data, error } = await supabase
+    .from('allergies_lookup')
+    .select('allergy_name')
+    .is('deleted_at', null)
+    .order('allergy_name', { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((r) => r.allergy_name as string);
+};
 
-export const fetchAllergySuggestions = (): Promise<string[]> =>
-  httpClient
-    .get<AllergyItem[]>('/lookups/allergies')
-    .then((items) => items.map((a) => a.name));
-
-export const fetchConditionSuggestions = (): Promise<string[]> =>
-  httpClient
-    .get<ConditionItem[]>('/lookups/chronic-conditions')
-    .then((items) => items.map((c) => c.name));
+export const fetchConditionSuggestions = async (): Promise<string[]> => {
+  const { data, error } = await supabase
+    .from('chronic_conditions_lookup')
+    .select('condition_name')
+    .is('deleted_at', null)
+    .order('condition_name', { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((r) => r.condition_name as string);
+};
