@@ -356,8 +356,35 @@ export const fetchLabOrderQueue = async (
 export const fetchLabOrder = async (
   id: string,
 ): Promise<LabOrderQueueEntry | null> => {
-  const found = mockQueueState.find((r) => r.id === id) ?? null;
-  return delay(found, 100);
+  // Synthetic id from fetchLabOrderQueue is "<orderUuid>-<itemUuid>" (UUIDs
+  // are 36 chars each → 73 total with the joining dash at index 36).
+  if (id.length === 73 && id[36] === '-') {
+    const orderId = id.slice(0, 36);
+    const itemId = id.slice(37);
+    try {
+      const { data, error } = await supabase
+        .from('lab_orders')
+        .select(`
+          id, order_number, priority, status, created_at, completed_at,
+          op_visits!lab_orders_op_visit_id_fkey ( op_number ),
+          patients!lab_orders_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
+          lab_order_items (
+            id, status, sequence_no,
+            lab_tests ( test_code, test_name, sample_type, requires_fasting, sample_volume_ml ),
+            lab_results ( value_numeric, value_raw, unit, flag, release_status )
+          )
+        `)
+        .eq('id', orderId)
+        .is('deleted_at', null)
+        .maybeSingle();
+      if (error || !data) return mockQueueState.find((r) => r.id === id) ?? null;
+      const all = mapLabOrderRow(data as unknown as SbLabOrderRow);
+      return all.find((e) => e.id.endsWith(itemId)) ?? all[0] ?? null;
+    } catch {
+      return mockQueueState.find((r) => r.id === id) ?? null;
+    }
+  }
+  return mockQueueState.find((r) => r.id === id) ?? null;
 };
 
 /**

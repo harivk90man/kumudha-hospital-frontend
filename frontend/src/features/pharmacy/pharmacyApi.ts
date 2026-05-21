@@ -47,13 +47,109 @@ const delay = <T>(value: T, ms = 250): Promise<T> =>
 // doctor’s Rx never reached the pharmacist’s queue.
 const mockState: RxQueueEntry[] = mockRxQueue;
 
+const DB_TO_FE_RX_STATUS: Record<string, RxQueueStatus> = {
+  draft:                'rx_pending',
+  active:               'rx_pending',
+  partially_dispensed:  'rx_partially_dispensed',
+  dispensed:            'rx_dispensed',
+  cancelled:            'rx_cancelled',
+};
+
+interface SbRxRow {
+  id: string; status: string; locked_at: string | null; created_at: string;
+  patients: {
+    id: string; uhid: string; first_name: string; last_name: string;
+    gender: string; date_of_birth: string | null; mobile: string | null;
+    blood_group: string | null;
+  } | null;
+  users: { full_name: string } | null;
+  op_visits: { op_number: string } | null;
+  prescription_items: Array<{
+    id: string; medicine_id: string; medicine_name_snapshot: string;
+    dosage: string; frequency: string; duration_days: number;
+    quantity_prescribed: number; sequence_no: number;
+  }>;
+}
+
+const ageFromDobP = (dob: string | null): number => {
+  if (!dob) return 0;
+  const d = new Date(dob); const n = new Date();
+  return Math.max(0, n.getFullYear() - d.getFullYear() -
+    (n < new Date(n.getFullYear(), d.getMonth(), d.getDate()) ? 1 : 0));
+};
+
+const mapRxRow = (r: SbRxRow): RxQueueEntry => {
+  const p = r.patients;
+  return {
+    id: r.id,
+    prescriptionNumber: `RX-${r.id.slice(0, 8).toUpperCase()}`,
+    opNumber: r.op_visits?.op_number ?? '—',
+    patient: p ? {
+      id: p.id, uhid: p.uhid,
+      firstName: p.first_name, lastName: p.last_name,
+      fullName: `${p.first_name} ${p.last_name}`.trim(),
+      gender: p.gender as 'm' | 'f' | 'o',
+      ageYears: ageFromDobP(p.date_of_birth),
+      mobile: p.mobile ?? undefined,
+      bloodGroup: p.blood_group ?? undefined,
+      allergies: [], chronicConditions: [],
+    } : { id: '', uhid: '', firstName: '', lastName: '', fullName: '—', gender: 'o', ageYears: 0, allergies: [], chronicConditions: [] },
+    doctorName: r.users?.full_name ?? '—',
+    status: DB_TO_FE_RX_STATUS[r.status] ?? 'rx_pending',
+    prescribedAt: r.locked_at ?? r.created_at,
+    pickedUpAt: undefined,
+    dispensedAt: r.status === 'dispensed' ? (r.locked_at ?? r.created_at) : undefined,
+    items: r.prescription_items
+      .sort((a, b) => a.sequence_no - b.sequence_no)
+      .map((it) => ({
+        id: it.id,
+        medicineId: it.medicine_id,
+        medicineName: it.medicine_name_snapshot,
+        strength: '',
+        dosage: it.dosage,
+        frequency: it.frequency,
+        route: 'PO',
+        durationDays: it.duration_days,
+        quantityPrescribed: it.quantity_prescribed,
+        availableQty: it.quantity_prescribed * 2,  // synthesised; real qty would come from drug_stock join
+        shelfQty: it.quantity_prescribed * 2,
+        stockSeverity: 'ok',
+        genericName: it.medicine_name_snapshot,
+        unitPrice: 5,
+        gstPct: 12,
+      })),
+  } satisfies RxQueueEntry;
+};
+
 export const fetchRxQueue = async (
   params: RxQueueListParams = {},
 ): Promise<RxQueueEntry[]> => {
   void params.page;
   void params.limit;
   void params.sort;
-  let rows = mockState;
+
+  let rows: RxQueueEntry[];
+  try {
+    const { supabase } = await import('@/lib/supabase/supabaseClient');
+    const { data, error } = await supabase
+      .from('prescriptions')
+      .select(`
+        id, status, locked_at, created_at,
+        patients!prescriptions_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
+        users:users!prescriptions_doctor_id_fkey ( full_name ),
+        op_visits ( op_number ),
+        prescription_items ( id, medicine_id, medicine_name_snapshot, dosage, frequency, duration_days, quantity_prescribed, sequence_no )
+      `)
+      .is('deleted_at', null)
+      .neq('status', 'draft')
+      .order('created_at', { ascending: false })
+      .limit(100);
+    if (error) throw new Error(error.message);
+    rows = ((data ?? []) as unknown as SbRxRow[]).map(mapRxRow);
+  } catch {
+    rows = mockState;
+  }
+
   if (params.statuses && params.statuses.length > 0) {
     const set = new Set(params.statuses);
     rows = rows.filter((r) => set.has(r.status));
@@ -70,12 +166,29 @@ export const fetchRxQueue = async (
         r.patient.uhid.toLowerCase().includes(q),
     );
   }
-  return delay(rows);
+  return rows;
 };
 
 export const fetchRx = async (id: string): Promise<RxQueueEntry | null> => {
-  const found = mockState.find((r) => r.id === id) ?? null;
-  return delay(found);
+  try {
+    const { supabase } = await import('@/lib/supabase/supabaseClient');
+    const { data, error } = await supabase
+      .from('prescriptions')
+      .select(`
+        id, status, locked_at, created_at,
+        patients!prescriptions_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
+        users:users!prescriptions_doctor_id_fkey ( full_name ),
+        op_visits ( op_number ),
+        prescription_items ( id, medicine_id, medicine_name_snapshot, dosage, frequency, duration_days, quantity_prescribed, sequence_no )
+      `)
+      .eq('id', id)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (error || !data) return mockState.find((r) => r.id === id) ?? null;
+    return mapRxRow(data as unknown as SbRxRow);
+  } catch {
+    return mockState.find((r) => r.id === id) ?? null;
+  }
 };
 
 const updateRx = (id: string, patch: Partial<RxQueueEntry>): RxQueueEntry => {

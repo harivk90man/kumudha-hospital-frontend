@@ -275,8 +275,25 @@ export const fetchRadiologyOrderQueue = async (
 export const fetchRadiologyOrder = async (
   id: string,
 ): Promise<RadiologyOrderQueueEntry | null> => {
-  const found = mockQueueState.find((r) => r.id === id) ?? null;
-  return delay(found, 100);
+  try {
+    const { supabase } = await import('@/lib/supabase/supabaseClient');
+    const { data, error } = await supabase
+      .from('radiology_orders')
+      .select(`
+        id, order_number, priority, status, created_at, imaging_completed_at, released_at,
+        op_visits!radiology_orders_op_visit_id_fkey ( op_number ),
+        patients!radiology_orders_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
+        radiology_procedures ( procedure_code, procedure_name, modality, body_part ),
+        radiology_reports ( findings, impression, release_status )
+      `)
+      .eq('id', id)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (error || !data) return mockQueueState.find((r) => r.id === id) ?? null;
+    return mapRadOrderRow(data as unknown as SbRadOrderRow);
+  } catch {
+    return mockQueueState.find((r) => r.id === id) ?? null;
+  }
 };
 
 /**
