@@ -16,6 +16,7 @@ import { cn } from '@/utils/cn';
 import { FormSelect } from '@/components/form';
 import {
   dispenseOtcSale,
+  fetchOtcUnitPrice,
   getOtcUnitPrice,
   useOtcSalesStore,
   type OtcPaymentMethod,
@@ -94,6 +95,19 @@ export function CounterSalePage(): JSX.Element {
       }
       const unitPrice = getOtcUnitPrice(m.id);
       return [...prev, { medicine: m, quantity: 1, unitPrice }];
+    });
+    // Resolve the live FEFO selling price asynchronously and patch the
+    // line once Supabase responds — keeps the click instant but the
+    // price the cashier sees matches the actual batch the dispense
+    // will decrement from.
+    void fetchOtcUnitPrice(m.id).then((live) => {
+      if (live > 0) {
+        setCart((prev) =>
+          prev.map((l) =>
+            l.medicine.id === m.id ? { ...l, unitPrice: live } : l,
+          ),
+        );
+      }
     });
     setQuery('');
     setHits([]);

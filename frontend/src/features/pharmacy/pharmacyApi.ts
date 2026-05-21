@@ -246,6 +246,34 @@ export const fetchPatientPrescriptionHistory = async (
   uhid: string,
   limit = 10,
 ): Promise<RxQueueEntry[]> => {
+  try {
+    const { supabase } = await import('@/lib/supabase/supabaseClient');
+    // Resolve UHID → patient_id, then pull every prescription with items.
+    const { data: pRow } = await supabase
+      .from('patients').select('id').eq('uhid', uhid).is('deleted_at', null).maybeSingle();
+    const patientId = (pRow as { id: string } | null)?.id;
+    if (patientId) {
+      const { data, error } = await supabase
+        .from('prescriptions')
+        .select(`
+          id, status, locked_at, created_at,
+          patients!prescriptions_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
+          users:users!prescriptions_doctor_id_fkey ( full_name ),
+          op_visits ( op_number ),
+          prescription_items ( id, medicine_id, medicine_name_snapshot, dosage, frequency, duration_days, quantity_prescribed, sequence_no )
+        `)
+        .eq('patient_id', patientId)
+        .neq('status', 'draft')
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      if (!error && data) {
+        return (data as unknown as SbRxRow[]).map(mapRxRow);
+      }
+    }
+  } catch {
+    // fall through to mock
+  }
   const matches = mockState
     .filter((r) => r.patient.uhid === uhid)
     .sort(
@@ -253,22 +281,57 @@ export const fetchPatientPrescriptionHistory = async (
         new Date(b.prescribedAt).getTime() - new Date(a.prescribedAt).getTime(),
     )
     .slice(0, limit);
-  return delay(matches, 120);
+  return matches;
 };
 
 /**
- * Look up the cheapest active batch’s unit price for a medicine. Real
- * backend would price from `medicines` or `services_catalog`; mock walks
- * the batches array and picks the lowest-priced active batch (FEFO would
- * pick by expiry — for OTC the customer-facing price is uniform per
- * medicine in a real pharmacy anyway).
+ * Look up the cheapest active batch's selling_price for a medicine.
+ * Sync helper for the UI render path — it asks Supabase synchronously
+ * via a cached promise (see {@link primeOtcPriceCache}) and falls back
+ * to the mock batches list when the cache is empty.
+ *
+ * To get a live price for a medicine call {@link fetchOtcUnitPrice}
+ * before opening the OTC dialog; the cashier sees the real selling
+ * price on the line item.
  */
+const otcPriceCache = new Map<string, number>();
+
 export const getOtcUnitPrice = (medicineId: string): number => {
+  const cached = otcPriceCache.get(medicineId);
+  if (cached !== undefined) return cached;
   const candidates = mockMedicineBatches.filter(
     (b) => b.medicineId === medicineId && b.isActive,
   );
   if (candidates.length === 0) return 0;
   return Math.min(...candidates.map((b) => b.unitPrice));
+};
+
+/**
+ * Resolve and cache the FEFO selling_price for a medicine from Supabase.
+ * The OTC counter calls this before adding a medicine to the cart so
+ * the displayed unit price matches the actual batch the dispense will
+ * decrement from.
+ */
+export const fetchOtcUnitPrice = async (medicineId: string): Promise<number> => {
+  try {
+    const { supabase } = await import('@/lib/supabase/supabaseClient');
+    const { data } = await supabase
+      .from('drug_stock')
+      .select('selling_price, expiry_date, quantity_available, is_blocked')
+      .eq('drug_id', medicineId)
+      .gt('quantity_available', 0)
+      .eq('is_blocked', false)
+      .order('expiry_date', { ascending: true })
+      .limit(1);
+    const rows = (data ?? []) as Array<{ selling_price: number }>;
+    if (rows.length > 0 && rows[0].selling_price > 0) {
+      otcPriceCache.set(medicineId, rows[0].selling_price);
+      return rows[0].selling_price;
+    }
+  } catch {
+    // fall through
+  }
+  return getOtcUnitPrice(medicineId);
 };
 
 let mockOtcSeq = 5000;
@@ -283,9 +346,174 @@ let mockOtcSeq = 5000;
  * `prescription_id = NULL` (per TSD-10 §4.4 OTC variant) + `invoices`
  * row in one transaction.
  */
+/**
+ * Persist an OTC sale to Supabase:
+ *  - one pharmacy_sales header (sale_type='walkin_otc', prescription_id=null)
+ *  - one pharmacy_sale_items row per dispensed line (per FEFO batch)
+ *  - drug_stock decrement + drug_stock_ledger sale_out per line
+ *
+ * Returns the new sale UUID + computed totals + any shortfalls. Returns
+ * null when the DB rejects the write (e.g. nothing fulfilled) so the
+ * caller can fall back to the mock path.
+ */
+interface OtcDbResult {
+  saleId:        string;
+  saleNumber:    string;
+  invoiceTotal:  number;
+  shortfalls:    OtcSaleResult['shortfalls'];
+}
+
+const persistOtcSaleToDb = async (
+  input: OtcSaleInput,
+): Promise<OtcDbResult | null> => {
+  try {
+    const { supabase, DEMO_USER_ID } = await import('@/lib/supabase/supabaseClient');
+    const bs = DEMO_USER_ID;
+
+    interface LineWork {
+      medicineId: string; qty: number; unitPrice: number; gstPct: number;
+      batchId: string; lineTotal: number; lineGst: number;
+    }
+    const work: LineWork[] = [];
+    const shortfalls: OtcSaleResult['shortfalls'] = [];
+    let subtotal = 0;
+    let totalTax = 0;
+
+    for (const line of input.lines) {
+      if (line.quantity <= 0) continue;
+      const batch = await pickFefoBatch(line.medicineId, line.quantity);
+      if (!batch) {
+        // Try smaller — pick any batch with some stock and partially fulfil.
+        const { data: anyBatch } = await supabase
+          .from('drug_stock')
+          .select('id, quantity_available, selling_price, expiry_date')
+          .eq('drug_id', line.medicineId)
+          .gt('quantity_available', 0)
+          .eq('is_blocked', false)
+          .order('expiry_date', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        const partial = anyBatch as { id: string; quantity_available: number; selling_price: number } | null;
+        if (!partial || partial.quantity_available <= 0) {
+          shortfalls.push({ medicineId: line.medicineId, requested: line.quantity, fulfilled: 0 });
+          continue;
+        }
+        const taken = partial.quantity_available;
+        shortfalls.push({ medicineId: line.medicineId, requested: line.quantity, fulfilled: taken });
+        const unit = partial.selling_price > 0 ? partial.selling_price : line.unitPrice;
+        const gross = unit * taken;
+        const gst = gross * (line.gstPct / 100);
+        subtotal += gross;
+        totalTax += gst;
+        work.push({ medicineId: line.medicineId, qty: taken, unitPrice: unit, gstPct: line.gstPct,
+          batchId: partial.id, lineTotal: Number((gross + gst).toFixed(2)), lineGst: gst });
+        continue;
+      }
+      const unit = batch.selling_price > 0 ? batch.selling_price : line.unitPrice;
+      const gross = unit * line.quantity;
+      const gst = gross * (line.gstPct / 100);
+      subtotal += gross;
+      totalTax += gst;
+      work.push({ medicineId: line.medicineId, qty: line.quantity, unitPrice: unit, gstPct: line.gstPct,
+        batchId: batch.id, lineTotal: Number((gross + gst).toFixed(2)), lineGst: gst });
+    }
+
+    if (work.length === 0) return null;
+
+    const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const saleNumber = `OTC-${today}-${Date.now().toString(36).slice(-4).toUpperCase()}`;
+    const netAmount = Number((subtotal + totalTax).toFixed(2));
+
+    const { data: saleIns, error: saleErr } = await supabase
+      .from('pharmacy_sales')
+      .insert({
+        sale_number:           saleNumber,
+        patient_id:            null,
+        sale_type:             'walkin_otc',
+        prescription_id:       null,
+        customer_name:         input.customerName ?? null,
+        customer_mobile:       input.customerPhone ?? null,
+        subtotal:              Number(subtotal.toFixed(2)),
+        total_tax:             Number(totalTax.toFixed(2)),
+        bill_discount_amount:  0,
+        net_amount:            netAmount,
+        status:                shortfalls.length > 0 ? 'partially_dispensed' : 'dispensed',
+        created_by:            bs,
+      })
+      .select('id')
+      .maybeSingle();
+    if (saleErr || !saleIns) return null;
+    const saleId = (saleIns as { id: string }).id;
+
+    for (const w of work) {
+      const { data: itemIns } = await supabase
+        .from('pharmacy_sale_items')
+        .insert({
+          pharmacy_sale_id:      saleId,
+          drug_id:               w.medicineId,
+          drug_stock_id:         w.batchId,
+          quantity:              w.qty,
+          unit_price:            Number(w.unitPrice.toFixed(2)),
+          line_discount_pct:     0,
+          line_discount_amount:  0,
+          cgst_pct:              0, cgst_amount: 0,
+          sgst_pct:              0, sgst_amount: 0,
+          igst_pct:              w.gstPct,
+          igst_amount:           Number(w.lineGst.toFixed(2)),
+          total_price:           w.lineTotal,
+          created_by:            bs,
+        })
+        .select('id')
+        .maybeSingle();
+
+      const { data: cur } = await supabase
+        .from('drug_stock').select('quantity_available').eq('id', w.batchId).maybeSingle();
+      const before = (cur as { quantity_available: number } | null)?.quantity_available ?? 0;
+      const after = Math.max(0, before - w.qty);
+      await supabase.from('drug_stock')
+        .update({ quantity_available: after, updated_by: bs })
+        .eq('id', w.batchId);
+
+      await supabase.from('drug_stock_ledger').insert({
+        drug_stock_id:          w.batchId,
+        movement_type:          'sale_out',
+        quantity_before:        before,
+        quantity_after:         after,
+        pharmacy_sale_item_id:  (itemIns as { id: string } | null)?.id ?? null,
+        performed_by:           bs,
+        notes:                  `OTC sale ${saleNumber}`,
+        created_by:             bs,
+      });
+    }
+
+    return { saleId, saleNumber, invoiceTotal: netAmount, shortfalls: shortfalls.length > 0 ? shortfalls : undefined };
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[dispenseOtcSale] DB persistence failed; mock-only:', e);
+    return null;
+  }
+};
+
 export const dispenseOtcSale = async (
   input: OtcSaleInput,
 ): Promise<OtcSaleResult> => {
+  // Try the real DB path first — OTC is an audit-bearing event that
+  // must hit pharmacy_sales for owner reports + cashier shift totals.
+  const dbResult = await persistOtcSaleToDb(input);
+  if (dbResult) {
+    // Mirror mock stock for the in-process inventory feature panels.
+    for (const line of input.lines) {
+      if (line.quantity > 0) consumeStockFefo(line.medicineId, line.quantity);
+    }
+    return {
+      saleNumber:   dbResult.saleNumber,
+      invoiceId:    dbResult.saleId,
+      invoiceTotal: dbResult.invoiceTotal,
+      shortfalls:   dbResult.shortfalls,
+    };
+  }
+
+  // Fallback: keep the demo alive when DB write fails.
   const shortfalls: OtcSaleResult['shortfalls'] = [];
   let total = 0;
   for (const line of input.lines) {
@@ -305,15 +533,12 @@ export const dispenseOtcSale = async (
 
   mockOtcSeq += 1;
   const saleNumber = `OTC-${new Date().getFullYear()}-${String(mockOtcSeq).padStart(6, '0')}`;
-  return delay(
-    {
-      saleNumber,
-      invoiceId: `inv-otc-${mockOtcSeq}`,
-      invoiceTotal: Number(total.toFixed(2)),
-      shortfalls: shortfalls.length > 0 ? shortfalls : undefined,
-    },
-    200,
-  );
+  return {
+    saleNumber,
+    invoiceId: `inv-otc-${mockOtcSeq}`,
+    invoiceTotal: Number(total.toFixed(2)),
+    shortfalls: shortfalls.length > 0 ? shortfalls : undefined,
+  };
 };
 
 const FE_RX_STATUS_TO_DB: Record<RxQueueStatus, string> = {

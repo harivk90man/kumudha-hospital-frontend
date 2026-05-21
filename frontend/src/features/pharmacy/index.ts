@@ -10,6 +10,7 @@ export {
   resolveDiscount,
   fetchPatientPrescriptionHistory,
   getOtcUnitPrice,
+  fetchOtcUnitPrice,
   dispenseOtcSale,
 } from './pharmacyApi';
 export type {
