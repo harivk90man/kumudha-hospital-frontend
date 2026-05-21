@@ -360,16 +360,83 @@ const toVisitHistoryItem = (ctx: ConsultationContext): VisitHistoryItem => {
   };
 };
 
+interface SbVisitHistoryRow {
+  op_number: string;
+  visit_date: string;
+  chief_complaint: string | null;
+  created_at: string;
+  closed_at: string | null;
+  users: { full_name: string;
+    departments: { dept_name: string } | null } | null;
+  consultations: Array<{ diagnoses: Array<{ icd10?: string; desc?: string; type?: string }> | null }>;
+  prescriptions: Array<{ prescription_items: Array<{ id: string }> }>;
+  lab_orders: Array<{ id: string }>;
+  radiology_orders: Array<{ id: string }>;
+}
+
+const sbRowToVisitHistory = (r: SbVisitHistoryRow): VisitHistoryItem => {
+  const cons = r.consultations[0];
+  const primary = cons?.diagnoses?.find((d) => d.type === 'primary') ?? cons?.diagnoses?.[0];
+  const rxItemCount = r.prescriptions.reduce((acc, p) => acc + (p.prescription_items?.length ?? 0), 0);
+  return {
+    opNumber:            r.op_number,
+    visitDate:           r.closed_at ?? r.created_at ?? r.visit_date,
+    doctorName:          r.users?.full_name ?? '',
+    department:          r.users?.departments?.dept_name ?? '',
+    chiefComplaint:      r.chief_complaint ?? '',
+    primaryDiagnosis:    primary?.desc,
+    prescriptionCount:   rxItemCount,
+    hasLabReports:       r.lab_orders.length > 0,
+    hasRadiologyReports: r.radiology_orders.length > 0,
+  };
+};
+
+/**
+ * Visit history for a patient. Reads from Supabase: resolves the UHID
+ * to a patient_id, then pulls every op_visit joined with consultation
+ * (for primary diagnosis), prescription items count, and lab/radiology
+ * order presence. Falls back to mockPastEncounters when the patient
+ * isn't in Supabase (e.g. the Karthik demo encounter still served
+ * from in-memory mocks).
+ */
 export const fetchVisitHistory = async (
   uhid: string,
   params: { page?: number; limit?: number; sort?: string } = {},
 ): Promise<VisitHistoryItem[]> => {
   void params;
+  try {
+    const { supabase } = await import('@/lib/supabase/supabaseClient');
+    const { data: p } = await supabase
+      .from('patients').select('id').eq('uhid', uhid).is('deleted_at', null).maybeSingle();
+    const patientId = (p as { id: string } | null)?.id;
+    if (patientId) {
+      const { data, error } = await supabase
+        .from('op_visits')
+        .select(`
+          op_number, visit_date, chief_complaint, created_at, closed_at,
+          users:users!op_visits_doctor_id_fkey ( full_name, departments!fk_users_department ( dept_name ) ),
+          consultations ( diagnoses ),
+          prescriptions ( prescription_items ( id ) ),
+          lab_orders ( id ),
+          radiology_orders ( id )
+        `)
+        .eq('patient_id', patientId)
+        .is('deleted_at', null)
+        .order('visit_date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (!error && data && data.length > 0) {
+        return (data as unknown as SbVisitHistoryRow[]).map(sbRowToVisitHistory);
+      }
+    }
+  } catch {
+    // fall through to mock
+  }
   const items = Object.values(mockPastEncounters)
     .filter((ctx) => ctx.patient.uhid === uhid)
     .sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))
     .map(toVisitHistoryItem);
-  return delay(items);
+  return items;
 };
 
 export const fetchPrescriptionTemplates = async (
