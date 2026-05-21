@@ -283,14 +283,118 @@ export const fetchQueueByDoctor = async (): Promise<DoctorQueueGroup[]> => {
 };
 
 /**
+ * Resolve op_visit by op_number, returning {id, patient_id} or null.
+ * Shared helper for state-transition writes below.
+ */
+const lookupOpVisit = async (
+  opNumber: string,
+): Promise<{ id: string; patientId: string } | null> => {
+  try {
+    const { data } = await supabase
+      .from('op_visits')
+      .select('id, patient_id')
+      .eq('op_number', opNumber)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (!data) return null;
+    const r = data as { id: string; patient_id: string };
+    return { id: r.id, patientId: r.patient_id };
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Move the active patient_states row to a new station. Idempotent:
+ * if the current active state is already at the target station, no-op.
+ * Returns false on any DB failure so callers can decide whether to
+ * surface the error to the user.
+ */
+const moveToStation = async (
+  opVisitId: string,
+  patientId: string,
+  stationType: 'front_desk' | 'vitals' | 'doctor' | 'billing' | 'pharmacy' |
+               'lab_collection' | 'lab_processing' | 'radiology',
+): Promise<boolean> => {
+  try {
+    const bs = '00000000-0000-0000-0000-000000000001';
+    const { data: stRow } = await supabase
+      .from('stations').select('id, station_type')
+      .eq('station_type', stationType).is('deleted_at', null).maybeSingle();
+    const target = stRow as { id: string; station_type: string } | null;
+    if (!target) return false;
+
+    const { data: active } = await supabase
+      .from('patient_states')
+      .select('id, station_id')
+      .eq('op_visit_id', opVisitId)
+      .is('left_at', null)
+      .is('deleted_at', null)
+      .maybeSingle();
+    const cur = active as { id: string; station_id: string } | null;
+
+    if (cur && cur.station_id === target.id) return true; // already there
+
+    if (cur) {
+      const { error: closeErr } = await supabase
+        .from('patient_states').update({ left_at: new Date().toISOString() })
+        .eq('id', cur.id);
+      if (closeErr) return false;
+    }
+
+    const { error: insErr } = await supabase
+      .from('patient_states').insert({
+        patient_id: patientId,
+        op_visit_id: opVisitId,
+        station_id: target.id,
+        metadata: {},
+        created_by: bs,
+      });
+    if (insErr) return false;
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Close the active patient_states row WITHOUT inserting a successor
+ * (used when the visit is being completed entirely — no next station).
+ */
+const closeActiveState = async (opVisitId: string): Promise<boolean> => {
+  try {
+    const { data: active } = await supabase
+      .from('patient_states')
+      .select('id')
+      .eq('op_visit_id', opVisitId)
+      .is('left_at', null)
+      .is('deleted_at', null)
+      .maybeSingle();
+    const cur = active as { id: string } | null;
+    if (!cur) return true;
+    const { error } = await supabase
+      .from('patient_states').update({ left_at: new Date().toISOString() })
+      .eq('id', cur.id);
+    return !error;
+  } catch {
+    return false;
+  }
+};
+
+/**
  * Doctor calls the next patient. Per the patient_states catalogue
  * (140 awaiting_doctor â†’ 150 in_consultation), the encounter must
  * leave the queueâ€™s "awaiting" view so two doctors donâ€™t grab the
- * same patient. Mock: flip the queue rowâ€™s status.
+ * same patient. Persists to Supabase: ensures the active state is
+ * at the doctor station (idempotent if patient already there).
  */
 export const startConsultation = async (opNumber: string): Promise<{ opNumber: string }> => {
   setQueueStatus(opNumber, 'in_consultation');
-  return delay({ opNumber });
+  const opv = await lookupOpVisit(opNumber);
+  if (opv) {
+    await moveToStation(opv.id, opv.patientId, 'doctor');
+  }
+  return { opNumber };
 };
 
 /**
@@ -299,10 +403,41 @@ export const startConsultation = async (opNumber: string): Promise<{ opNumber: s
  * leaves the doctorâ€™s active queue. Subsequent transitions
  * (rx_pending / awaiting_billing / completed) are owned by
  * pharmacy + cashier downstream.
+ *
+ * Persists to Supabase:
+ *  - If the visit has an active (locked) prescription, transition
+ *    the active patient_states row to the pharmacy station.
+ *  - Otherwise close the active state and stamp op_visits.closed_at.
  */
 export const completeConsultation = async (opNumber: string): Promise<void> => {
   setQueueStatus(opNumber, 'consultation_done');
-  await delay(null);
+  const opv = await lookupOpVisit(opNumber);
+  if (!opv) return;
+  try {
+    // Is there an active prescription for this visit?
+    const { data: cons } = await supabase
+      .from('consultations').select('id').eq('op_visit_id', opv.id).maybeSingle();
+    const consId = (cons as { id: string } | null)?.id;
+    let hasRx = false;
+    if (consId) {
+      const { data: rx } = await supabase
+        .from('prescriptions').select('id, status')
+        .eq('consultation_id', consId).maybeSingle();
+      const rxRow = rx as { id: string; status: string } | null;
+      hasRx = !!rxRow && rxRow.status === 'active';
+    }
+    if (hasRx) {
+      await moveToStation(opv.id, opv.patientId, 'pharmacy');
+    } else {
+      await closeActiveState(opv.id);
+      await supabase.from('op_visits')
+        .update({ closed_at: new Date().toISOString() })
+        .eq('id', opv.id);
+    }
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[completeConsultation] Supabase persistence failed:', e);
+  }
 };
 
 /* ---------- Front-desk: register a walk-in encounter (BRD Â§1 step 3) ---------- */
@@ -380,6 +515,59 @@ export const recordVitals = async (
   opNumber: string,
   payload: VitalsCaptureInput,
 ): Promise<VitalsRecord> => {
+  // Resolve op_visit + patient by op_number.
+  const { data: opv, error: opvErr } = await supabase
+    .from('op_visits')
+    .select('id, patient_id')
+    .eq('op_number', opNumber)
+    .is('deleted_at', null)
+    .maybeSingle();
+  if (opvErr || !opv) {
+    // Mock fallback so the demo never blocks if the op_number is unknown.
+    return {
+      ...payload,
+      id: `vit-${Date.now()}`,
+      patientId: opNumber,
+      opVisitId: opNumber,
+      recordedBy: '00000000-0000-0000-0000-000000000001',
+      recordedAt: new Date().toISOString(),
+    } satisfies VitalsRecord;
+  }
+  const { data: ins, error: insErr } = await supabase
+    .from('vitals')
+    .insert({
+      patient_id:        opv.patient_id,
+      op_visit_id:       opv.id,
+      bp_systolic:       payload.bpSystolic ?? null,
+      bp_diastolic:      payload.bpDiastolic ?? null,
+      pulse_rate:        payload.pulseRate ?? null,
+      spo2:              payload.spo2 ?? null,
+      temperature_f:     payload.temperatureF ?? null,
+      respiratory_rate:  payload.respiratoryRate ?? null,
+      weight_kg:         payload.weightKg ?? null,
+      height_cm:         payload.heightCm ?? null,
+      blood_sugar_mg_dl: payload.bloodSugarRandom ?? null,
+      pain_score:        payload.painScore ?? null,
+      notes:             payload.notes ?? null,
+      created_by:        '00000000-0000-0000-0000-000000000001',
+    })
+    .select('id, created_at, bmi')
+    .single();
+  if (insErr || !ins) {
+    throw new Error(insErr?.message ?? 'Failed to save vitals');
+  }
+  return {
+    ...payload,
+    id: (ins as { id: string }).id,
+    patientId: opv.patient_id,
+    opVisitId: opv.id,
+    bmi: (ins as { bmi: number | null }).bmi ?? undefined,
+    recordedBy: '00000000-0000-0000-0000-000000000001',
+    recordedAt: (ins as { created_at: string }).created_at,
+  } satisfies VitalsRecord;
+
+  // dead-code retained for FE compat
+  void httpClient;
   const body: Record<string, unknown> = {
     bpSystolic:       payload.bpSystolic,
     bpDiastolic:      payload.bpDiastolic,

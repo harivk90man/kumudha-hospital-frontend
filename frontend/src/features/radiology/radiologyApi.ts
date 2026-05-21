@@ -328,47 +328,112 @@ const updateQueue = (
   return updated;
 };
 
+// FE OrderStatus -> DB radiology_orders.status mapping (DB has more states)
+const FE_TO_DB_RAD_STATUS: Record<string, string> = {
+  ordered:       'ordered',
+  paid:          'paid',
+  in_progress:   'imaging_in_progress',
+  reported:      'reported',
+  released:      'released',
+  cancelled:     'cancelled',
+};
+
 export const transitionRadiologyOrder = async (
   id: string,
   toStatus: OrderStatus,
 ): Promise<RadiologyOrderQueueEntry> => {
-  const patch: Partial<RadiologyOrderQueueEntry> = { status: toStatus };
-  if (toStatus === 'in_progress') patch.capturedAt = new Date().toISOString();
-  if (toStatus === 'released') patch.releasedAt = new Date().toISOString();
-  return delay(updateQueue(id, patch), 150);
+  const { supabase } = await import('@/lib/supabase/supabaseClient');
+  const dbStatus = FE_TO_DB_RAD_STATUS[toStatus] ?? toStatus;
+  const patch: Record<string, unknown> = { status: dbStatus };
+  if (toStatus === 'in_progress') patch.imaging_completed_at = new Date().toISOString();
+  if (toStatus === 'released')    patch.released_at = new Date().toISOString();
+  const { error } = await supabase.from('radiology_orders').update(patch).eq('id', id);
+  if (error) {
+    // Fall back to mock state
+    const fePatch: Partial<RadiologyOrderQueueEntry> = { status: toStatus };
+    if (toStatus === 'in_progress') fePatch.capturedAt = new Date().toISOString();
+    if (toStatus === 'released') fePatch.releasedAt = new Date().toISOString();
+    return updateQueue(id, fePatch);
+  }
+  const re = await fetchRadiologyOrder(id);
+  return re ?? updateQueue(id, { status: toStatus });
 };
 
 export const recordRadiologyResult = async (
   input: RecordRadiologyResultInput,
 ): Promise<RadiologyOrderQueueEntry> => {
-  const updated = updateQueue(input.orderId, {
+  const { supabase } = await import('@/lib/supabase/supabaseClient');
+  // Insert or update the radiology_report row
+  const { data: existing } = await supabase
+    .from('radiology_reports')
+    .select('id')
+    .eq('radiology_order_id', input.orderId)
+    .maybeSingle();
+  const reportPayload: Record<string, unknown> = {
+    radiology_order_id: input.orderId,
+    findings:           input.notes ?? null,
+    impression:         input.resultSummary ?? '',
+    reported_by_radiologist_id: '00000000-0000-0000-0000-000000000001',
+    dictated_at:        new Date().toISOString(),
+    release_status:     'verified',
+    approval_status:    'pending_approval',
+    created_by:         '00000000-0000-0000-0000-000000000001',
+  };
+  if (existing) {
+    await supabase.from('radiology_reports').update(reportPayload).eq('id', (existing as { id: string }).id);
+  } else {
+    await supabase.from('radiology_reports').insert(reportPayload);
+  }
+  await supabase.from('radiology_orders').update({
+    status: 'reported',
+    imaging_completed_at: new Date().toISOString(),
+  }).eq('id', input.orderId);
+  const re = await fetchRadiologyOrder(input.orderId);
+  return re ?? updateQueue(input.orderId, {
     status: 'reported',
     reportedAt: new Date().toISOString(),
     resultSummary: input.resultSummary,
     notes: input.notes,
     imagesUrl: input.imagesUrl,
   });
-  return delay(updated, 200);
 };
 
 export const releaseRadiologyOrder = async (
   id: string,
 ): Promise<RadiologyOrderQueueEntry> => {
-  const updated = await transitionRadiologyOrder(id, 'released');
-  // Mock side-effect: surface this released report on the doctor’s
-  // "Reports to check" tab.
-  appendReportPending({
-    opNumber: updated.opNumber,
-    patient: updated.patient,
-    report: {
-      kind: 'radiology',
-      testCode: updated.testCode,
-      testName: updated.testName,
-      status: 'reported',
-      reportedAt: updated.reportedAt,
-    },
-  });
-  return updated;
+  const { supabase } = await import('@/lib/supabase/supabaseClient');
+  // Flip the report to released + approved (kuppan as approver)
+  const { data: kuppan } = await supabase.from('users').select('id').eq('username', 'kuppan').maybeSingle();
+  const approverId = (kuppan as { id: string } | null)?.id ?? '00000000-0000-0000-0000-000000000001';
+  const { data: report } = await supabase
+    .from('radiology_reports')
+    .select('id')
+    .eq('radiology_order_id', id)
+    .maybeSingle();
+  if (report) {
+    await supabase
+      .from('radiology_reports')
+      .update({
+        release_status:  'released',
+        approval_status: 'approved',
+        approved_by:     approverId,
+        approved_at:     new Date().toISOString(),
+      })
+      .eq('id', (report as { id: string }).id);
+  }
+  await supabase.from('radiology_orders').update({
+    status: 'released',
+    released_at: new Date().toISOString(),
+  }).eq('id', id);
+  const re = await fetchRadiologyOrder(id);
+  if (re) {
+    appendReportPending({
+      opNumber: re.opNumber, patient: re.patient,
+      report: { kind: 'radiology', testCode: re.testCode, testName: re.testName, status: 'reported', reportedAt: re.reportedAt },
+    });
+    return re;
+  }
+  return updateQueue(id, { status: 'released', releasedAt: new Date().toISOString() });
 };
 
 /**

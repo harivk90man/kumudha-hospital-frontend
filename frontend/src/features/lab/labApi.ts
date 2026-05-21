@@ -423,19 +423,88 @@ const updateQueue = (
  * Move a lab order along the TSD-08 §4.6 status ladder.
  * Server validates the transition is allowed from the current status.
  */
+/** Split FE synthetic id "<orderUuid>-<itemUuid>" → [orderId, itemId]. */
+const splitLabSyntheticId = (id: string): { orderId: string; itemId: string } | null => {
+  if (id.length === 73 && id[36] === '-') {
+    return { orderId: id.slice(0, 36), itemId: id.slice(37) };
+  }
+  return null;
+};
+
+const DB_ITEM_STATUSES: ReadonlySet<string> = new Set([
+  'pending','sample_collected','rejected','recollection_pending','in_progress','reported','verified','released','cancelled',
+]);
+const DB_ORDER_STATUSES: ReadonlySet<string> = new Set([
+  'ordered','paid','sample_collection','sample_collected','in_progress','partially_reported','reported','released','cancelled',
+]);
+
+/** Persist a transition to the lab_order_items row AND to lab_orders if applicable. */
 export const transitionLabOrder = async (
   id: string,
   toStatus: OrderStatus,
 ): Promise<LabOrderQueueEntry> => {
+  const split = splitLabSyntheticId(id);
+  if (split) {
+    const itemStatus = DB_ITEM_STATUSES.has(toStatus) ? toStatus : 'pending';
+    const orderStatus = DB_ORDER_STATUSES.has(toStatus) ? toStatus : undefined;
+    const completedAt = (toStatus === 'reported' || toStatus === 'released')
+      ? new Date().toISOString() : undefined;
+    const { error: itErr } = await supabase
+      .from('lab_order_items')
+      .update({ status: itemStatus })
+      .eq('id', split.itemId);
+    if (itErr) throw new Error(itErr.message);
+    if (orderStatus) {
+      const { error: orErr } = await supabase
+        .from('lab_orders')
+        .update({ status: orderStatus, completed_at: completedAt ?? null })
+        .eq('id', split.orderId);
+      if (orErr) throw new Error(orErr.message);
+    }
+    const re = await fetchLabOrder(id);
+    if (re) return re;
+  }
+  // Fallback to mock state if id format unexpected
   const patch: Partial<LabOrderQueueEntry> = { status: toStatus };
   if (toStatus === 'sample_collected') patch.sampleCollectedAt = new Date().toISOString();
   if (toStatus === 'released') patch.releasedAt = new Date().toISOString();
-  return delay(updateQueue(id, patch), 150);
+  return updateQueue(id, patch);
 };
 
 export const recordLabResult = async (
   input: RecordLabResultInput,
 ): Promise<LabOrderQueueEntry> => {
+  const split = splitLabSyntheticId(input.orderId);
+  if (split) {
+    // Insert/upsert one lab_results row for the item
+    const { data: existing } = await supabase
+      .from('lab_results')
+      .select('id')
+      .eq('lab_order_item_id', split.itemId)
+      .maybeSingle();
+    const payload: Record<string, unknown> = {
+      lab_order_item_id: split.itemId,
+      value_raw:         input.resultText ?? input.resultSummary ?? null,
+      value_numeric:     input.resultNumeric ?? null,
+      unit:              input.resultUnit ?? null,
+      flag:              input.flag ?? 'normal',
+      performed_by:      '00000000-0000-0000-0000-000000000001',
+      release_status:    'pending_verification',
+      approval_status:   'pending',
+      created_by:        '00000000-0000-0000-0000-000000000001',
+    };
+    if (existing) {
+      const { error } = await supabase.from('lab_results').update(payload).eq('id', (existing as { id: string }).id);
+      if (error) throw new Error(error.message);
+    } else {
+      const { error } = await supabase.from('lab_results').insert(payload);
+      if (error) throw new Error(error.message);
+    }
+    await supabase.from('lab_order_items').update({ status: 'reported' }).eq('id', split.itemId);
+    await supabase.from('lab_orders').update({ status: 'reported', completed_at: new Date().toISOString() }).eq('id', split.orderId);
+    const re = await fetchLabOrder(input.orderId);
+    if (re) return re;
+  }
   const updated = updateQueue(input.orderId, {
     status: 'reported',
     reportedAt: new Date().toISOString(),
@@ -447,26 +516,46 @@ export const recordLabResult = async (
     notes: input.notes,
     componentResults: input.componentResults,
   });
-  return delay(updated, 200);
+  return updated;
 };
 
 export const releaseLabOrder = async (
   id: string,
 ): Promise<LabOrderQueueEntry> => {
+  const split = splitLabSyntheticId(id);
+  if (split) {
+    // Flip the result + item + order to released
+    const { data: result } = await supabase
+      .from('lab_results').select('id').eq('lab_order_item_id', split.itemId).maybeSingle();
+    if (result) {
+      const { error } = await supabase
+        .from('lab_results')
+        .update({
+          release_status: 'verified',
+          approval_status: 'approved',
+          verified_by: '00000000-0000-0000-0000-000000000001',
+          verified_at: new Date().toISOString(),
+        })
+        .eq('id', (result as { id: string }).id);
+      if (error) throw new Error(error.message);
+    }
+    await supabase.from('lab_order_items').update({ status: 'released' }).eq('id', split.itemId);
+    await supabase.from('lab_orders').update({ status: 'released', completed_at: new Date().toISOString() }).eq('id', split.orderId);
+    const re = await fetchLabOrder(id);
+    if (re) {
+      appendReportPending({
+        opNumber: re.opNumber,
+        patient: re.patient,
+        report: { kind: 'lab', testCode: re.testCode, testName: re.testName, status: 'reported', reportedAt: re.reportedAt },
+      });
+      return re;
+    }
+  }
   const updated = await transitionLabOrder(id, 'released');
-  // Mock side-effect: surface this released test on the doctor’s
-  // "Reports to check" tab. Real backend computes the doctor’s
-  // report-pending queue via a join when the order flips to 'released'.
   appendReportPending({
     opNumber: updated.opNumber,
     patient: updated.patient,
-    report: {
-      kind: 'lab',
-      testCode: updated.testCode,
-      testName: updated.testName,
-      status: 'reported',
-      reportedAt: updated.reportedAt,
-    },
+    report: { kind: 'lab', testCode: updated.testCode, testName: updated.testName, status: 'reported', reportedAt: updated.reportedAt },
   });
   return updated;
 };

@@ -443,16 +443,103 @@ const buildRxFromConsultation = (ctx: ConsultationContext): RxQueueEntry | null 
  */
 export const lockConsultation = async (opNumber: string): Promise<ConsultationContext> => {
   const current = liveConsultations[opNumber] ?? (await fetchConsultation(opNumber));
-  const next: ConsultationContext = {
-    ...current,
-    opNumber,
-    lockedAt: new Date().toISOString(),
-  };
+  const lockedAt = new Date().toISOString();
+  const next: ConsultationContext = { ...current, opNumber, lockedAt };
   liveConsultations[opNumber] = next;
 
-  syncRxToPharmacy(opNumber, next);
+  // Persist to Supabase: upsert the consultation row, then the prescription + items.
+  try {
+    const { supabase } = await import('@/lib/supabase/supabaseClient');
+    const bs = '00000000-0000-0000-0000-000000000001';
+    // Look up op_visit + patient + doctor
+    const { data: opv } = await supabase
+      .from('op_visits')
+      .select('id, patient_id, doctor_id')
+      .eq('op_number', opNumber)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (opv) {
+      const row = opv as { id: string; patient_id: string; doctor_id: string };
+      // Upsert consultation row keyed by op_visit_id (UNIQUE on the table)
+      const { data: existingCons } = await supabase
+        .from('consultations').select('id').eq('op_visit_id', row.id).maybeSingle();
+      const consPayload = {
+        op_visit_id:                row.id,
+        status:                     'locked',
+        patient_id:                 row.patient_id,
+        doctor_id:                  row.doctor_id,
+        chief_complaint:            next.notes.chiefComplaint,
+        history_of_present_illness: next.notes.historyOfPresentIllness,
+        examination_findings:       next.notes.examinationFindings ? { text: next.notes.examinationFindings } : null,
+        diagnoses:                  next.diagnoses.length > 0
+                                      ? next.diagnoses.map((d) => ({ icd10: d.icd10, desc: d.description, type: d.type }))
+                                      : [],
+        clinical_notes:             next.notes.clinicalImpression,
+        advice:                     next.notes.advice,
+        next_action:                'prescription_only',
+        follow_up_required:         false,
+        follow_up_date:             null,
+        locked_at:                  lockedAt,
+        created_by:                 bs,
+      };
+      let consultationId: string | null = null;
+      if (existingCons) {
+        const id = (existingCons as { id: string }).id;
+        // If already locked, the lock-guard trigger blocks updates — best-effort.
+        await supabase.from('consultations').update(consPayload).eq('id', id);
+        consultationId = id;
+      } else {
+        const { data: ins } = await supabase.from('consultations').insert(consPayload).select('id').maybeSingle();
+        consultationId = (ins as { id: string } | null)?.id ?? null;
+      }
+      // Prescription + items
+      if (consultationId && next.prescriptionItems.length > 0) {
+        const { data: existingRx } = await supabase
+          .from('prescriptions').select('id').eq('consultation_id', consultationId).maybeSingle();
+        let rxId = (existingRx as { id: string } | null)?.id ?? null;
+        if (!rxId) {
+          const { data: insRx } = await supabase
+            .from('prescriptions')
+            .insert({
+              consultation_id: consultationId,
+              patient_id: row.patient_id,
+              doctor_id: row.doctor_id,
+              status: 'active',
+              locked_at: lockedAt,
+              created_by: bs,
+            })
+            .select('id').maybeSingle();
+          rxId = (insRx as { id: string } | null)?.id ?? null;
+        } else {
+          await supabase.from('prescriptions').update({ status: 'active', locked_at: lockedAt }).eq('id', rxId);
+          // Clear old items before re-inserting
+          await supabase.from('prescription_items').delete().eq('prescription_id', rxId);
+        }
+        if (rxId) {
+          const items = next.prescriptionItems.map((it, i) => ({
+            prescription_id: rxId,
+            medicine_id: it.medicineId,
+            medicine_name_snapshot: `${it.medicineNameSnapshot}${it.strength ? ' ' + it.strength : ''}`,
+            dosage: it.dosage,
+            frequency: it.frequency,
+            duration_days: it.durationDays,
+            quantity_prescribed: it.quantityPrescribed,
+            sequence_no: i + 1,
+            created_by: bs,
+          }));
+          if (items.length > 0) {
+            await supabase.from('prescription_items').insert(items);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[lockConsultation] Supabase persistence failed; mock-only:', e);
+  }
 
-  return delay(next);
+  syncRxToPharmacy(opNumber, next);
+  return next;
 };
 
 export const amendConsultation = async (

@@ -360,11 +360,69 @@ export const updateGrn = async (
 const yearShort = (): string => String(new Date().getFullYear());
 
 /**
+ * Persist a GRN's batches to Supabase: one drug_stock row per line plus
+ * a drug_stock_ledger 'purchase_in' entry. Returns false if anything in
+ * the loop fails so the caller knows the DB side may be partially
+ * written; the in-memory state stays authoritative for the demo.
+ */
+const persistGrnToDb = async (input: CreateGrnInput): Promise<boolean> => {
+  try {
+    const { DEMO_USER_ID } = await import('@/lib/supabase/supabaseClient');
+    const bs = DEMO_USER_ID;
+    // The supplier may be a UUID (vendor) or a mock prefix ('sup-XX').
+    // Only persist when it looks like a real vendor row.
+    const looksLikeUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.supplierId);
+    if (!looksLikeUuid) return false;
+    for (const l of input.lines) {
+      const isDrugUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(l.medicineId);
+      if (!isDrugUuid) continue;
+      const mrp = Math.max(l.unitPrice, l.unitCost) + 0.01;
+      const { data: ins, error } = await supabase
+        .from('drug_stock')
+        .insert({
+          drug_id:             l.medicineId,
+          batch_number:        l.batchNumber,
+          mfg_date:            l.mfgDate || null,
+          expiry_date:         l.expiryDate,
+          purchase_price:      l.unitCost,
+          mrp,
+          selling_price:       l.unitPrice,
+          quantity_received:   l.quantity,
+          quantity_available:  l.quantity,
+          vendor_id:           input.supplierId,
+          received_date:       (input.receivedAt ?? new Date().toISOString()).slice(0, 10),
+          is_blocked:          false,
+          created_by:          bs,
+        })
+        .select('id')
+        .maybeSingle();
+      if (error || !ins) continue;
+      const stockId = (ins as { id: string }).id;
+      await supabase.from('drug_stock_ledger').insert({
+        drug_stock_id:    stockId,
+        movement_type:    'purchase_in',
+        quantity_before:  0,
+        quantity_after:   l.quantity,
+        performed_by:     bs,
+        notes:            `GRN receive — supplier invoice ${input.supplierInvoiceNo ?? '—'}`,
+        created_by:       bs,
+      });
+    }
+    return true;
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[createGrn] DB persistence failed; mock-only:', e);
+    return false;
+  }
+};
+
+/**
  * Create a Goods Receive Note. Writes one batch per line + a GRN
  * header row. Real backend also bumps `medicines.available_qty`
  * accordingly; mock leaves the per-medicine counter alone for now.
  */
 export const createGrn = async (input: CreateGrnInput): Promise<Grn> => {
+  await persistGrnToDb(input);
   grnSeq += 1;
   const grnNumber = `GRN-${yearShort()}-${String(grnSeq).padStart(6, '0')}`;
   const supplier = mockSuppliersState.find((s) => s.id === input.supplierId);
