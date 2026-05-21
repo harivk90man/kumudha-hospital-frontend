@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Analytics — HMS Schema v8</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script src="../shared/manifest.js"></script>
+  <script src="../shared/catalog.js"></script>
+  <script src="../shared/renderer.js"></script>
+  <script>
+  // ─── EDIT BELOW ONLY. Do not touch HTML/script tags. ────────────────────
+  const MODULE = {
+    id: 'analytics',
+    name: 'Analytics',
+    color: '#7868D8',
+    bg: '#1e1a38',
+    lbg: '#EEEDFE',
+    features: ['targets', 'announcements', 'alerts', 'mat-views'],
+    tables: [
+      { n:'revenue_targets', feature:'targets', desc:'Per-dept (and optional per-doctor) monthly revenue target. Drives "achieved vs target" dashboards.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants',nw:1},
+          {n:'department_id',t:'uuid',fk:'departments',nl:1},
+          {n:'doctor_id',t:'uuid · per-doctor target',fk:'users',nl:1,nw:1},
+          {n:'period_month',t:'int · 1..12',nw:1},
+          {n:'period_year',t:'int',nw:1},
+          {n:'target_amount',t:'decimal'},
+          {n:'stretch_target',t:'decimal',nl:1,nw:1},
+          {n:'set_by',t:'uuid',fk:'users',nw:1},
+          {n:'notes',t:'text',nl:1,nw:1},
+          {n:'created_by',t:'uuid',fk:'users'},
+          {n:'created_at',t:'timestamptz'},
+          {n:'updated_by',t:'uuid',fk:'users',nl:1,nw:1},
+          {n:'updated_at',t:'timestamptz',nw:1},
+        ]},
+      { n:'announcements', feature:'announcements', desc:'Hospital-wide announcements with audience scoping (all/role/dept) and pin/schedule.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants',nw:1},
+          {n:'title',t:'varchar'},
+          {n:'body',t:'text'},
+          {n:'target_audience',t:"varchar · 'all'|'doctors'|'nurses'|'pharmacists'|'front_desk'|'lab'|'radiology'|'admin'|'custom'",nw:1},
+          {n:'target_role_ids',t:'uuid[] · used when target_audience=custom',nl:1,nw:1},
+          {n:'audience',t:"varchar · DEPRECATED v8 — use target_audience"},
+          {n:'is_pinned',t:'boolean'},
+          {n:'severity',t:"varchar · 'info'|'warn'|'critical'",nw:1},
+          {n:'starts_at',t:'timestamptz',nl:1},
+          {n:'ends_at',t:'timestamptz',nl:1},
+          {n:'effective_at',t:'timestamptz',nl:1,nw:1},
+          {n:'expires_at',t:'timestamptz',nl:1,nw:1},
+          {n:'from_user_id',t:'uuid · who issued',fk:'users',nl:1,nw:1},
+          {n:'created_by',t:'uuid',fk:'users'},
+          {n:'created_at',t:'timestamptz'},
+        ]},
+      { n:'alert_rules', feature:'alerts', desc:'Configurable rules over domain events — condition, audience, channels, severity. Drives ops alerts.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants'},
+          {n:'name',t:"varchar · 'High-value cancellation'"},
+          {n:'description',t:'text',nl:1},
+          {n:'metric_source',t:"varchar · 'mv_revenue_daily'|'mv_outstanding_dues'|'mv_pharmacy_expiry_loss'|'op_queue'|'low_stock'|'expiry_warning'|'sla_breach'|'approval_backlog'",nw:1},
+          {n:'trigger_event',t:"varchar · 'BillCancelled'|'SurgeryCancelled'|'DiscountApplied'|'VarianceReported'|'ExpiryWriteoff'"},
+          {n:'condition',t:"jsonb · e.g. {min_amount:25000, max_pct:15}"},
+          {n:'evaluation_interval_minutes',t:'int',nl:1,nw:1},
+          {n:'last_evaluated_at',t:'timestamptz',nl:1,nw:1},
+          {n:'last_fired_at',t:'timestamptz',nl:1,nw:1},
+          {n:'notify_role_ids',t:'uuid[]',nl:1},
+          {n:'notify_user_ids',t:'uuid[]',nl:1},
+          {n:'channels',t:"varchar[] · 'in_app'|'email'|'whatsapp'"},
+          {n:'severity',t:"varchar · 'info'|'warn'|'critical'"},
+          {n:'is_active',t:'boolean DEFAULT true'},
+          {n:'created_by',t:'uuid',fk:'users'},
+          {n:'created_at',t:'timestamptz'},
+        ]},
+      { n:'mv_revenue_daily', feature:'mat-views', desc:'Materialized view — daily revenue by tenant × segment × source. Hourly refresh.',
+        f:[
+          {n:'business_date',t:'date'},
+          {n:'segment',t:'varchar'},
+          {n:'department_id',t:'uuid',fk:'departments'},
+          {n:'gross_revenue',t:'decimal'},
+          {n:'discount_total',t:'decimal'},
+          {n:'net_revenue',t:'decimal'},
+          {n:'invoice_count',t:'int'},
+        ]},
+      { n:'mv_revenue_by_doctor', feature:'mat-views', desc:'Materialized view — daily consultation/procedure revenue attributed per doctor. Hourly refresh.',
+        f:[
+          {n:'business_date',t:'date'},
+          {n:'doctor_id',t:'uuid',fk:'users'},
+          {n:'consultations_count',t:'int'},
+          {n:'consultation_revenue',t:'decimal'},
+          {n:'procedures_revenue',t:'decimal'},
+          {n:'total_attributed_revenue',t:'decimal'},
+        ]},
+      { n:'mv_outstanding_dues', feature:'mat-views', desc:'Materialized view — open invoice balances with ageing buckets. Hourly refresh.',
+        f:[
+          {n:'patient_id',t:'uuid',fk:'patients'},
+          {n:'invoice_id',t:'uuid',fk:'invoices'},
+          {n:'invoice_date',t:'date'},
+          {n:'balance',t:'decimal'},
+          {n:'ageing_bucket',t:"varchar · '0-30'|'31-60'|'61-90'|'90+'"},
+        ]},
+      { n:'mv_bed_occupancy_daily', feature:'mat-views', desc:'Materialized view — daily bed-night occupancy by room type. Phase 2 source.',
+        f:[
+          {n:'occupancy_date',t:'date'},
+          {n:'room_type',t:'varchar'},
+          {n:'total_bed_nights',t:'int'},
+          {n:'occupied_bed_nights',t:'int'},
+          {n:'occupancy_pct',t:'decimal'},
+        ]},
+      { n:'mv_pharmacy_expiry_loss', feature:'mat-views', desc:'Materialized view — monthly expired-stock value by medicine. Daily refresh.',
+        f:[
+          {n:'period_month',t:'date'},
+          {n:'medicine_id',t:'uuid',fk:'medicines'},
+          {n:'qty_expired',t:'int'},
+          {n:'value_lost',t:'decimal'},
+        ]},
+      { n:'mv_payroll_cost_monthly', feature:'mat-views', desc:'Materialized view — monthly payroll cost and headcount per department. Phase 2 source.',
+        f:[
+          {n:'period_month',t:'int'},
+          {n:'period_year',t:'int'},
+          {n:'department_id',t:'uuid',fk:'departments'},
+          {n:'headcount',t:'int'},
+          {n:'total_cost',t:'decimal'},
+          {n:'avg_cost_per_head',t:'decimal'},
+        ]},
+    ]
+  };
+  renderModule(MODULE);
+  </script>
+</body>
+</html>

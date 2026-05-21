@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>09 · Appointments — HMS Schema v3</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <style>
+    code { color: #d63384; font-size: 0.92em; }
+    .table th { white-space: nowrap; }
+    h2 .badge { font-size: 0.55em; vertical-align: middle; }
+    pre { background: #f8f9fa; padding: 1rem; border-radius: 0.375rem; font-size: 0.85em; }
+    .toc-card { background: #fff; }
+    .sample-data td, .sample-data th { white-space: nowrap; font-size: 0.78em; }
+  </style>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark sticky-top">
+  <div class="container">
+    <a href="../index.html" class="navbar-brand">
+      <i class="bi bi-arrow-left"></i> v3 Schema
+    </a>
+    <span class="navbar-text">Module <strong>09</strong> · Appointments</span>
+  </div>
+</nav>
+
+<main class="container py-4">
+
+  <h1>Appointments</h1>
+  <p class="lead">The booking layer in front of an OPD encounter — slot grid, booked appointments, and queue tokens.</p>
+
+  <div class="card toc-card mb-4">
+    <div class="card-body">
+      <h6 class="card-subtitle text-muted mb-2">Module 09 contents — one table at a time</h6>
+      <ol class="mb-0 small">
+        <li><a href="#appointments">appointments</a> — booked appointment; channel, visit type, cancellation tracking &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#appointment_slots">appointment_slots</a> — doctor's daily slot grid (available / booked / blocked / cancelled) &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#tokens">tokens</a> — issued queue tokens (D-04, L-12, P-08); never reused &nbsp;<span class="badge bg-success">signed off</span></li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- 1. appointments                                                  -->
+  <!-- ================================================================ -->
+  <section id="appointments" class="mb-5">
+    <h2>1. appointments
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>One row per booked appointment. Pinned to a slot (<code>slot_id</code>) which is the source of truth for date and time — <code>scheduled_at</code> denormalises the slot start for fast sorting. Records the booking channel so owner reports can split traffic by source (walk-in vs phone vs online). Cancelled and no-show rows are kept for audit and analytics.</p>
+    <p class="small text-muted"><strong>Forward FK note:</strong> <code>slot_id</code> references <code>appointment_slots(id)</code> defined later in this module. The FK constraint is added in the <code>appointment_slots</code> migration.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>appointment_no</code></td><td>text</td><td>NO</td><td>UNIQUE</td><td>—</td><td>Human-readable booking reference (e.g. <code>APT-2026-12431</code>). Shown to patient at booking time.</td></tr>
+        <tr><td><code>patient_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>patients(id)</code> RESTRICT</td><td>—</td><td>Booking patient</td></tr>
+        <tr><td><code>doctor_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>Booked doctor</td></tr>
+        <tr><td><code>slot_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>appointment_slots(id)</code> RESTRICT <em>(added in appointment_slots migration)</em></td><td>—</td><td>The booked slot. NULL for walk-in arrivals that bypass the slot grid.</td></tr>
+        <tr><td><code>scheduled_at</code></td><td>timestamptz</td><td>NO</td><td>—</td><td>—</td><td>Denormalised slot start timestamp (UTC) — drives calendar sorting and reminder scheduling without joining the slot table</td></tr>
+        <tr><td><code>visit_type</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'new'</code></td><td><code>new</code> | <code>follow_up</code> | <code>emergency</code> | <code>procedure</code> — drives consultation fee lookup at billing time</td></tr>
+        <tr><td><code>status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'booked'</code></td><td><code>booked</code> | <code>confirmed</code> | <code>arrived</code> | <code>in_consultation</code> | <code>completed</code> | <code>cancelled</code> | <code>no_show</code></td></tr>
+        <tr><td><code>source</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td>Booking channel: <code>walk_in</code> | <code>phone</code> | <code>online</code> | <code>referral</code></td></tr>
+        <tr><td><code>reason</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Patient's stated reason at booking time — prefills <code>op_visits.chief_complaint</code> on arrival; nurse can edit</td></tr>
+        <tr><td><code>cancelled_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>Set when <code>status = 'cancelled'</code>. NULL otherwise.</td></tr>
+        <tr><td><code>cancelled_by</code></td><td>uuid</td><td>YES</td><td>FK → <code>users(id)</code> SET NULL</td><td>—</td><td>Staff who cancelled. NULL when patient self-cancels via app.</td></tr>
+        <tr><td><code>cancel_reason</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Required when cancelled by staff. NULL for self-cancellations and non-cancelled rows.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_appointments</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_appointments_no</code> — UNIQUE (appointment_no)</li>
+      <li><code>chk_appointments_visit_type</code> — CHECK <code>visit_type IN ('new','follow_up','emergency','procedure')</code></li>
+      <li><code>chk_appointments_status</code> — CHECK <code>status IN ('booked','confirmed','arrived','in_consultation','completed','cancelled','no_show')</code></li>
+      <li><code>chk_appointments_source</code> — CHECK <code>source IN ('walk_in','phone','online','referral')</code></li>
+      <li><code>chk_appointments_cancellation</code> — CHECK <code>(status = 'cancelled' AND cancelled_at IS NOT NULL) OR (status != 'cancelled' AND cancelled_at IS NULL)</code></li>
+      <li><code>uq_appointments_slot</code> — UNIQUE INDEX (slot_id) WHERE <code>slot_id IS NOT NULL AND status NOT IN ('cancelled','no_show')</code> &nbsp;<span class="text-muted">— at most one active booking per slot</span></li>
+      <li><code>ix_appointments_patient</code> — INDEX (patient_id, scheduled_at DESC) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— patient appointment history</span></li>
+      <li><code>ix_appointments_doctor</code> — INDEX (doctor_id, scheduled_at DESC) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— doctor's calendar view</span></li>
+      <li><code>ix_appointments_status</code> — INDEX (status, scheduled_at) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— today's booked appointments list</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_appointments_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_appointments_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>appointment_no</th><th>patient_id</th><th>doctor_id</th><th>slot_id</th><th>scheduled_at</th><th>visit_type</th><th>status</th><th>source</th><th>reason</th><th>cancelled_at</th><th>cancelled_by</th><th>cancel_reason</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…ap001</code></td>
+          <td>APT-2026-00201</td>
+          <td><code>…pt002 (Rajan)</code></td>
+          <td><code>…0003 (Dr Arjun)</code></td>
+          <td><code>…sl001</code></td>
+          <td>2026-05-13 10:30:00+05:30</td>
+          <td>follow_up</td>
+          <td>arrived</td>
+          <td>phone</td>
+          <td>BP and diabetes follow-up — 3 month review</td>
+          <td>NULL</td><td>NULL</td><td>NULL</td>
+          <td><code>…0020 (Naveen)</code></td><td>2026-05-12 16:00:00</td><td><code>…0020</code></td><td>2026-05-13 09:25:00</td><td>1</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…ap002</code></td>
+          <td>APT-2026-00202</td>
+          <td><code>…pt001 (Meena)</code></td>
+          <td><code>…0002 (Dr Priya)</code></td>
+          <td><code>…sl002</code></td>
+          <td>2026-05-14 09:00:00+05:30</td>
+          <td>new</td>
+          <td>cancelled</td>
+          <td>online</td>
+          <td>Headache and dizziness</td>
+          <td>2026-05-13 20:00:00</td><td>NULL</td><td>NULL</td>
+          <td>NULL</td><td>2026-05-13 18:30:00</td><td>NULL</td><td>2026-05-13 20:00:00</td><td>1</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — Rajan's follow-up booked by receptionist over phone; status updated to <code>arrived</code> when he checked in. Row 2 — Meena self-booked online for tomorrow; self-cancelled in the evening (<code>cancelled_by = NULL</code>, <code>created_by = NULL</code> — no staff involved).</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 2. appointment_slots                                            -->
+  <!-- ================================================================ -->
+  <section id="appointment_slots" class="mb-5">
+    <h2>2. appointment_slots
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>One row per time slot per doctor per day. Generated by a scheduled job from <code>doctor_profiles.available_days</code> × <code>slot_duration_mins</code> for the next N days. A slot is <code>available</code> (open for booking), <code>booked</code> (one appointment attached), <code>blocked</code> (admin reserved — leave / surgery / training), or <code>cancelled</code> (slot withdrawn). FK target for <code>appointments.slot_id</code>.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key — FK target for <code>appointments.slot_id</code></td></tr>
+        <tr><td><code>doctor_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>The doctor this slot belongs to</td></tr>
+        <tr><td><code>slot_start</code></td><td>timestamptz</td><td>NO</td><td>—</td><td>—</td><td>Slot start date and time (UTC). Use <code>slot_start AT TIME ZONE hospital_timezone</code> for local display. Replaces separate date + time columns — simpler sorting and range queries.</td></tr>
+        <tr><td><code>duration_mins</code></td><td>int</td><td>NO</td><td>CHECK &gt; 0</td><td><code>15</code></td><td>Slot length in minutes — defaults to <code>doctor_profiles.slot_duration_mins</code> at generation time</td></tr>
+        <tr><td><code>status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'available'</code></td><td><code>available</code> | <code>booked</code> | <code>blocked</code> | <code>cancelled</code></td></tr>
+        <tr><td><code>booked_by</code></td><td>uuid</td><td>YES</td><td>FK → <code>users(id)</code> SET NULL</td><td>—</td><td>Receptionist who booked the slot. NULL when patient self-booked via app or slot is not booked.</td></tr>
+        <tr><td><code>blocked_reason</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Required when <code>status = 'blocked'</code>. NULL otherwise.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_appointment_slots</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_appointment_slots_status</code> — CHECK <code>status IN ('available','booked','blocked','cancelled')</code></li>
+      <li><code>chk_appointment_slots_duration</code> — CHECK <code>duration_mins &gt; 0</code></li>
+      <li><code>chk_appointment_slots_blocked</code> — CHECK <code>status = 'blocked' OR blocked_reason IS NULL</code> &nbsp;<span class="text-muted">— blocked_reason only meaningful when status is blocked</span></li>
+      <li><code>uq_appointment_slots_doctor_start</code> — UNIQUE (doctor_id, slot_start) &nbsp;<span class="text-muted">— no duplicate slots for the same doctor at the same time</span></li>
+      <li><code>ix_appointment_slots_doctor</code> — INDEX (doctor_id, slot_start, status) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— doctor's calendar and "show available slots" booking screen</span></li>
+      <li><code>ix_appointment_slots_available</code> — INDEX (slot_start) WHERE <code>status = 'available' AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— cross-doctor slot availability query</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_appointment_slots_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_appointment_slots_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>doctor_id</th><th>slot_start</th><th>duration_mins</th><th>status</th><th>booked_by</th><th>blocked_reason</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…sl001</code></td>
+          <td><code>…0003 (Dr Arjun)</code></td>
+          <td>2026-05-13 05:00:00+00 (10:30 IST)</td><td>15</td>
+          <td>booked</td>
+          <td><code>…0020 (Naveen)</code></td>
+          <td>NULL</td>
+          <td>NULL</td><td>2026-05-12 00:30:00+00</td><td><code>…0020</code></td><td>2026-05-12 10:30:00+00</td><td>1</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…sl002</code></td>
+          <td><code>…0002 (Dr Priya)</code></td>
+          <td>2026-05-14 03:30:00+00 (09:00 IST)</td><td>15</td>
+          <td>available</td>
+          <td>NULL</td>
+          <td>NULL</td>
+          <td>NULL</td><td>2026-05-13 00:30:00+00</td><td>NULL</td><td>2026-05-13 14:30:00+00</td><td>1</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — Dr Arjun's 10:30 slot booked by Naveen for Rajan (apt001). Row 2 — Dr Priya's 09:00 slot generated by the daily job (<code>created_by = NULL</code>); Meena self-booked and then self-cancelled, slot released back to <code>available</code> (<code>updated_at</code> shows the cancellation time).</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 3. tokens                                                       -->
+  <!-- ================================================================ -->
+  <section id="tokens" class="mb-5">
+    <h2>3. tokens
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>The visible queue identifier shown on corridor display boards and called out to patients. One token per service request — <code>D-04</code> for consultation with a doctor, <code>L-12</code> for lab, <code>P-08</code> for pharmacy, <code>X-03</code> for radiology, <code>B-07</code> for billing. Tokens are <strong>never reused</strong> — a cancelled token's sequence number stays cancelled for that day so the same number is never called twice.</p>
+    <p>Each token links back to exactly one parent entity via a dedicated FK column. The <code>service_type</code> and the populated FK column must agree — enforced by per-type CHECK constraints.</p>
+    <p class="small text-muted"><strong>Forward FK notes:</strong> <code>lab_order_id</code>, <code>radiology_order_id</code>, <code>pharmacy_sale_id</code>, and <code>invoice_id</code> reference tables defined in Modules 12, 13, 15, and 17 respectively. FK constraints are added in those migrations.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>token_number</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Display string shown on board and called aloud (e.g. <code>D-04</code>, <code>L-12</code>, <code>P-08</code>). Built from service prefix + zero-padded sequence.</td></tr>
+        <tr><td><code>token_sequence</code></td><td>int</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>Sequential number per <code>(service_type, provider_id, issue_date)</code>. Never reissued for that combination on that day.</td></tr>
+        <tr><td><code>service_type</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td><code>consultation</code> | <code>lab</code> | <code>pharmacy</code> | <code>radiology</code> | <code>billing</code></td></tr>
+        <tr><td><code>provider_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>users(id)</code> SET NULL</td><td>—</td><td>Doctor for <code>consultation</code> tokens. NULL for service-counter tokens (lab, pharmacy, radiology, billing) where the counter serves all patients.</td></tr>
+        <tr><td><code>issue_date</code></td><td>date</td><td>NO</td><td>—</td><td>—</td><td>Local date the token was issued. Scope for sequence uniqueness and daily queue reset.</td></tr>
+        <tr><td><code>op_visit_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>op_visits(id)</code> RESTRICT</td><td>—</td><td>Set for <code>consultation</code> tokens only</td></tr>
+        <tr><td><code>lab_order_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>lab_orders(id)</code> RESTRICT <em>(Module 12)</em></td><td>—</td><td>Set for <code>lab</code> tokens only</td></tr>
+        <tr><td><code>radiology_order_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>radiology_orders(id)</code> RESTRICT <em>(Module 13)</em></td><td>—</td><td>Set for <code>radiology</code> tokens only</td></tr>
+        <tr><td><code>pharmacy_sale_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>pharmacy_sales(id)</code> RESTRICT <em>(Module 15)</em></td><td>—</td><td>Set for <code>pharmacy</code> tokens only</td></tr>
+        <tr><td><code>invoice_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>invoices(id)</code> RESTRICT <em>(Module 17)</em></td><td>—</td><td>Set for <code>billing</code> tokens only</td></tr>
+        <tr><td><code>status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'active'</code></td><td><code>active</code> | <code>called</code> | <code>completed</code> | <code>cancelled</code> | <code>no_show</code></td></tr>
+        <tr><td><code>issued_by</code></td><td>uuid</td><td>YES</td><td>FK → <code>users(id)</code> SET NULL</td><td>—</td><td>Staff who issued the token. NULL for system-issued tokens.</td></tr>
+        <tr><td><code>called_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>When the token was called from the queue board</td></tr>
+        <tr><td><code>completed_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>When the service was completed</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. <code>created_at</code> serves as the issue timestamp — no separate <code>issued_at</code> needed.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_tokens</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_tokens_service_type</code> — CHECK <code>service_type IN ('consultation','lab','pharmacy','radiology','billing')</code></li>
+      <li><code>chk_tokens_status</code> — CHECK <code>status IN ('active','called','completed','cancelled','no_show')</code></li>
+      <li><code>chk_tokens_sequence</code> — CHECK <code>token_sequence &gt; 0</code></li>
+      <li><code>chk_tokens_exactly_one_parent</code> — CHECK <code>num_nonnulls(op_visit_id, lab_order_id, radiology_order_id, pharmacy_sale_id, invoice_id) = 1</code></li>
+      <li><code>chk_tokens_consultation_fk</code> — CHECK <code>(service_type = 'consultation') = (op_visit_id IS NOT NULL)</code></li>
+      <li><code>chk_tokens_lab_fk</code> — CHECK <code>(service_type = 'lab') = (lab_order_id IS NOT NULL)</code></li>
+      <li><code>chk_tokens_radiology_fk</code> — CHECK <code>(service_type = 'radiology') = (radiology_order_id IS NOT NULL)</code></li>
+      <li><code>chk_tokens_pharmacy_fk</code> — CHECK <code>(service_type = 'pharmacy') = (pharmacy_sale_id IS NOT NULL)</code></li>
+      <li><code>chk_tokens_billing_fk</code> — CHECK <code>(service_type = 'billing') = (invoice_id IS NOT NULL)</code></li>
+      <li><code>uq_tokens_with_provider</code> — UNIQUE INDEX (service_type, provider_id, issue_date, token_sequence) WHERE <code>provider_id IS NOT NULL</code> &nbsp;<span class="text-muted">— consultation tokens: no duplicate sequence per doctor per day</span></li>
+      <li><code>uq_tokens_no_provider</code> — UNIQUE INDEX (service_type, issue_date, token_sequence) WHERE <code>provider_id IS NULL</code> &nbsp;<span class="text-muted">— counter tokens: no duplicate sequence per service per day</span></li>
+      <li><code>ix_tokens_op_visit</code> — INDEX (op_visit_id) WHERE <code>op_visit_id IS NOT NULL</code></li>
+      <li><code>ix_tokens_live_queue</code> — INDEX (service_type, provider_id, status, issue_date) WHERE <code>status IN ('active','called')</code> &nbsp;<span class="text-muted">— live queue board per service / doctor</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_tokens_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_tokens_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>token_number</th><th>token_sequence</th><th>service_type</th><th>provider_id</th><th>issue_date</th><th>op_visit_id</th><th>lab_order_id</th><th>radiology_order_id</th><th>pharmacy_sale_id</th><th>invoice_id</th><th>status</th><th>issued_by</th><th>called_at</th><th>completed_at</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…tk001</code></td><td>D-04</td><td>4</td><td>consultation</td>
+          <td><code>…0002 (Dr Priya)</code></td>
+          <td>2026-05-13</td>
+          <td><code>…ov001</code></td><td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td>
+          <td>called</td>
+          <td><code>…0020 (Naveen)</code></td>
+          <td>2026-05-13 10:00:00</td><td>NULL</td>
+          <td><code>…0020</code></td><td>2026-05-13 09:05:00</td><td><code>…0002</code></td><td>2026-05-13 10:00:00</td><td>1</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…tk002</code></td><td>L-01</td><td>1</td><td>lab</td>
+          <td>NULL</td>
+          <td>2026-05-13</td>
+          <td>NULL</td><td><code>…lo001</code></td><td>NULL</td><td>NULL</td><td>NULL</td>
+          <td>active</td>
+          <td>NULL</td>
+          <td>NULL</td><td>NULL</td>
+          <td>NULL</td><td>2026-05-13 10:20:00</td><td>NULL</td><td>2026-05-13 10:20:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — Meena's consultation token with Dr Priya; 4th patient of the day, already called (<code>called_at</code> set, service still in progress). Row 2 — Lab token system-issued when lab order was placed (<code>issued_by = NULL</code>, <code>created_by = NULL</code>); waiting to be called at lab counter.</p>
+  </section>
+
+</main>
+
+</body>
+</html>

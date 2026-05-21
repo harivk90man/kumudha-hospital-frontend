@@ -1,0 +1,34 @@
+node_modules
+dist
+dist-ssr
+*.local
+
+# Env files (commit only .env.example)
+.env
+.env.local
+.env.development.local
+.env.production.local
+
+# Playwright MCP
+.playwright-mcp
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+backend-queue.log
+
+db-mcp-server/node_modules/
+!db-mcp-server/dist/

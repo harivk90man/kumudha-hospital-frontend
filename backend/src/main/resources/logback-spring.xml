@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+  <!-- Console appender — plain text, same pattern as file -->
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} %-5level [%X{requestId:--}] [%X{userId:--}] %logger{40} - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <!--
+    Rolling file — daily + 50 MB cap, 30 days history, 1 GB total.
+  -->
+  <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+    <file>logs/server.log</file>
+    <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+      <fileNamePattern>logs/server.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+      <maxFileSize>50MB</maxFileSize>
+      <maxHistory>30</maxHistory>
+      <totalSizeCap>1GB</totalSizeCap>
+    </rollingPolicy>
+    <encoder>
+      <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{requestId:--}] [%X{userId:--}] %logger{40} - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <!-- Root: ERROR only -->
+  <root level="ERROR">
+    <appender-ref ref="CONSOLE"/>
+    <appender-ref ref="FILE"/>
+  </root>
+
+  <!-- Our code: INFO — business events, request in/out -->
+  <logger name="com.hospital.management" level="INFO" additivity="false">
+    <appender-ref ref="CONSOLE"/>
+    <appender-ref ref="FILE"/>
+  </logger>
+
+  <!-- Flyway — always show migrations running -->
+  <logger name="org.flywaydb" level="INFO" additivity="false">
+    <appender-ref ref="CONSOLE"/>
+    <appender-ref ref="FILE"/>
+  </logger>
+
+  <!-- SQL logging — dev profile only -->
+  <springProfile name="dev">
+    <logger name="org.hibernate.SQL"             level="DEBUG" additivity="false"><appender-ref ref="CONSOLE"/><appender-ref ref="FILE"/></logger>
+    <logger name="org.hibernate.orm.jdbc.bind"   level="TRACE" additivity="false"><appender-ref ref="CONSOLE"/><appender-ref ref="FILE"/></logger>
+    <logger name="org.springframework.jdbc.core" level="DEBUG" additivity="false"><appender-ref ref="CONSOLE"/><appender-ref ref="FILE"/></logger>
+  </springProfile>
+
+</configuration>

@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>13 · Radiology — HMS Schema v3</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <style>
+    code { color: #d63384; font-size: 0.92em; }
+    .table th { white-space: nowrap; }
+    h2 .badge { font-size: 0.55em; vertical-align: middle; }
+    pre { background: #f8f9fa; padding: 1rem; border-radius: 0.375rem; font-size: 0.85em; }
+    .toc-card { background: #fff; }
+    .sample-data td, .sample-data th { white-space: nowrap; font-size: 0.78em; }
+  </style>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark sticky-top">
+  <div class="container">
+    <a href="../index.html" class="navbar-brand">
+      <i class="bi bi-arrow-left"></i> v3 Schema
+    </a>
+    <span class="navbar-text">Module <strong>13</strong> · Radiology</span>
+  </div>
+</nav>
+
+<main class="container py-4">
+
+  <h1>Radiology</h1>
+  <p class="lead">Imaging operations — X-ray, ultrasound, CT, MRI. Procedure catalogue, order header, DICOM study metadata bridge to PACS, and radiologist report with maker-checker sign-off.</p>
+
+  <div class="alert alert-info small mb-4">
+    <strong>Centralized pricing (same pattern as Module 12 Lab):</strong>
+    <code>radiology_procedures.service_id → services(id)</code>. All radiology prices live in <code>services</code> (Module 16).
+    <code>payment_required_before_service</code> dropped from <code>radiology_orders</code> — payment-before-service is universal
+    and governed by <code>system_config.billing.payment_before_service = true</code>.<br>
+    <strong>Single radiologist:</strong> the <code>CHECK (created_by &lt;&gt; approved_by)</code> on <code>radiology_reports</code>
+    is present by default. Small hospitals with a single radiologist can relax it via
+    <code>system_config</code> key <code>radiology.allow_self_approval = true</code> — that key change itself
+    goes through the Layer 2 maker-checker on <code>system_config</code>.
+  </div>
+
+  <div class="card toc-card mb-4">
+    <div class="card-body">
+      <h6 class="card-subtitle text-muted mb-2">Module 13 contents — one table at a time</h6>
+      <ol class="mb-0 small">
+        <li><a href="#radiology_procedures">radiology_procedures</a> — procedure catalogue; modality, body part, service_id for pricing &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#radiology_orders">radiology_orders</a> — order header; priority, status, invoice link &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#radiology_attachments">radiology_attachments</a> — files uploaded by technician against the order: X-ray images, PDFs, scanned docs (multiple per order) &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#radiology_reports">radiology_reports</a> — radiologist findings + impression; L2 maker-checker for senior sign-off &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><s>radiology_studies</s> — <span class="text-muted">dropped — DICOM/PACS bridge not needed; technician uploads images directly via app UI</span></li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- 1. radiology_procedures                                           -->
+  <!-- ================================================================ -->
+  <section id="radiology_procedures" class="mb-5">
+    <h2>1. radiology_procedures
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Reference catalogue of every imaging procedure the hospital performs. Drives the order-creation UI and pricing via <code>service_id → services</code>. Flyway-seeded with common procedures; admin can add hospital-specific ones.</p>
+    <p class="small text-muted"><strong>v3 delta from TSD-09:</strong> <code>tenant_id</code> dropped (single-tenant deployment). <code>default_price</code> dropped — replaced by <code>service_id FK → services(id)</code>. <code>is_active boolean</code> replaced by <code>deleted_at</code> soft-delete. <code>typical_duration_mins</code>, <code>requires_fasting</code>, <code>requires_radiologist_presence</code> kept — useful for scheduling and patient prep.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>procedure_code</code></td><td>text</td><td>NO</td><td>UNIQUE (partial), CHECK length 2–20</td><td>—</td><td>Short machine code in SCREAMING_SNAKE (e.g. <code>CXR_PA</code>, <code>MRI_BRAIN_PLAIN</code>, <code>USG_ABD</code>)</td></tr>
+        <tr><td><code>procedure_name</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Display name shown on order form and printed report (e.g. <code>Chest X-ray PA View</code>, <code>MRI Brain Plain</code>)</td></tr>
+        <tr><td><code>modality</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td><code>xray</code> | <code>ultrasound</code> | <code>ct</code> | <code>mri</code> | <code>mammography</code> | <code>dexa</code> | <code>fluoroscopy</code> | <code>nuclear</code> | <code>other</code></td></tr>
+        <tr><td><code>body_part</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Free-text body region (e.g. <code>chest</code>, <code>abdomen</code>, <code>brain</code>, <code>lumbar_spine</code>) — used for DICOM header and worklist</td></tr>
+        <tr><td><code>department_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>departments(id)</code> RESTRICT</td><td>—</td><td>Owning radiology department. NULL = general radiology.</td></tr>
+        <tr><td><code>service_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>services(id)</code> RESTRICT</td><td>—</td><td>Pricing row in Module 16. Every procedure must have a <code>services</code> row before it can be created — ensures all procedures are priced before ordering.</td></tr>
+        <tr><td><code>typical_duration_mins</code></td><td>int</td><td>YES</td><td>CHECK &gt; 0 when not NULL</td><td>—</td><td>Expected imaging duration in minutes — used for slot allocation and worklist scheduling</td></tr>
+        <tr><td><code>requires_fasting</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>false</code></td><td>When true, reception instructs the patient to fast before the procedure (common for USG abdomen)</td></tr>
+        <tr><td><code>requires_radiologist_presence</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>false</code></td><td>When true, a radiologist must be physically present during imaging (e.g. USG, contrast-CT, fluoroscopy) — used for scheduling</td></tr>
+        <tr><td><code>sac_code</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Services Accounting Code (GST); radiology is typically GST-exempt (<code>9993xx</code>)</td></tr>
+        <tr><td><code>description</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Clinical notes on indications, patient preparation, or contraindications — shown to ordering doctor</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. <code>deleted_at</code> replaces TSD's <code>is_active boolean</code>.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_radiology_procedures</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_radiology_procedures_code</code> — UNIQUE INDEX (procedure_code) WHERE <code>deleted_at IS NULL</code></li>
+      <li><code>chk_radiology_procedures_code_len</code> — CHECK <code>char_length(procedure_code) BETWEEN 2 AND 20</code></li>
+      <li><code>chk_radiology_procedures_modality</code> — CHECK <code>modality IN ('xray','ultrasound','ct','mri','mammography','dexa','fluoroscopy','nuclear','other')</code></li>
+      <li><code>chk_radiology_procedures_duration</code> — CHECK <code>typical_duration_mins IS NULL OR typical_duration_mins &gt; 0</code></li>
+      <li><code>ix_radiology_procedures_modality</code> — INDEX (modality) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— order-form modality filter</span></li>
+      <li><code>ix_radiology_procedures_dept</code> — INDEX (department_id) WHERE <code>deleted_at IS NULL</code></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_radiology_procedures_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_radiology_procedures_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>procedure_code</th><th>procedure_name</th><th>modality</th><th>body_part</th><th>department_id</th><th>service_id</th><th>typical_duration_mins</th><th>requires_fasting</th><th>requires_radiologist_presence</th><th>sac_code</th><th>description</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…rp001</code></td><td>CXR_PA</td><td>Chest X-ray PA View</td><td>xray</td><td>chest</td>
+          <td><code>…dept04 (Radiology)</code></td><td><code>…sv020 (RAD_CXR_PA)</code></td>
+          <td>10</td><td>false</td><td>false</td><td>999319</td>
+          <td>Standard PA view; no prep required. Lateral view ordered separately if needed.</td>
+          <td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…rp002</code></td><td>USG_ABD</td><td>Ultrasound Abdomen</td><td>ultrasound</td><td>abdomen</td>
+          <td><code>…dept04 (Radiology)</code></td><td><code>…sv021 (RAD_USG_ABD)</code></td>
+          <td>20</td><td>true</td><td>true</td><td>999319</td>
+          <td>Patient must fast 6 hours. Radiologist presence required.</td>
+          <td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…rp003</code></td><td>CT_HEAD_PLAIN</td><td>CT Head Plain</td><td>ct</td><td>brain</td>
+          <td><code>…dept04 (Radiology)</code></td><td><code>…sv022 (RAD_CT_HEAD_PLAIN)</code></td>
+          <td>15</td><td>false</td><td>false</td><td>999319</td>
+          <td>Non-contrast CT head. Used for trauma, stroke, and acute neurological presentations.</td>
+          <td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Flyway-seeded rows have <code>created_by = NULL</code>. All three procedures are GST-exempt (healthcare services). <code>USG_ABD</code> illustrates two scheduling flags together: fasting + radiologist presence.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 2. radiology_orders                                               -->
+  <!-- ================================================================ -->
+  <section id="radiology_orders" class="mb-5">
+    <h2>2. radiology_orders
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+    </h2>
+    <p>One order = one act of ordering one imaging procedure. Unlike lab, radiology does not have a separate <em>items</em> table — each procedure is its own order row. Multi-procedure requests (e.g. "CXR + USG abdomen on the same visit") are two separate <code>radiology_orders</code> rows — this matches how radiology worklists are built and how DICOM accession numbers are assigned (one per order).</p>
+    <p class="small text-muted"><strong>v3 delta from TSD-09:</strong> <code>tenant_id</code> dropped. <code>payment_required_before_service</code> dropped — governed by <code>system_config</code>. <code>ordered_at</code> dropped — use <code>created_at</code> from L1 audit. <code>ip_admission_id</code> retained as a nullable forward FK (Phase 2 IP billing).</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>order_number</code></td><td>text</td><td>NO</td><td>UNIQUE, CHECK length 5–30</td><td>—</td><td>Human-readable order reference generated by the app (e.g. <code>RAD-2026-04582</code>). Printed on the imaging request slip given to the patient.</td></tr>
+        <tr><td><code>patient_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>patients(id)</code> RESTRICT</td><td>—</td><td>Subject of the imaging order</td></tr>
+        <tr><td><code>op_visit_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>op_visits(id)</code> RESTRICT</td><td>—</td><td>OPD context. NULL for IP or direct referral orders.</td></tr>
+        <tr><td><code>ip_admission_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>ip_admissions(id)</code> RESTRICT</td><td>—</td><td>IP admission context (Phase 2). Exactly one of <code>op_visit_id</code> or <code>ip_admission_id</code> should be non-NULL for admitted patients; both may be NULL for direct walk-in imaging.</td></tr>
+        <tr><td><code>consultation_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>consultations(id)</code> RESTRICT</td><td>—</td><td>Originating consultation that triggered this order. NULL if ordered directly at the radiology counter.</td></tr>
+        <tr><td><code>doctor_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>Ordering doctor (not the radiologist — that's <code>radiology_reports.reported_by_radiologist_id</code>)</td></tr>
+        <tr><td><code>radiology_procedure_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>radiology_procedures(id)</code> RESTRICT</td><td>—</td><td>The procedure being ordered</td></tr>
+        <tr><td><code>clinical_question</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>What the ordering doctor wants answered (e.g. <code>Rule out pneumothorax</code>, <code>? cholecystitis</code>). Guides the radiologist's reporting focus.</td></tr>
+        <tr><td><code>priority</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'routine'</code></td><td><code>routine</code> | <code>urgent</code> | <code>stat</code> — drives worklist ordering and SLA</td></tr>
+        <tr><td><code>invoice_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>invoices(id)</code> RESTRICT</td><td>—</td><td>Linked billing invoice (Module 17 forward FK; NULL until billing is generated)</td></tr>
+        <tr><td><code>status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'ordered'</code></td><td><code>ordered</code> → <code>awaiting_payment</code> → <code>paid</code> → <code>imaging_pending</code> → <code>imaging_in_progress</code> → <code>imaging_completed</code> → <code>reporting_pending</code> → <code>reported</code> → <code>released</code> | <code>cancelled</code></td></tr>
+        <tr><td><code>imaging_completed_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>Set when the technician completes image capture. TAT is measured from <code>created_at</code> to <code>released_at</code>.</td></tr>
+        <tr><td><code>released_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>Set when the report is released to the ordering doctor</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_radiology_orders</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_radiology_orders_number</code> — UNIQUE (order_number)</li>
+      <li><code>chk_radiology_orders_number_len</code> — CHECK <code>char_length(order_number) BETWEEN 5 AND 30</code></li>
+      <li><code>chk_radiology_orders_priority</code> — CHECK <code>priority IN ('routine','urgent','stat')</code></li>
+      <li><code>chk_radiology_orders_status</code> — CHECK <code>status IN ('ordered','awaiting_payment','paid','imaging_pending','imaging_in_progress','imaging_completed','reporting_pending','reported','released','cancelled')</code></li>
+      <li><code>chk_radiology_orders_context</code> — CHECK <code>num_nonnulls(op_visit_id, ip_admission_id) &lt;= 1</code> &nbsp;<span class="text-muted">— at most one visit context</span></li>
+      <li><code>ix_radiology_orders_patient</code> — INDEX (patient_id, created_at DESC) &nbsp;<span class="text-muted">— patient imaging history</span></li>
+      <li><code>ix_radiology_orders_worklist</code> — INDEX (status, priority, created_at) WHERE <code>deleted_at IS NULL AND status NOT IN ('released','cancelled')</code> &nbsp;<span class="text-muted">— radiology worklist</span></li>
+      <li><code>ix_radiology_orders_consultation</code> — INDEX (consultation_id) WHERE <code>consultation_id IS NOT NULL</code> &nbsp;<span class="text-muted">— orders placed from a consultation</span></li>
+      <li><code>ix_radiology_orders_invoice</code> — INDEX (invoice_id) WHERE <code>invoice_id IS NOT NULL</code></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_radiology_orders_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_radiology_orders_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>order_number</th><th>patient_id</th><th>op_visit_id</th><th>ip_admission_id</th><th>consultation_id</th><th>doctor_id</th><th>radiology_procedure_id</th><th>clinical_question</th><th>priority</th><th>invoice_id</th><th>status</th><th>imaging_completed_at</th><th>released_at</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…ro001</code></td><td>RAD-2026-00001</td>
+          <td><code>…pt001 (Ravi Kumar)</code></td>
+          <td><code>…ov001</code></td><td>NULL</td>
+          <td><code>…cn001</code></td>
+          <td><code>…usr02 (Dr. Arjun Mehta)</code></td>
+          <td><code>…rp001 (CXR_PA)</code></td>
+          <td>Rule out pneumothorax post-intercostal drain</td>
+          <td>urgent</td><td><code>…inv001</code></td>
+          <td>released</td>
+          <td>2026-03-10 14:30</td><td>2026-03-10 16:45</td>
+          <td><code>…usr02</code></td><td>2026-03-10 13:00</td>
+          <td><code>…usr05 (Receptionist)</code></td><td>2026-03-10 16:45</td><td>5</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…ro002</code></td><td>RAD-2026-00002</td>
+          <td><code>…pt001 (Ravi Kumar)</code></td>
+          <td><code>…ov002</code></td><td>NULL</td>
+          <td><code>…cn002</code></td>
+          <td><code>…usr03 (Dr. Priya Nair)</code></td>
+          <td><code>…rp002 (USG_ABD)</code></td>
+          <td>? cholecystitis — RUQ pain 3 days</td>
+          <td>routine</td><td>NULL</td>
+          <td>awaiting_payment</td>
+          <td>NULL</td><td>NULL</td>
+          <td><code>…usr03</code></td><td>2026-03-11 10:15</td>
+          <td><code>…usr03</code></td><td>2026-03-11 10:15</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — CXR_PA fully completed and released. Row 2 — USG_ABD just ordered, awaiting payment before scheduling.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 3. radiology_attachments                                          -->
+  <!-- ================================================================ -->
+  <section id="radiology_attachments" class="mb-5">
+    <h2>3. radiology_attachments
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+    </h2>
+    <p>Files uploaded by the radiology technician against a <code>radiology_orders</code> row. One row per file — multiple files per order are common (PA view + lateral view for CXR; multiple frames for USG; a scanned referral letter; a prior-study PDF for comparison). The radiologist reviews these attachments before writing the report in <code>radiology_reports</code>.</p>
+    <p class="small text-muted"><strong>Files supported:</strong> X-ray images (<code>image/jpeg</code>, <code>image/png</code>), scanned documents (<code>image/jpeg</code>, <code>image/png</code>), radiology reports from external centres (<code>application/pdf</code>). The <code>file_type</code> MIME column records the format; the app enforces an allowlist at upload time.</p>
+    <p class="small text-muted"><strong>v3 design note:</strong> replaces <code>radiology_studies</code> from TSD-09 — no PACS/DICOM integration; technician uploads directly through the app UI. <code>file_data bytea</code> stores the file in the DB for v1 (same pattern as <code>lab_results.report_data</code> and <code>radiology_reports.report_data</code>); migrate to S3 later by adding <code>file_url text</code> without touching existing rows.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>radiology_order_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>radiology_orders(id)</code> CASCADE</td><td>—</td><td>Parent order. If the order is hard-deleted (rare admin action) the attachments go with it.</td></tr>
+        <tr><td><code>file_name</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Original filename as uploaded (e.g. <code>cxr_pa_view.jpg</code>, <code>prior_report.pdf</code>). Displayed in the file list in the radiologist's UI.</td></tr>
+        <tr><td><code>file_type</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td>MIME type: <code>image/jpeg</code> | <code>image/png</code> | <code>application/pdf</code>. App enforces the allowlist at upload; CHECK adds a DB-level guard.</td></tr>
+        <tr><td><code>file_data</code></td><td>bytea</td><td>NO</td><td>—</td><td>—</td><td>File binary stored in DB for v1. To migrate to S3: add <code>file_url text</code>, populate it, then null out <code>file_data</code>. Both columns can coexist during transition.</td></tr>
+        <tr><td><code>file_size_bytes</code></td><td>int</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>File size in bytes — displayed in the UI and used for storage quota monitoring.</td></tr>
+        <tr><td><code>caption</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Technician's label for the file (e.g. <code>PA view</code>, <code>Lateral view</code>, <code>Prior study from Apollo 2025-11</code>). Shown alongside the file in the radiologist's review panel.</td></tr>
+        <tr><td><code>sequence_no</code></td><td>int</td><td>NO</td><td>CHECK &gt; 0</td><td><code>1</code></td><td>Display order within the order's attachment list. Technician can reorder before the radiologist starts the report.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. Soft-delete allows a technician to retract an accidentally uploaded file without destroying the row (audit trail preserved).</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_radiology_attachments</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_radiology_attachments_file_type</code> — CHECK <code>file_type IN ('image/jpeg','image/png','application/pdf')</code></li>
+      <li><code>chk_radiology_attachments_file_size</code> — CHECK <code>file_size_bytes &gt; 0</code></li>
+      <li><code>chk_radiology_attachments_seq</code> — CHECK <code>sequence_no &gt; 0</code></li>
+      <li><code>ix_radiology_attachments_order</code> — INDEX (radiology_order_id, sequence_no) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— radiologist's file list in order</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_radiology_attachments_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_radiology_attachments_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>radiology_order_id</th><th>file_name</th><th>file_type</th><th>file_data</th><th>file_size_bytes</th><th>caption</th><th>sequence_no</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…ra001</code></td>
+          <td><code>…ro001 (RAD-2026-00001 CXR_PA)</code></td>
+          <td>cxr_pa_ravi_20260310.jpg</td><td>image/jpeg</td>
+          <td><code>[bytea]</code></td><td>284512</td>
+          <td>PA view</td><td>1</td>
+          <td><code>…usr06 (Tech Rajan)</code></td><td>2026-03-10 14:32</td>
+          <td>NULL</td><td>2026-03-10 14:32</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…ra002</code></td>
+          <td><code>…ro001 (RAD-2026-00001 CXR_PA)</code></td>
+          <td>cxr_lateral_ravi_20260310.jpg</td><td>image/jpeg</td>
+          <td><code>[bytea]</code></td><td>301880</td>
+          <td>Lateral view</td><td>2</td>
+          <td><code>…usr06 (Tech Rajan)</code></td><td>2026-03-10 14:33</td>
+          <td>NULL</td><td>2026-03-10 14:33</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…ra003</code></td>
+          <td><code>…ro001 (RAD-2026-00001 CXR_PA)</code></td>
+          <td>prior_cxr_apollo_nov2025.pdf</td><td>application/pdf</td>
+          <td><code>[bytea]</code></td><td>512000</td>
+          <td>Prior study from Apollo Hospital Nov 2025 — for comparison</td><td>3</td>
+          <td><code>…usr06 (Tech Rajan)</code></td><td>2026-03-10 14:35</td>
+          <td>NULL</td><td>2026-03-10 14:35</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Three attachments for one CXR_PA order: PA image, lateral image, and a prior study PDF for comparison. Radiologist reviews all three before writing the report. Tech uploaded them sequentially after the scan; <code>radiology_orders.status</code> moved to <code>reporting_pending</code> once the last file was uploaded.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 4. radiology_reports                                              -->
+  <!-- ================================================================ -->
+  <section id="radiology_reports" class="mb-5">
+    <h2>4. radiology_reports
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-danger">L2 maker-checker</span>
+      <span class="badge bg-info">L3 audit</span>
+    </h2>
+    <p>The signed clinical document — radiologist's findings, impression, and recommendations. Carries <strong>Layer 2 maker-checker</strong>: junior radiologist dictates → consultant verifies and approves → report is released to the ordering doctor. Supports an amendment chain via <code>amended_from_report_id</code> self-FK — when a released report needs correction, a new row is created referencing the original; the original row's status moves to <code>amended</code>.</p>
+    <p class="small text-muted"><strong>Separation-of-duties note:</strong> <code>CHECK (created_by &lt;&gt; approved_by)</code> is present by default. For single-radiologist hospitals, set <code>system_config</code> key <code>radiology.allow_self_approval = true</code>; the app skips the CHECK enforcement in that case. The flag change itself requires Layer 2 approval on <code>system_config</code>.</p>
+    <p class="small text-muted"><strong>v3 delta from TSD-09:</strong> <code>tenant_id</code> dropped. <code>study_id</code> dropped — images live in <code>radiology_attachments</code> linked to the order; the report references the order directly. <code>report_attachment_id</code> changed to <code>report_data bytea</code> — report PDF stored directly in DB for v1 (same pattern as <code>lab_results.report_data</code>); migrate to S3 later by adding <code>report_url text</code>.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>radiology_order_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>radiology_orders(id)</code> RESTRICT</td><td>—</td><td>The order this report addresses</td></tr>
+        <tr><td><code>findings</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Section-by-section observations from the radiologist. May be structured by body region.</td></tr>
+        <tr><td><code>impression</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Diagnostic impression — the headline summary for the ordering doctor</td></tr>
+        <tr><td><code>recommendation</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Suggested follow-up, additional views, or clinical correlation advice</td></tr>
+        <tr><td><code>reported_by_radiologist_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>Radiologist who dictated this report</td></tr>
+        <tr><td><code>dictated_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>When the radiologist completed dictation. NULL = still being drafted.</td></tr>
+        <tr><td><code>release_status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'pending_verification'</code></td><td><code>pending_verification</code> → <code>verified</code> → <code>released</code> | <code>amended</code> | <code>rejected</code>. Only <code>released</code> reports are visible to the ordering doctor.</td></tr>
+        <tr><td><code>report_data</code></td><td>bytea</td><td>YES</td><td>—</td><td>—</td><td>Rendered PDF of the final report. NULL while report is being drafted. Populated when released. Future: add <code>report_url text</code> for S3 migration — both columns can coexist during transition.</td></tr>
+        <tr><td><code>amended_from_report_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>radiology_reports(id)</code> RESTRICT</td><td>—</td><td>Self-FK — set when this report corrects a previously-released report. Forms an amendment chain for audit purposes.</td></tr>
+        <tr><td><code>amendment_reason</code></td><td>text</td><td>YES</td><td>CHECK (see constraints)</td><td>—</td><td>Required when <code>amended_from_report_id IS NOT NULL</code>. Must be at least 10 characters — enforces a meaningful reason, not "correction".</td></tr>
+        <tr class="table-warning"><td><code>approval_status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'pending_approval'</code></td><td><em>L2 maker-checker.</em> <code>pending_approval</code> | <code>approved</code> | <code>rejected</code></td></tr>
+        <tr class="table-warning"><td><code>approved_by</code></td><td>uuid</td><td>YES</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td><em>L2 maker-checker.</em> Consultant who verified and approved the report</td></tr>
+        <tr class="table-warning"><td><code>approved_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td><em>L2 maker-checker.</em> When approval was recorded</td></tr>
+        <tr class="table-warning"><td><code>rejection_reason</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td><em>L2 maker-checker.</em> Consultant's notes when returning report to the radiologist for correction</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. Yellow rows = Layer 2 maker-checker block.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_radiology_reports</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_radiology_reports_release_status</code> — CHECK <code>release_status IN ('pending_verification','verified','released','amended','rejected')</code></li>
+      <li><code>chk_radiology_reports_approval_status</code> — CHECK <code>approval_status IN ('pending_approval','approved','rejected')</code></li>
+      <li><code>chk_radiology_reports_release_approved</code> — CHECK <code>(release_status = 'released') = (approval_status = 'approved' AND approved_by IS NOT NULL)</code> &nbsp;<span class="text-muted">— released iff approved</span></li>
+      <li><code>chk_radiology_reports_amendment_reason</code> — CHECK <code>(amended_from_report_id IS NULL) OR (amendment_reason IS NOT NULL AND char_length(amendment_reason) &gt;= 10)</code> &nbsp;<span class="text-muted">— amendments need a real reason</span></li>
+      <li><code>chk_radiology_reports_sod</code> — CHECK <code>created_by &lt;&gt; approved_by OR approved_by IS NULL</code> &nbsp;<span class="text-muted">— separation of duties; app relaxes this when <code>system_config.radiology.allow_self_approval = true</code></span></li>
+      <li><code>ix_radiology_reports_pending</code> — INDEX (release_status, dictated_at DESC) WHERE <code>release_status = 'pending_verification'</code> &nbsp;<span class="text-muted">— consultant's inbox</span></li>
+      <li><code>ix_radiology_reports_order</code> — INDEX (radiology_order_id) &nbsp;<span class="text-muted">— reports for one order + amendment chain</span></li>
+      <li><code>ix_radiology_reports_radiologist</code> — INDEX (reported_by_radiologist_id, dictated_at DESC) &nbsp;<span class="text-muted">— radiologist productivity</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_radiology_reports_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_radiology_reports_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+      <li><code>tr_radiology_reports_au_release</code> — AFTER UPDATE OF release_status → <code>fn_radiology_release_event()</code>: when <code>release_status</code> transitions to <code>'released'</code>, inserts a <code>domain_events</code> row of type <code>RadiologyReportReleased</code> with <code>payload = {orderId, patientId, reportId, doctorId}</code>. Subscribed by the ordering doctor's "Reports Ready" inbox notifier.</li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>radiology_order_id</th><th>findings</th><th>impression</th><th>recommendation</th><th>reported_by_radiologist_id</th><th>dictated_at</th><th>release_status</th><th>report_data</th><th>amended_from_report_id</th><th>amendment_reason</th><th>approval_status</th><th>approved_by</th><th>approved_at</th><th>rejection_reason</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…rr001</code></td>
+          <td><code>…ro001 (RAD-2026-00001)</code></td>
+          <td>Lungs are clear bilaterally. No pneumothorax. No pleural effusion. Cardiac silhouette normal. Costophrenic angles sharp.</td>
+          <td>No pneumothorax. Normal post-procedure CXR.</td>
+          <td>No further imaging needed at this time. Clinical correlation advised.</td>
+          <td><code>…usr07 (Dr. Shalini Rao, Radiologist)</code></td>
+          <td>2026-03-10 15:45</td>
+          <td>released</td>
+          <td><code>[PDF bytea]</code></td>
+          <td>NULL</td><td>NULL</td>
+          <td>approved</td>
+          <td><code>…usr08 (Dr. Venkat, Sr. Radiologist)</code></td>
+          <td>2026-03-10 16:30</td>
+          <td>NULL</td>
+          <td><code>…usr07</code></td><td>2026-03-10 15:00</td>
+          <td><code>…usr08</code></td><td>2026-03-10 16:45</td><td>3</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…rr002</code></td>
+          <td><code>…ro001 (RAD-2026-00001)</code></td>
+          <td>Correction: subtle right-sided pneumothorax seen on lateral view review. Estimated &lt;5mm. Left lung clear. No pleural effusion.</td>
+          <td>Minimal right pneumothorax identified on re-review of lateral projection. &lt;5mm.</td>
+          <td>Repeat CXR in 6 hours. Notify treating team immediately.</td>
+          <td><code>…usr07 (Dr. Shalini Rao)</code></td>
+          <td>2026-03-10 18:00</td>
+          <td>released</td>
+          <td><code>[PDF bytea v2]</code></td>
+          <td><code>…rr001</code></td>
+          <td>Initial report missed subtle right pneumothorax on lateral review — identified on re-read after clinical deterioration alert</td>
+          <td>approved</td>
+          <td><code>…usr08</code></td>
+          <td>2026-03-10 18:30</td>
+          <td>NULL</td>
+          <td><code>…usr07</code></td><td>2026-03-10 18:00</td>
+          <td><code>…usr08</code></td><td>2026-03-10 18:45</td><td>2</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — original report, released and approved. Row 2 — amendment of row 1 (after clinical deterioration prompted re-read); <code>amended_from_report_id = …rr001</code>; amendment reason &gt; 10 chars; both released and approved. The ordering doctor's inbox received two <code>RadiologyReportReleased</code> events; the UI shows the amendment chain clearly.</p>
+  </section>
+
+</main>
+</body>
+</html>

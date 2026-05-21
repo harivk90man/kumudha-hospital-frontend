@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Platform · Notifications — HMS Schema v8</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script src="../shared/manifest.js"></script>
+  <script src="../shared/catalog.js"></script>
+  <script src="../shared/renderer.js"></script>
+  <script>
+  // ─── EDIT BELOW ONLY. Do not touch HTML/script tags. ────────────────────
+  const MODULE = {
+    id: 'platform-notifications',
+    name: 'Platform · Notifications',
+    color: '#8E7BD8',
+    bg: '#1f1a36',
+    lbg: '#EEEAF8',
+    features: ['inbox', 'ack'],
+    tables: [
+      { n:'notifications', feature:'inbox', desc:'In-app/email/SMS alerts to users or roles. Critical alerts require ACK with SLA + escalation chain.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'user_id',t:'uuid',fk:'users',nl:1},
+          {n:'role_id',t:'uuid',fk:'roles',nl:1},
+          {n:'type',t:'varchar'},
+          {n:'title',t:'varchar'},
+          {n:'body',t:'text',nl:1},
+          {n:'link',t:'varchar',nl:1},
+          {n:'priority',t:"varchar · 'normal'|'high'|'urgent'"},
+          {n:'ack_required',t:'boolean DEFAULT FALSE'},
+          {n:'ack_sla_minutes',t:'int · target ACK time',nl:1},
+          {n:'escalation_chain',t:'jsonb · ["doctor","hod","oncall"]',nl:1},
+          {n:'escalated_at',t:'timestamptz',nl:1},
+          {n:'escalated_to',t:'uuid',fk:'users',nl:1},
+          {n:'read_at',t:'timestamptz',nl:1},
+          {n:'created_at',t:'timestamptz'},
+        ]},
+      { n:'notification_acknowledgments', feature:'ack', desc:'Records who ACKed a critical alert and whether the ACK met SLA. Required for compliance/malpractice defense.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'notification_id',t:'uuid',fk:'notifications'},
+          {n:'acked_by',t:'uuid',fk:'users'},
+          {n:'acked_at',t:'timestamptz'},
+          {n:'action_taken',t:'text · what was done about it',nl:1},
+          {n:'sla_minutes',t:'int · target time',nl:1},
+          {n:'breached_sla',t:'boolean DEFAULT FALSE'},
+        ]},
+    ]
+  };
+  renderModule(MODULE);
+  </script>
+</body>
+</html>

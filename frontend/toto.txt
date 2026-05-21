@@ -1,0 +1,80 @@
+**********************************************************************************
+General
+
+1. User logout page not good.
+
+*********************************************************************************
+1. Nurse station page
+DONE    ---> Search uhid(after 4 nos, it should show result dynamically on the same section that it shows now , progress indicator as sual should come)
+PENDING    ---> place holder uhid
+
+2. Book appointment page
+DONE    --->duplicate informations
+DONE    ---> button placement
+DONE    ---> change the whole page to our agreed layout and theme
+DONE    ---> Choose doc dropdown change
+
+3. Register new patient
+DONE    ---> Date picker issue
+
+3. Cash counter
+    --->How to open and close
+    ---> morning or eveng capture detail(for shift open and close)
+5. Vitals
+    ---> fields are so compact - give spacing
+    ---> page look dull
+
+6. Merge Appointment and live queue page
+DONE   ---> include date picker near doc dropdown; if today ddate selected, it is live queue, if future date selected it shows future appointment
+**********************************************************************************
+
+
+1. Doctor queue 
+DONE    ---> Pagination default 10
+DONE ---> Remove timing  on status
+
+2. Reports to check tab
+DONE    ---> Pagination default 10
+
+3. Consultation done tab
+DONE    ---> remove wait col
+DONE    ---> instead of wait, add a column to indicate if the patient has pres, or blood repo, radio or nothing
+DONE    ---> pagianation default 10
+
+4. Consultation page
+ DONE   ---> view linked patients
+ DONE   ---> search another patient using uhid or ph
+ DONE   ---> scroll down - breadcrumb hiding        
+ DONE   ---> remove the label sections from left stcky section 
+ DONE   ---> rename notes and history to notes\
+ DONE   ---> move clinical impression to new line
+ DONE   --> add spacing between 2 fields in notes section
+ DONE   ---> Add diagnosis,, CHANGE COLOUR\
+ DONE   ---> for editing rows, click on that specific field to enable edit
+ DONE   ---> after clicking on add diagnosis, that empty table shoudl come with 1st row on edit mode
+ DONE   ----> change lab and report section template also to diagnosis/prescription template and rename the section to labs and tests
+ DONE   ---> Prescription same changes as diagnosis, 
+ DONE   ---> merge labs and test with reports and result section (show attachment after result), show order placed
+ DONE   ---> Referals and Recommendation, make it as text area under advice given
+
+5. Patient history
+ DONE   ---> add filter(with date)
+ DONE   ---> too many visible lines (for now remove the visit history box)
+ DONE   ---> change the patient history row to white colour like others (add the rounds to some colour - may be accent)
+ DONE   ---> Remove redundat visit history label
+ DONE   ---> remove the back button inside history
+ DONE   ---> try to change the boxy layour of each history
+    ---> remove amend(keep in DB)
+    ---> auto save show in ui
+
+
+
+
+
+_______________________________________________________________
+Questions to Naveen
+1. in Prescription, you want as 1-0-1 or twice a day
+
+
+
+    

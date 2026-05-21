@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Platform · Lookups — HMS Schema v8</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script src="../shared/manifest.js"></script>
+  <script src="../shared/catalog.js"></script>
+  <script src="../shared/renderer.js"></script>
+  <script>
+  // ─── EDIT BELOW ONLY. Do not touch HTML/script tags. ────────────────────
+  const MODULE = {
+    id: 'platform-lookups',
+    name: 'Platform · Lookups',
+    color: '#A090E0',
+    bg: '#211c38',
+    lbg: '#F0EBFA',
+    features: ['clinical-pickers'],
+    tables: [
+      { n:'allergies_lookup', feature:'clinical-pickers', nw:1, desc:'Allergen picklist with drug_class_code — used at patient registration AND at prescribe time for drug-class allergy alerts.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants'},
+          {n:'allergen_name',t:'varchar',uk:1},
+          {n:'allergen_class',t:"varchar · 'drug'|'food'|'environmental'|'other'"},
+          {n:'drug_class_code',t:'varchar · matches medicines.drug_class for prescribe-time alert',nl:1},
+          {n:'description',t:'text',nl:1},
+          {n:'is_active',t:'boolean DEFAULT TRUE'},
+          {n:'created_by',t:'uuid',fk:'users'},
+          {n:'created_at',t:'timestamptz'},
+          {n:'updated_at',t:'timestamptz'},
+        ]},
+      { n:'chronic_conditions_lookup', feature:'clinical-pickers', nw:1, desc:'Chronic condition picklist with ICD-10 — used at patient registration AND consultation HPI for analytics cohorts.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants'},
+          {n:'condition_name',t:'varchar',uk:1},
+          {n:'icd10_code',t:'varchar',nl:1},
+          {n:'description',t:'text',nl:1},
+          {n:'is_active',t:'boolean DEFAULT TRUE'},
+          {n:'created_by',t:'uuid',fk:'users'},
+          {n:'created_at',t:'timestamptz'},
+          {n:'updated_at',t:'timestamptz'},
+        ]},
+    ]
+  };
+  renderModule(MODULE);
+  </script>
+</body>
+</html>

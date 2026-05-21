@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>01C · RBAC — HMS Schema v3</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <style>
+    code { color: #d63384; font-size: 0.92em; }
+    .table th { white-space: nowrap; }
+    h2 .badge { font-size: 0.55em; vertical-align: middle; }
+    pre { background: #f8f9fa; padding: 1rem; border-radius: 0.375rem; font-size: 0.85em; }
+    .toc-card { background: #fff; }
+    .sample-data td, .sample-data th { white-space: nowrap; font-size: 0.78em; }
+  </style>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark sticky-top">
+  <div class="container">
+    <a href="../index.html" class="navbar-brand">
+      <i class="bi bi-arrow-left"></i> v3 Schema
+    </a>
+    <span class="navbar-text">Module 01 · Slice <strong>1C</strong> of 4 · RBAC</span>
+  </div>
+</nav>
+
+<main class="container py-4">
+
+  <h1>RBAC</h1>
+  <p class="lead">Who can do what — roles, permissions, and the M:M bridges that wire users to roles and roles to permissions.</p>
+
+  <div class="card toc-card mb-4">
+    <div class="card-body">
+      <h6 class="card-subtitle text-muted mb-2">Slice 1C contents — being added one table at a time</h6>
+      <ol class="mb-0 small">
+        <li><a href="#roles">roles</a> — coarse functional buckets (admin, doctor, pharmacist, …) &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#user_roles">user_roles</a> — M:M bridge: which user holds which role; <code>is_primary</code> flags the single role that drives the login response and UI portal routing &nbsp;<span class="badge bg-warning text-dark">updated</span></li>
+        <li><a href="#role_permissions">role_permissions</a> — what each role can do, CRUD-per-table (composite PK on (role_id, table_name)) &nbsp;<span class="badge bg-warning text-dark">under review</span></li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- 1. roles                                                         -->
+  <!-- ================================================================ -->
+  <section id="roles" class="mb-5">
+    <h2>1. roles
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Coarse functional buckets a user can hold. A user may have more than one role (e.g. a doctor who also runs the cash counter). Flat — no hierarchy / inheritance. Sub-grading like "junior consultant" lives in <code>department_heads.role_type</code> (Slice 1B), not here.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>role_code</code></td><td>text</td><td>NO</td><td>UNIQUE, CHECK length 2–32</td><td>—</td><td>Short machine code (e.g. <code>admin</code>, <code>doctor</code>). Lowercase, snake_case.</td></tr>
+        <tr><td><code>role_name</code></td><td>text</td><td>NO</td><td>CHECK length 2–64</td><td>—</td><td>Display name shown in admin UI (e.g. "Hospital Administrator")</td></tr>
+        <tr><td><code>description</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Free-form description of the role's responsibilities</td></tr>
+        <tr><td><code>category</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td>Functional bucket: <code>admin</code> | <code>clinical</code> | <code>support</code></td></tr>
+        <tr><td><code>is_system_role</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>false</code></td><td>Built-in role seeded by Flyway. Admin UI hides the delete action when <code>true</code>; the row stays for the life of the deployment.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns (§0 of Slice 1A).</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_roles</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_roles_role_code</code> — UNIQUE (role_code)</li>
+      <li><code>chk_roles_role_code_len</code> — CHECK <code>char_length(role_code) BETWEEN 2 AND 32</code></li>
+      <li><code>chk_roles_role_name_len</code> — CHECK <code>char_length(role_name) BETWEEN 2 AND 64</code></li>
+      <li><code>chk_roles_category</code> — CHECK <code>category IN ('admin','clinical','support')</code></li>
+      <li><code>ix_roles_category_active</code> — INDEX (category) WHERE <code>deleted_at IS NULL</code></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_roles_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_roles_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>role_code</th><th>role_name</th><th>description</th><th>category</th><th>is_system_role</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>…r001</code></td><td>admin</td><td>Hospital Administrator</td><td>Full system access; user provisioning; system config</td><td>admin</td><td>true</td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…r002</code></td><td>doctor</td><td>Consultant Doctor</td><td>Clinical consultations, prescriptions, lab orders</td><td>clinical</td><td>true</td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…r003</code></td><td>receptionist</td><td>Front Desk Receptionist</td><td>Patient registration, appointment booking, billing intake</td><td>support</td><td>true</td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…r004</code></td><td>pharmacist</td><td>Pharmacist</td><td>Dispensing, stock management, narcotic register</td><td>clinical</td><td>true</td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…r005</code></td><td>lab_tech</td><td>Laboratory Technician</td><td>Sample collection, result entry (subject to doctor approval)</td><td>clinical</td><td>true</td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 2. user_roles                                                    -->
+  <!-- ================================================================ -->
+  <section id="user_roles" class="mb-5">
+    <h2>2. user_roles
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+      <span class="badge bg-secondary">M:M bridge</span>
+    </h2>
+    <p>Many-to-many bridge: a user can hold multiple roles; a role can be held by many users. <strong>Composite primary key</strong> on <code>(user_id, role_id)</code> — CONVENTIONS.md §2 allows composite PKs only on true M:M bridges. No surrogate <code>id</code>.</p>
+    <p><strong><code>is_primary</code> flag:</strong> exactly one active row per user must have <code>is_primary = true</code>, enforced by a partial unique index. This primary role is returned in the login response and drives UI portal routing (which portal the user lands on after login). Secondary roles grant additional permissions without changing the portal. When a new role assignment is made primary, the caller must first clear <code>is_primary</code> on the current primary row.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>user_id</code></td><td>uuid</td><td>NO</td><td><strong>PK part 1</strong>, FK → <code>users(id)</code> CASCADE</td><td>—</td><td>The user. CASCADE: hard-deleting a user removes their role assignments.</td></tr>
+        <tr><td><code>role_id</code></td><td>uuid</td><td>NO</td><td><strong>PK part 2</strong>, FK → <code>roles(id)</code> RESTRICT</td><td>—</td><td>The role. RESTRICT: a role still held by someone cannot be hard-deleted; soft-delete or reassign first.</td></tr>
+        <tr><td><code>is_primary</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>false</code></td><td>True on exactly one active row per user — enforced by <code>uq_user_roles_primary</code> partial unique index. Identifies the role used for login response and portal routing.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns (<code>created_by</code> doubles as "assigned by"; <code>created_at</code> doubles as "assigned at"; <code>deleted_at</code> = role revoked).</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_user_roles</code> — PRIMARY KEY (user_id, role_id) &nbsp;<span class="text-muted">— composite, no surrogate</span></li>
+      <li><code>uq_user_roles_primary</code> — UNIQUE INDEX (user_id) WHERE <code>is_primary = true AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— enforces at most one primary role per active user; partial so revoked rows don't block re-assignment</span></li>
+      <li><code>ix_user_roles_role</code> — INDEX (role_id) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— reverse-direction lookup: "who currently holds role X?"</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_user_roles_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_user_roles_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>user_id</th><th>role_id</th><th>is_primary</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>…0001 (admin)</code></td><td><code>…r001 (admin)</code></td><td><strong>true</strong></td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr class="table-info"><td><code>…0002 (Dr Priya)</code></td><td><code>…r002 (doctor)</code></td><td><strong>true</strong></td><td><code>…0001 (admin)</code></td><td>2024-01-15 10:00</td><td>NULL</td><td>2024-01-15 10:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr class="table-success"><td><code>…0002 (Dr Priya)</code></td><td><code>…r001 (admin)</code></td><td>false</td><td><code>…0001 (admin)</code></td><td>2024-06-01 10:00</td><td>NULL</td><td>2024-06-01 10:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr class="table-info"><td><code>…0010 (Dr Anand)</code></td><td><code>…r002 (doctor)</code></td><td><strong>true</strong></td><td><code>…0001 (admin)</code></td><td>2024-03-01 10:00</td><td>NULL</td><td>2024-03-01 10:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr class="table-info"><td><code>…0011 (Dr Saritha)</code></td><td><code>…r002 (doctor)</code></td><td><strong>true</strong></td><td><code>…0001 (admin)</code></td><td>2024-03-25 10:00</td><td>NULL</td><td>2024-03-25 10:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr class="table-info"><td><code>…0012 (Dr Vinod)</code></td><td><code>…r002 (doctor)</code></td><td><strong>true</strong></td><td><code>…0001 (admin)</code></td><td>2024-04-10 10:00</td><td>NULL</td><td>2024-04-10 10:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr class="table-info"><td><code>…0013 (Dr Lakshmi)</code></td><td><code>…r002 (doctor)</code></td><td><strong>true</strong></td><td><code>…0001 (admin)</code></td><td>2024-04-05 10:00</td><td>NULL</td><td>2024-04-05 10:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr class="table-info"><td><code>…0014 (Dr Ravi)</code></td><td><code>…r002 (doctor)</code></td><td><strong>true</strong></td><td><code>…0001 (admin)</code></td><td>2024-04-05 10:00</td><td>NULL</td><td>2024-04-05 10:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr class="table-info"><td><code>…0015 (Dr Aarthi)</code></td><td><code>…r002 (doctor)</code></td><td><strong>true</strong></td><td><code>…0001 (admin)</code></td><td>2025-09-01 10:00</td><td>NULL</td><td>2025-09-01 10:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr class="table-info"><td><code>…0020 (Naveen)</code></td><td><code>…r003 (receptionist)</code></td><td><strong>true</strong></td><td><code>…0001 (admin)</code></td><td>2024-05-20 10:00</td><td>NULL</td><td>2024-05-20 10:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr class="table-info"><td><code>…0025 (Suresh)</code></td><td><code>…r003 (receptionist)</code></td><td><strong>true</strong></td><td><code>…0001 (admin)</code></td><td>2025-09-15 10:00</td><td>NULL</td><td>2025-09-15 10:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr class="table-info"><td><code>…0030 (Geetha)</code></td><td><code>…r004 (pharmacist)</code></td><td><strong>true</strong></td><td><code>…0001 (admin)</code></td><td>2024-06-01 10:00</td><td>NULL</td><td>2024-06-01 10:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…0040 (Karthik)</code></td><td><code>…r005 (lab_tech)</code></td><td>true</td><td><code>…0001 (admin)</code></td><td>2024-02-10 10:00</td><td><code>…0001 (admin)</code></td><td>2025-12-31 18:00</td><td>1</td><td>2025-12-31 18:00</td><td><code>…0001 (admin)</code></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">
+      <span class="badge bg-info text-dark">blue row</span> = primary role for that user (is_primary = true) &nbsp;
+      <span class="badge bg-success text-white">green row</span> = secondary role (multi-role user) &nbsp;
+      <span class="badge bg-secondary text-white">plain row</span> = soft-deleted / revoked role.
+      Dr Priya holds both <em>doctor</em> (primary) and <em>admin</em> (secondary). The login response returns <code>primaryRole: "doctor"</code> and <code>allRoles: ["doctor","admin"]</code>.
+    </p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 3. role_permissions                                              -->
+  <!-- ================================================================ -->
+  <section id="role_permissions" class="mb-5">
+    <h2>3. role_permissions
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+      <span class="badge bg-secondary">M:M bridge</span>
+    </h2>
+    <p>What each role can do — one row per (role × table) with CRUD boolean flags. <strong>Composite primary key</strong> on <code>(role_id, table_name)</code>. The vocabulary is fixed at 4 actions (C/R/U/D) forever — no Java enum maintenance, no DB↔enum drift. State-transition gates like "sign prescription" / "approve lab result" / "narcotic dispense" are <strong>not</strong> permissions here; they're enforced by DB triggers + Layer 2 maker-checker CHECKs.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>role_id</code></td><td>uuid</td><td>NO</td><td><strong>PK part 1</strong>, FK → <code>roles(id)</code> CASCADE</td><td>—</td><td>The role. CASCADE: hard-deleting a role removes its permission grants.</td></tr>
+        <tr><td><code>table_name</code></td><td>text</td><td>NO</td><td><strong>PK part 2</strong></td><td>—</td><td>Target table name (e.g. <code>patients</code>, <code>prescriptions</code>). Loose text — app-layer validates against the live schema; no FK to <code>information_schema</code>. Max length enforced by Postgres itself (63 chars).</td></tr>
+        <tr><td><code>can_create</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>false</code></td><td>INSERT rights on the table.</td></tr>
+        <tr><td><code>can_read</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>false</code></td><td>SELECT rights on the table.</td></tr>
+        <tr><td><code>can_update</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>false</code></td><td>UPDATE rights on the table (including soft-delete by setting <code>deleted_at</code>).</td></tr>
+        <tr><td><code>can_delete</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>false</code></td><td>Hard DELETE rights — rare in clinical/financial data; almost always <code>false</code>.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns (<code>created_by</code> doubles as "granted by"; <code>deleted_at</code> = grant revoked).</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_role_permissions</code> — PRIMARY KEY (role_id, table_name) &nbsp;<span class="text-muted">— composite, no surrogate</span></li>
+      <li><code>chk_role_permissions_at_least_one</code> — CHECK <code>can_create OR can_read OR can_update OR can_delete</code> &nbsp;<span class="text-muted">— a row must grant at least one action; otherwise it's noise</span></li>
+      <li><code>ix_role_permissions_table</code> — INDEX (table_name) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— reverse-direction lookup: "which roles grant any action on table X?"</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_role_permissions_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_role_permissions_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>role_id</th><th>table_name</th><th>can_create</th><th>can_read</th><th>can_update</th><th>can_delete</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>…r001 (admin)</code></td><td><code>users</code></td><td>true</td><td>true</td><td>true</td><td>true</td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…r001 (admin)</code></td><td><code>payments</code></td><td>false</td><td>true</td><td>false</td><td>false</td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…r002 (doctor)</code></td><td><code>users</code></td><td>false</td><td>true</td><td>false</td><td>false</td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…r002 (doctor)</code></td><td><code>prescriptions</code></td><td>true</td><td>true</td><td>true</td><td>false</td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…r004 (pharmacist)</code></td><td><code>pharmacy_sales</code></td><td>true</td><td>true</td><td>false</td><td>false</td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+</main>
+
+</body>
+</html>

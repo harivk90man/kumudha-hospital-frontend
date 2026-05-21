@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>11 · Consultation — HMS Schema v3</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <style>
+    code { color: #d63384; font-size: 0.92em; }
+    .table th { white-space: nowrap; }
+    h2 .badge { font-size: 0.55em; vertical-align: middle; }
+    pre { background: #f8f9fa; padding: 1rem; border-radius: 0.375rem; font-size: 0.85em; }
+    .toc-card { background: #fff; }
+    .sample-data td, .sample-data th { white-space: nowrap; font-size: 0.78em; }
+  </style>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark sticky-top">
+  <div class="container">
+    <a href="../index.html" class="navbar-brand">
+      <i class="bi bi-arrow-left"></i> v3 Schema
+    </a>
+    <span class="navbar-text">Module <strong>11</strong> · Consultation</span>
+  </div>
+</nav>
+
+<main class="container py-4">
+
+  <h1>Clinical Consultation</h1>
+  <p class="lead">Everything the clinician records during an OPD encounter — vitals, consultation notes, diagnosis, prescriptions, and referrals.</p>
+
+  <div class="card toc-card mb-4">
+    <div class="card-body">
+      <h6 class="card-subtitle text-muted mb-2">Module 11 contents — one table at a time</h6>
+      <ol class="mb-0 small">
+        <li><a href="#vitals">vitals</a> — nurse-recorded vital signs before consultation &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#consultations">consultations</a> — doctor's clinical record: complaint, findings, ICD-10 diagnoses, plan &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#diagnosis_templates">diagnosis_templates</a> — reusable templates per specialty &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#prescriptions">prescriptions</a> — prescription header; status drives pharmacy workflow &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#prescription_items">prescription_items</a> — individual drug lines &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#doctor_recommendations">doctor_recommendations</a> — non-Rx outputs: follow-up, lab, radiology, referrals &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li class="text-muted"><s>consultation_drafts</s> — dropped; <code>consultations.status</code> covers draft vs locked state; autosave updates the consultation row directly</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- 1. vitals                                                        -->
+  <!-- ================================================================ -->
+  <section id="vitals" class="mb-5">
+    <h2>1. vitals
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Snapshot of vital signs at a point in time. Captured by the nurse at the pre-consultation desk before the doctor sees the patient. Multiple rows per visit are allowed — e.g. BP recheck after medication. <code>created_by</code> (from the uniform block) identifies the recording nurse; <code>created_at</code> is the recording timestamp — no separate <code>recorded_by</code> / <code>recorded_at</code> columns needed.</p>
+    <p><code>bmi</code> is a generated column — automatically computed whenever both <code>weight_kg</code> and <code>height_cm</code> are present.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>patient_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>patients(id)</code> RESTRICT</td><td>—</td><td>Subject patient</td></tr>
+        <tr><td><code>op_visit_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>op_visits(id)</code> RESTRICT</td><td>—</td><td>OP visit context. NULL only for future IP-only vitals.</td></tr>
+        <tr><td><code>bp_systolic</code></td><td>int</td><td>YES</td><td>CHECK 60–300 when not NULL</td><td>—</td><td>Systolic blood pressure in mm Hg</td></tr>
+        <tr><td><code>bp_diastolic</code></td><td>int</td><td>YES</td><td>CHECK 30–200 when not NULL</td><td>—</td><td>Diastolic blood pressure in mm Hg</td></tr>
+        <tr><td><code>pulse_rate</code></td><td>int</td><td>YES</td><td>CHECK 20–300 when not NULL</td><td>—</td><td>Heart rate in beats per minute</td></tr>
+        <tr><td><code>spo2</code></td><td>int</td><td>YES</td><td>CHECK 0–100 when not NULL</td><td>—</td><td>Oxygen saturation percentage</td></tr>
+        <tr><td><code>temperature_f</code></td><td>numeric(4,1)</td><td>YES</td><td>CHECK 90.0–115.0 when not NULL</td><td>—</td><td>Body temperature in Fahrenheit</td></tr>
+        <tr><td><code>respiratory_rate</code></td><td>int</td><td>YES</td><td>CHECK 5–60 when not NULL</td><td>—</td><td>Breaths per minute</td></tr>
+        <tr><td><code>weight_kg</code></td><td>numeric(5,2)</td><td>YES</td><td>CHECK 0.5–500 when not NULL</td><td>—</td><td>Weight in kilograms</td></tr>
+        <tr><td><code>height_cm</code></td><td>numeric(5,2)</td><td>YES</td><td>CHECK 10–300 when not NULL</td><td>—</td><td>Height in centimetres</td></tr>
+        <tr><td><code>bmi</code></td><td>numeric(4,2)</td><td>YES</td><td>GENERATED ALWAYS AS <code>(weight_kg / NULLIF((height_cm/100)^2, 0))</code> STORED</td><td>—</td><td>Body Mass Index — auto-computed; NULL when either weight or height is absent</td></tr>
+        <tr><td><code>blood_sugar_mg_dl</code></td><td>int</td><td>YES</td><td>CHECK 10–1500 when not NULL</td><td>—</td><td>Blood glucose in mg/dL. Whether fasting or random noted in <code>notes</code>.</td></tr>
+        <tr><td><code>pain_score</code></td><td>int</td><td>YES</td><td>CHECK 0–10 when not NULL</td><td>—</td><td>Numeric pain rating scale (0 = no pain, 10 = worst imaginable)</td></tr>
+        <tr><td><code>notes</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Free-form context (e.g. <code>fasting BSL</code>, <code>post-meal</code>, <code>BP recheck after rest</code>)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. <code>created_by</code> = recording nurse; <code>created_at</code> = recording time.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_vitals</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_vitals_bp_systolic</code> — CHECK <code>bp_systolic IS NULL OR bp_systolic BETWEEN 60 AND 300</code></li>
+      <li><code>chk_vitals_bp_diastolic</code> — CHECK <code>bp_diastolic IS NULL OR bp_diastolic BETWEEN 30 AND 200</code></li>
+      <li><code>chk_vitals_pulse</code> — CHECK <code>pulse_rate IS NULL OR pulse_rate BETWEEN 20 AND 300</code></li>
+      <li><code>chk_vitals_spo2</code> — CHECK <code>spo2 IS NULL OR spo2 BETWEEN 0 AND 100</code></li>
+      <li><code>chk_vitals_temp</code> — CHECK <code>temperature_f IS NULL OR temperature_f BETWEEN 90.0 AND 115.0</code></li>
+      <li><code>chk_vitals_rr</code> — CHECK <code>respiratory_rate IS NULL OR respiratory_rate BETWEEN 5 AND 60</code></li>
+      <li><code>chk_vitals_weight</code> — CHECK <code>weight_kg IS NULL OR weight_kg BETWEEN 0.5 AND 500</code></li>
+      <li><code>chk_vitals_height</code> — CHECK <code>height_cm IS NULL OR height_cm BETWEEN 10 AND 300</code></li>
+      <li><code>chk_vitals_bsl</code> — CHECK <code>blood_sugar_mg_dl IS NULL OR blood_sugar_mg_dl BETWEEN 10 AND 1500</code></li>
+      <li><code>chk_vitals_pain</code> — CHECK <code>pain_score IS NULL OR pain_score BETWEEN 0 AND 10</code></li>
+      <li><code>ix_vitals_visit</code> — INDEX (op_visit_id, created_at DESC) WHERE <code>op_visit_id IS NOT NULL</code> &nbsp;<span class="text-muted">— vitals timeline for a visit</span></li>
+      <li><code>ix_vitals_patient</code> — INDEX (patient_id, created_at DESC) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— patient vitals history</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_vitals_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_vitals_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>patient_id</th><th>op_visit_id</th><th>bp_systolic</th><th>bp_diastolic</th><th>pulse_rate</th><th>spo2</th><th>temperature_f</th><th>respiratory_rate</th><th>weight_kg</th><th>height_cm</th><th>bmi (generated)</th><th>blood_sugar_mg_dl</th><th>pain_score</th><th>notes</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…vt001</code></td>
+          <td><code>…pt001 (Meena)</code></td>
+          <td><code>…ov001</code></td>
+          <td>110</td><td>70</td><td>88</td><td>98</td><td>101.2</td><td>18</td>
+          <td>58.00</td><td>162.00</td><td>22.10</td>
+          <td>NULL</td><td>4</td>
+          <td>Fever since 3 days</td>
+          <td><code>…0025 (Nurse Anitha)</code></td><td>2026-05-13 09:45:00</td><td>NULL</td><td>2026-05-13 09:45:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…vt002</code></td>
+          <td><code>…pt002 (Rajan)</code></td>
+          <td><code>…ov002</code></td>
+          <td>148</td><td>94</td><td>76</td><td>97</td><td>98.6</td><td>16</td>
+          <td>72.00</td><td>170.00</td><td>24.91</td>
+          <td>142</td><td>2</td>
+          <td>Random BSL — non-fasting</td>
+          <td><code>…0025 (Nurse Anitha)</code></td><td>2026-05-13 09:50:00</td><td>NULL</td><td>2026-05-13 09:50:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 2. consultations                                                 -->
+  <!-- ================================================================ -->
+  <section id="consultations" class="mb-5">
+    <h2>2. consultations
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>The doctor's full clinical record for one OP visit — one row per visit. Created when the doctor opens the consultation form (<code>status = 'draft'</code>); autosave updates this row directly. Locked when the doctor clicks Complete (<code>status = 'locked'</code>, <code>locked_at</code> set) — row becomes visible to pharmacy and nursing staff and is read-only thereafter.</p>
+    <p><code>consultation_drafts</code> is dropped — <code>status</code> on this table covers draft vs locked; autosave writes directly here, eliminating the dual-source-of-truth problem.</p>
+    <p><code>diagnoses</code> is stored as <code>jsonb</code> (a JSON array) rather than <code>jsonb[]</code> — Hibernate-friendly via <code>@JdbcTypeCode(SqlTypes.JSON)</code>. Each entry carries <code>icd10</code>, <code>desc</code>, and <code>type</code>.</p>
+    <p><code>admission_required</code>, <code>surgery_required</code>, and <code>physio_required</code> boolean flags are dropped — captured with full detail in <code>doctor_recommendations</code>.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>op_visit_id</code></td><td>uuid</td><td>NO</td><td>UNIQUE, FK → <code>op_visits(id)</code> RESTRICT</td><td>—</td><td>One consultation per OP visit</td></tr>
+        <tr><td><code>status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'draft'</code></td><td><code>draft</code> — doctor typing, not visible to other staff | <code>locked</code> — consultation complete, visible to pharmacy and nursing, row read-only</td></tr>
+        <tr><td><code>patient_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>patients(id)</code> RESTRICT</td><td>—</td><td>Subject patient — kept for direct history queries without joining op_visits</td></tr>
+        <tr><td><code>doctor_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>Treating doctor</td></tr>
+        <tr><td><code>chief_complaint</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Patient-stated primary complaint — may be prefilled from <code>op_visits.chief_complaint</code></td></tr>
+        <tr><td><code>history_of_present_illness</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>HPI narrative dictated or typed by the doctor</td></tr>
+        <tr><td><code>past_history</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Relevant past medical history snapshot at consultation time</td></tr>
+        <tr><td><code>examination_findings</code></td><td>jsonb</td><td>YES</td><td>—</td><td>—</td><td>Structured examination — JSON shape below</td></tr>
+        <tr><td><code>diagnoses</code></td><td>jsonb</td><td>NO</td><td>—</td><td><code>'[]'</code></td><td>Array of diagnosis entries — JSON shape below. GIN-indexed for ICD-10 search across visits.</td></tr>
+        <tr><td><code>symptoms</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Patient-reported symptoms (may overlap with chief complaint; kept separate for clinical completeness)</td></tr>
+        <tr><td><code>clinical_notes</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Doctor's free-form impressions and reasoning</td></tr>
+        <tr><td><code>advice</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Patient-facing advice — printed on the prescription printout</td></tr>
+        <tr><td><code>next_action</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td>Primary discharge decision: <code>prescription_only</code> | <code>lab_ordered</code> | <code>radiology_ordered</code> | <code>admit_ip</code> | <code>surgery_referral</code> | <code>follow_up</code> | <code>referred_external</code> | <code>no_action</code></td></tr>
+        <tr><td><code>follow_up_required</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>false</code></td><td>Convenience flag — printed as "Return after N days" on prescription</td></tr>
+        <tr><td><code>follow_up_date</code></td><td>date</td><td>YES</td><td>CHECK consistency with <code>follow_up_required</code></td><td>—</td><td>Suggested return date. Must be NULL when <code>follow_up_required = false</code>.</td></tr>
+        <tr><td><code>locked_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>Set when doctor clicks Complete. Row becomes read-only after this point.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>JSON shape — <code>diagnoses</code> column</h5>
+    <table class="table table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Key</th><th>Type</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>icd10</code></td><td>string</td><td>ICD-10 code (e.g. <code>J06.9</code>)</td></tr>
+        <tr><td><code>desc</code></td><td>string</td><td>Plain-English diagnosis description</td></tr>
+        <tr><td><code>type</code></td><td>string</td><td><code>primary</code> | <code>secondary</code> | <code>provisional</code> | <code>rule_out</code></td></tr>
+      </tbody>
+    </table>
+<pre>[
+  { "icd10": "J06.9", "desc": "Acute upper respiratory infection", "type": "primary" },
+  { "icd10": "R50.9", "desc": "Fever, unspecified",               "type": "secondary" }
+]</pre>
+
+    <h5>JSON shape — <code>examination_findings</code> column</h5>
+<pre>{
+  "general":    "Conscious, oriented, febrile",
+  "cvs":        "S1 S2 heard, no murmur",
+  "rs":         "Clear air entry bilateral",
+  "abdomen":    "Soft, non-tender",
+  "cns":        "No focal deficit"
+}</pre>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_consultations</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_consultations_visit</code> — UNIQUE (op_visit_id)</li>
+      <li><code>chk_consultations_status</code> — CHECK <code>status IN ('draft','locked')</code></li>
+      <li><code>chk_consultations_next_action</code> — CHECK <code>next_action IN ('prescription_only','lab_ordered','radiology_ordered','admit_ip','surgery_referral','follow_up','referred_external','no_action')</code></li>
+      <li><code>chk_consultations_follow_up</code> — CHECK <code>follow_up_required = true OR follow_up_date IS NULL</code></li>
+      <li><code>ix_consultations_patient</code> — INDEX (patient_id, created_at DESC) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— patient consultation history</span></li>
+      <li><code>ix_consultations_doctor</code> — INDEX (doctor_id, created_at DESC) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— doctor's recent consultations</span></li>
+      <li><code>ix_consultations_follow_up</code> — INDEX (follow_up_date) WHERE <code>follow_up_required = true AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— follow-up reminder queue</span></li>
+      <li><code>ix_consultations_diagnoses</code> — GIN INDEX (diagnoses) &nbsp;<span class="text-muted">— ICD-10 search across visits ("how many J06.9 cases this month?")</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_consultations_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_consultations_bu_lock_guard</code> — BEFORE UPDATE → raises exception if <code>status = 'locked'</code> and any clinical column is changed</li>
+      <li><code>tr_consultations_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+
+    <h6 class="text-muted mt-3">2.1 Identity + complaint + history</h6>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>op_visit_id</th><th>patient_id</th><th>doctor_id</th><th>chief_complaint</th><th>symptoms</th><th>history_of_present_illness</th><th>past_history</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…cn001</code></td><td><code>…ov001</code></td><td><code>…pt001 (Meena)</code></td><td><code>…0002 (Dr Priya)</code></td>
+          <td>Fever and body pain for 3 days</td>
+          <td>High fever, myalgia, mild sore throat, no cough</td>
+          <td>Fever started 3 days ago, 101–102°F, not responding to paracetamol. Associated body ache and mild throat pain. No cough, no vomiting.</td>
+          <td>Penicillin allergy. No chronic illness.</td>
+        </tr>
+        <tr>
+          <td><code>…cn002</code></td><td><code>…ov002</code></td><td><code>…pt002 (Rajan)</code></td><td><code>…0003 (Dr Arjun)</code></td>
+          <td>Routine BP and diabetes follow-up</td>
+          <td>Mild headache in the morning, occasional dizziness</td>
+          <td>Known hypertension and T2DM on regular medication. Reports occasional morning headache over last 2 weeks. No chest pain, no breathlessness.</td>
+          <td>Hypertension since 2010, T2DM since 2015. On amlodipine 5mg + metformin 500mg BD.</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h6 class="text-muted mt-3">2.2 Examination + diagnoses + clinical notes + advice</h6>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>examination_findings</th><th>diagnoses</th><th>clinical_notes</th><th>advice</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…cn001</code></td>
+          <td><code>{"general":"Febrile, conscious","cvs":"Normal","rs":"Clear","abdomen":"Soft"}</code></td>
+          <td><code>[{"icd10":"J06.9","desc":"Acute URTI","type":"primary"},{"icd10":"R50.9","desc":"Fever","type":"secondary"}]</code></td>
+          <td>Viral URTI — avoid antibiotics. Monitor if fever persists beyond 5 days.</td>
+          <td>Rest, plenty of fluids. Return if fever persists beyond 2 days or worsens. Avoid penicillin-class antibiotics.</td>
+        </tr>
+        <tr>
+          <td><code>…cn002</code></td>
+          <td><code>{"general":"Conscious, BP elevated","cvs":"S1S2 normal","rs":"Clear","abdomen":"Soft"}</code></td>
+          <td><code>[{"icd10":"I10","desc":"Hypertension","type":"primary"},{"icd10":"E11","desc":"Type 2 Diabetes","type":"secondary"}]</code></td>
+          <td>BP not optimally controlled — consider dose escalation after reviewing HbA1c and renal function. Ordered FBS, HbA1c, lipid profile, serum creatinine.</td>
+          <td>Continue current medications. Reduce salt intake. Walk 30 mins daily. Review after lab results.</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h6 class="text-muted mt-3">2.3 Decision + audit</h6>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>status</th><th>next_action</th><th>follow_up_required</th><th>follow_up_date</th><th>locked_at</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…cn001</code></td><td>locked</td><td>prescription_only</td><td>true</td><td>2026-05-20</td>
+          <td>2026-05-13 11:45:00</td>
+          <td><code>…0002 (Dr Priya)</code></td><td>2026-05-13 10:05:00</td><td><code>…0002</code></td><td>2026-05-13 11:45:00</td><td>8</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…cn002</code></td><td>draft</td><td>lab_ordered</td><td>true</td><td>2026-08-13</td>
+          <td>NULL</td>
+          <td><code>…0003 (Dr Arjun)</code></td><td>2026-05-13 10:30:00</td><td><code>…0003</code></td><td>2026-05-13 10:38:00</td><td>5</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — Meena's consultation <code>locked</code>; autosaved 8 times before locking (<code>version=8</code>). Row 2 — Rajan's still <code>draft</code>; not visible to pharmacy yet (<code>locked_at = NULL</code>).</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 3. diagnosis_templates                                          -->
+  <!-- ================================================================ -->
+  <section id="diagnosis_templates" class="mb-5">
+    <h2>3. diagnosis_templates
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Reusable consultation templates per specialty or diagnosis. A doctor selecting "URTI with cough" auto-fills the examination structure, common medicines, and routine tests into the consultation form — reducing typing on high-volume OPD days. Templates are created and edited by the owner or senior doctors; soft-deleting a template does not affect past consultations that used it.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>template_name</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Display name shown in the doctor's template picker (e.g. <code>URTI with cough</code>, <code>Hypertension follow-up</code>)</td></tr>
+        <tr><td><code>department_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>departments(id)</code> RESTRICT</td><td>—</td><td>Owning department. NULL = available to all departments.</td></tr>
+        <tr><td><code>specialty</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Specialty slug for filtering (e.g. <code>general</code>, <code>paediatrics</code>, <code>cardiology</code>)</td></tr>
+        <tr><td><code>icd10_code</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Primary ICD-10 code this template encodes — pre-fills <code>consultations.diagnoses</code></td></tr>
+        <tr><td><code>diagnosis_text</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Plain-English diagnosis description pre-filled into the consultation</td></tr>
+        <tr><td><code>template_json</code></td><td>jsonb</td><td>NO</td><td>—</td><td>—</td><td>Default values injected into the consultation form — JSON shape below</td></tr>
+        <tr><td><code>default_advice</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Pre-filled patient advice text</td></tr>
+        <tr><td><code>default_followup_days</code></td><td>int</td><td>YES</td><td>CHECK &gt; 0 when not NULL</td><td>—</td><td>Default follow-up window in days — pre-fills <code>consultations.follow_up_date</code></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. <code>deleted_at</code> replaces the TSD's <code>is_active boolean</code>.</p>
+
+    <h5>JSON shape — <code>template_json</code> column</h5>
+    <table class="table table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Key</th><th>Type</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>examination_findings</code></td><td>object</td><td>Default examination structure pre-filled into <code>consultations.examination_findings</code></td></tr>
+        <tr><td><code>common_meds</code></td><td>array of objects</td><td>Suggested medicines — each has <code>medicine_name</code>, <code>dosage</code>, <code>frequency</code>, <code>duration_days</code>. Doctor edits before saving.</td></tr>
+        <tr><td><code>common_tests</code></td><td>array of strings</td><td>Suggested lab or radiology test names — pre-populates the order form</td></tr>
+      </tbody>
+    </table>
+<pre>{
+  "examination_findings": {
+    "general": "Conscious, febrile",
+    "rs":      "Mild congestion, no crepitations",
+    "cvs":     "Normal"
+  },
+  "common_meds": [
+    { "medicine_name": "Paracetamol",   "dosage": "500mg", "frequency": "1-0-1", "duration_days": 5 },
+    { "medicine_name": "Cetirizine",    "dosage": "10mg",  "frequency": "0-0-1", "duration_days": 5 }
+  ],
+  "common_tests": ["CBC", "CRP"]
+}</pre>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_diagnosis_templates</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_diagnosis_templates_followup</code> — CHECK <code>default_followup_days IS NULL OR default_followup_days &gt; 0</code></li>
+      <li><code>ix_diagnosis_templates_department</code> — INDEX (department_id) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— list templates for a department</span></li>
+      <li><code>ix_diagnosis_templates_specialty</code> — INDEX (specialty) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— filter by specialty in the picker</span></li>
+      <li><code>ix_diagnosis_templates_name</code> — INDEX (lower(template_name)) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— case-insensitive search by name</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_diagnosis_templates_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_diagnosis_templates_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>template_name</th><th>department_id</th><th>specialty</th><th>icd10_code</th><th>diagnosis_text</th><th>template_json</th><th>default_advice</th><th>default_followup_days</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…dt001</code></td>
+          <td>URTI with cough</td>
+          <td><code>…dept01 (OPD)</code></td>
+          <td>general</td>
+          <td>J06.9</td>
+          <td>Acute upper respiratory tract infection</td>
+          <td><code>{"examination_findings":{"general":"Febrile","rs":"Mild congestion"},"common_meds":[{"medicine_name":"Paracetamol","dosage":"500mg","frequency":"1-0-1","duration_days":5}],"common_tests":["CBC","CRP"]}</code></td>
+          <td>Rest, fluids. Return if fever persists beyond 3 days.</td>
+          <td>7</td>
+          <td><code>…0002 (Dr Priya)</code></td><td>2024-06-01 10:00:00</td><td>NULL</td><td>2024-06-01 10:00:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…dt002</code></td>
+          <td>Hypertension follow-up</td>
+          <td><code>…dept02 (Cardiology)</code></td>
+          <td>cardiology</td>
+          <td>I10</td>
+          <td>Essential hypertension — routine review</td>
+          <td><code>{"examination_findings":{"general":"BP elevated","cvs":"S1S2 normal"},"common_meds":[],"common_tests":["Serum creatinine","Electrolytes","ECG"]}</code></td>
+          <td>Low salt diet, daily walk 30 mins. Take medications regularly.</td>
+          <td>90</td>
+          <td><code>…0003 (Dr Arjun)</code></td><td>2024-06-01 11:00:00</td><td>NULL</td><td>2024-06-01 11:00:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 4. prescriptions                                                -->
+  <!-- ================================================================ -->
+  <section id="prescriptions" class="mb-5">
+    <h2>4. prescriptions
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Prescription header — one per consultation. The header status drives the pharmacy fulfilment workflow: <code>draft</code> while the consultation is open, <code>active</code> when the consultation is locked, progressing to <code>dispensed</code> as pharmacy fulfils the items. Drug lines live in <code>prescription_items</code> (CASCADE child).</p>
+
+    <h5>Status lifecycle</h5>
+    <ul class="small">
+      <li><code>draft</code> → consultation in progress; items can be added or removed</li>
+      <li><code>draft</code> → <code>active</code> — consultation locked; prescription visible to pharmacy</li>
+      <li><code>active</code> → <code>partially_dispensed</code> — at least one item dispensed</li>
+      <li><code>partially_dispensed</code> → <code>dispensed</code> — all items fulfilled</li>
+      <li><code>draft | active | partially_dispensed</code> → <code>cancelled</code> — doctor reissues with corrections</li>
+    </ul>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key — referenced by <code>prescription_items</code>, <code>tokens</code></td></tr>
+        <tr><td><code>consultation_id</code></td><td>uuid</td><td>NO</td><td>UNIQUE, FK → <code>consultations(id)</code> RESTRICT</td><td>—</td><td>One prescription per consultation</td></tr>
+        <tr><td><code>patient_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>patients(id)</code> RESTRICT</td><td>—</td><td>Subject patient — for direct Rx history queries without joining consultations</td></tr>
+        <tr><td><code>doctor_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>Prescribing doctor</td></tr>
+        <tr><td><code>status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'draft'</code></td><td><code>draft</code> | <code>active</code> | <code>partially_dispensed</code> | <code>dispensed</code> | <code>cancelled</code></td></tr>
+        <tr><td><code>locked_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>Set when the parent consultation is locked — transitions status from <code>draft</code> to <code>active</code></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_prescriptions</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_prescriptions_consultation</code> — UNIQUE (consultation_id)</li>
+      <li><code>chk_prescriptions_status</code> — CHECK <code>status IN ('draft','active','partially_dispensed','dispensed','cancelled')</code></li>
+      <li><code>ix_prescriptions_patient</code> — INDEX (patient_id, created_at DESC) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— patient Rx history</span></li>
+      <li><code>ix_prescriptions_pharmacy</code> — INDEX (status, created_at) WHERE <code>status IN ('active','partially_dispensed') AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— pharmacy inbox: pending prescriptions</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_prescriptions_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_prescriptions_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>consultation_id</th><th>patient_id</th><th>doctor_id</th><th>status</th><th>locked_at</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…rx001</code></td>
+          <td><code>…cn001 (Meena)</code></td>
+          <td><code>…pt001 (Meena)</code></td>
+          <td><code>…0002 (Dr Priya)</code></td>
+          <td>active</td>
+          <td>2026-05-13 11:45:00</td>
+          <td><code>…0002 (Dr Priya)</code></td><td>2026-05-13 10:10:00</td><td><code>…0002</code></td><td>2026-05-13 11:45:00</td><td>1</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…rx002</code></td>
+          <td><code>…cn002 (Rajan)</code></td>
+          <td><code>…pt002 (Rajan)</code></td>
+          <td><code>…0003 (Dr Arjun)</code></td>
+          <td>draft</td>
+          <td>NULL</td>
+          <td><code>…0003 (Dr Arjun)</code></td><td>2026-05-13 10:35:00</td><td>NULL</td><td>2026-05-13 10:35:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — Meena's prescription active (consultation locked at 11:45; pharmacy can now see it). Row 2 — Rajan's prescription still draft (consultation open while waiting for lab results).</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 5. prescription_items                                           -->
+  <!-- ================================================================ -->
+  <section id="prescription_items" class="mb-5">
+    <h2>5. prescription_items
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>One row per drug on the prescription. CASCADE child of <code>prescriptions</code> — deleting a prescription removes all its items. What was actually dispensed is tracked in <code>pharmacy_sale_items</code> (Module 15) — that is the source of truth for dispensing. <code>prescriptions.status</code> is computed from Module 15 data, not from a column on this table.</p>
+    <p><code>medicine_name_snapshot</code> freezes the drug name at prescribe time — protects the printed prescription if the medicine catalogue is later renamed or retired.</p>
+    <p class="small text-muted"><strong>Forward FK note:</strong> <code>medicine_id</code> references <code>medicines(id)</code> defined in Module 14. The FK constraint is added in the Module 14 migration.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>prescription_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>prescriptions(id)</code> CASCADE</td><td>—</td><td>Parent prescription. CASCADE: deleting a prescription removes all its items.</td></tr>
+        <tr><td><code>medicine_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>medicines(id)</code> RESTRICT <em>(Module 14)</em></td><td>—</td><td>Drug from the medicine catalogue</td></tr>
+        <tr><td><code>medicine_name_snapshot</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Frozen drug name at prescribe time — preserved on the printed Rx even if the catalogue entry is later renamed</td></tr>
+        <tr><td><code>dosage</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Dose per administration (e.g. <code>500 mg</code>, <code>5 ml</code>, <code>1 tablet</code>)</td></tr>
+        <tr><td><code>frequency</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Dosing schedule (e.g. <code>1-0-1</code>, <code>BD</code>, <code>TDS AC</code>, <code>SOS</code>)</td></tr>
+        <tr><td><code>duration_days</code></td><td>int</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>Number of days the course runs</td></tr>
+        <tr><td><code>instructions</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Special instructions printed on the label (e.g. <code>Take with food</code>, <code>Avoid driving</code>)</td></tr>
+        <tr><td><code>quantity_prescribed</code></td><td>int</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>Total units the doctor prescribed</td></tr>
+        <tr><td><code>sequence_no</code></td><td>int</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>Display order on the printed prescription (1-based). Stable after lock.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_prescription_items</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_prescription_items_duration</code> — CHECK <code>duration_days &gt; 0</code></li>
+      <li><code>chk_prescription_items_qty_prescribed</code> — CHECK <code>quantity_prescribed &gt; 0</code></li>
+      <li><code>chk_prescription_items_sequence</code> — CHECK <code>sequence_no &gt; 0</code></li>
+      <li><code>uq_prescription_items_sequence</code> — UNIQUE (prescription_id, sequence_no) &nbsp;<span class="text-muted">— stable display order; no two items share the same position</span></li>
+      <li><code>ix_prescription_items_prescription</code> — INDEX (prescription_id) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— load all items for a prescription</span></li>
+      <li><code>ix_prescription_items_medicine</code> — INDEX (medicine_id) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— "how often is this drug prescribed?" analytics</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_prescription_items_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_prescription_items_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>prescription_id</th><th>medicine_id</th><th>medicine_name_snapshot</th><th>dosage</th><th>frequency</th><th>duration_days</th><th>instructions</th><th>quantity_prescribed</th><th>sequence_no</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…ri001</code></td>
+          <td><code>…rx001 (Meena)</code></td>
+          <td><code>…md001</code></td>
+          <td>Paracetamol 500mg</td>
+          <td>500 mg</td><td>1-0-1</td><td>5</td>
+          <td>Take after food</td>
+          <td>10</td><td>1</td>
+          <td><code>…0002 (Dr Priya)</code></td><td>2026-05-13 10:12:00</td><td>NULL</td><td>2026-05-13 10:12:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…ri002</code></td>
+          <td><code>…rx001 (Meena)</code></td>
+          <td><code>…md002</code></td>
+          <td>Cetirizine 10mg</td>
+          <td>10 mg</td><td>0-0-1</td><td>5</td>
+          <td>May cause drowsiness — avoid driving</td>
+          <td>5</td><td>2</td>
+          <td><code>…0002 (Dr Priya)</code></td><td>2026-05-13 10:13:00</td><td>NULL</td><td>2026-05-13 10:13:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Two items for Meena's prescription. Actual dispensing quantities are tracked in <code>pharmacy_sale_items</code> (Module 15) — not on this table.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 6. doctor_recommendations                                       -->
+  <!-- ================================================================ -->
+  <section id="doctor_recommendations" class="mb-5">
+    <h2>6. doctor_recommendations
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Non-prescription outputs of a consultation — actions the doctor wants staff to follow up on. A queue for nurses and front desk to actively work through: book a follow-up appointment, place a lab order, arrange a radiology scan, or route an external referral.</p>
+    <p>Phase 2 FK columns (<code>physio_session_id</code>, <code>surgery_schedule_id</code>, <code>ip_admission_id</code>) are deferred — the recommendation types (<code>physio</code>, <code>surgery</code>, <code>admission</code>) are still valid clinical decisions recorded as rows, just without a linked entity until Phase 2 tables exist.</p>
+    <p>At most one Phase 1 FK column is set per row — enforced by CHECK. A row with zero FK columns is valid when the recommendation is <code>open</code> and no entity has been created yet (e.g. follow-up appointment not yet booked).</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>consultation_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>consultations(id)</code> RESTRICT</td><td>—</td><td>Originating consultation</td></tr>
+        <tr><td><code>patient_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>patients(id)</code> RESTRICT</td><td>—</td><td>Subject patient — for direct worklist queries</td></tr>
+        <tr><td><code>recommendation_type</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td><code>follow_up</code> | <code>lab</code> | <code>radiology</code> | <code>specialist_referral</code> | <code>physio</code> | <code>surgery</code> | <code>admission</code></td></tr>
+        <tr><td><code>follow_up_appointment_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>appointments(id)</code> RESTRICT</td><td>—</td><td>Set when the follow-up appointment has been booked</td></tr>
+        <tr><td><code>lab_order_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>lab_orders(id)</code> RESTRICT <em>(Module 12)</em></td><td>—</td><td>Set when the lab order has been placed</td></tr>
+        <tr><td><code>radiology_order_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>radiology_orders(id)</code> RESTRICT <em>(Module 13)</em></td><td>—</td><td>Set when the radiology order has been placed</td></tr>
+        <tr><td><code>referral_notes</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>External specialist referral details — clinic name, doctor name, contact. No FK (external entity).</td></tr>
+        <tr><td><code>notes</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Doctor's free-form instructions to staff for this recommendation</td></tr>
+        <tr><td><code>priority</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'routine'</code></td><td><code>routine</code> | <code>urgent</code> | <code>stat</code></td></tr>
+        <tr><td><code>status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'open'</code></td><td><code>open</code> | <code>scheduled</code> | <code>completed</code> | <code>cancelled</code> | <code>declined</code></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_doctor_recommendations</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_doctor_recommendations_type</code> — CHECK <code>recommendation_type IN ('follow_up','lab','radiology','specialist_referral','physio','surgery','admission')</code></li>
+      <li><code>chk_doctor_recommendations_priority</code> — CHECK <code>priority IN ('routine','urgent','stat')</code></li>
+      <li><code>chk_doctor_recommendations_status</code> — CHECK <code>status IN ('open','scheduled','completed','cancelled','declined')</code></li>
+      <li><code>chk_doctor_recommendations_one_fk</code> — CHECK <code>num_nonnulls(follow_up_appointment_id, lab_order_id, radiology_order_id) &lt;= 1</code></li>
+      <li><code>ix_doctor_recommendations_consultation</code> — INDEX (consultation_id) &nbsp;<span class="text-muted">— list all recommendations for a consultation</span></li>
+      <li><code>ix_doctor_recommendations_worklist</code> — INDEX (status, priority, created_at) WHERE <code>status = 'open' AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— nurse / front-desk open worklist</span></li>
+      <li><code>ix_doctor_recommendations_patient</code> — INDEX (patient_id, status) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— patient's open referrals</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_doctor_recommendations_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_doctor_recommendations_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>consultation_id</th><th>patient_id</th><th>recommendation_type</th><th>follow_up_appointment_id</th><th>lab_order_id</th><th>radiology_order_id</th><th>referral_notes</th><th>notes</th><th>priority</th><th>status</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…dr001</code></td>
+          <td><code>…cn001 (Meena)</code></td>
+          <td><code>…pt001 (Meena)</code></td>
+          <td>follow_up</td>
+          <td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td>
+          <td>Return in 7 days if fever persists or any new symptoms</td>
+          <td>routine</td><td>open</td>
+          <td><code>…0002 (Dr Priya)</code></td><td>2026-05-13 11:40:00</td><td>NULL</td><td>2026-05-13 11:40:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…dr002</code></td>
+          <td><code>…cn002 (Rajan)</code></td>
+          <td><code>…pt002 (Rajan)</code></td>
+          <td>lab</td>
+          <td>NULL</td><td><code>…lo001</code></td><td>NULL</td><td>NULL</td>
+          <td>FBS, HbA1c, lipid profile, serum creatinine — review results before next visit</td>
+          <td>routine</td><td>scheduled</td>
+          <td><code>…0003 (Dr Arjun)</code></td><td>2026-05-13 10:40:00</td><td><code>…0003</code></td><td>2026-05-13 10:45:00</td><td>1</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — Meena's follow-up recommendation, no appointment booked yet (<code>status = open</code>). Row 2 — Rajan's lab recommendation, lab order placed (<code>lab_order_id</code> set, <code>status = scheduled</code>).</p>
+  </section>
+
+  <!-- consultation_drafts dropped — status column on consultations covers draft vs locked -->
+  <section id="consultation_drafts" class="mb-5" style="display:none">
+    <h2>7. consultation_drafts
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Autosave buffer for in-progress consultations. The browser saves the doctor's work every N seconds into this table — the draft is <strong>not visible to other staff</strong> until the doctor clicks Complete and the consultation is locked. Protects against power cuts and browser crashes without exposing unfinished clinical notes.</p>
+    <p>Once the doctor restores or submits the draft, <code>restored_at</code> is set and the row can be cleaned up. Rows with <code>restored_at IS NULL</code> expire after 7 days (<code>expires_at</code>) — a nightly job deletes them. <code>updated_at</code> (from the uniform block) serves as the last-autosaved timestamp — no separate <code>last_saved_at</code> column needed.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>doctor_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>Owning doctor — only this user can see or restore this draft</td></tr>
+        <tr><td><code>patient_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>patients(id)</code> RESTRICT</td><td>—</td><td>Subject patient</td></tr>
+        <tr><td><code>op_visit_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>op_visits(id)</code> RESTRICT</td><td>—</td><td>OP visit context. NULL if draft was started before the visit was formally opened.</td></tr>
+        <tr><td><code>draft_data</code></td><td>jsonb</td><td>NO</td><td>—</td><td>—</td><td>Full snapshot of the consultation form at the last autosave — same shape as the <code>consultations</code> columns</td></tr>
+        <tr><td><code>autosave_count</code></td><td>int</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Number of times the browser has autosaved this draft — incremented on each save. UX metric.</td></tr>
+        <tr><td><code>expires_at</code></td><td>timestamptz</td><td>NO</td><td>—</td><td><code>now() + interval '7 days'</code></td><td>Cleanup boundary — nightly job deletes rows where <code>expires_at &lt; now() AND restored_at IS NULL</code></td></tr>
+        <tr><td><code>restored_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>Set when the doctor loads this draft into a real consultation. Row is safe to delete after this.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. <code>updated_at</code> serves as the last-autosaved timestamp — no separate column needed.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_consultation_drafts</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_consultation_drafts_autosave</code> — CHECK <code>autosave_count &gt;= 0</code></li>
+      <li><code>uq_consultation_drafts_visit</code> — UNIQUE INDEX (doctor_id, op_visit_id) WHERE <code>op_visit_id IS NOT NULL AND restored_at IS NULL</code> &nbsp;<span class="text-muted">— one active draft per doctor per visit</span></li>
+      <li><code>ix_consultation_drafts_expiry</code> — INDEX (expires_at) WHERE <code>restored_at IS NULL</code> &nbsp;<span class="text-muted">— nightly cleanup sweep</span></li>
+      <li><code>ix_consultation_drafts_doctor</code> — INDEX (doctor_id) WHERE <code>restored_at IS NULL AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— load doctor's active drafts on login</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_consultation_drafts_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code> &nbsp;<span class="text-muted">— <code>updated_at</code> serves as last-autosaved timestamp</span></li>
+      <li><code>tr_consultation_drafts_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code> &nbsp;<span class="text-muted">— only restore events are audited; autosave updates are excluded via <code>audit_excluded_tables</code> to prevent audit_logs explosion</span></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>doctor_id</th><th>patient_id</th><th>op_visit_id</th><th>draft_data</th><th>autosave_count</th><th>expires_at</th><th>restored_at</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…cd001</code></td>
+          <td><code>…0003 (Dr Arjun)</code></td>
+          <td><code>…pt002 (Rajan)</code></td>
+          <td><code>…ov002</code></td>
+          <td><code>{"chief_complaint":"BP follow-up","history_of_present_illness":"Morning headache...","diagnoses":[],"next_action":null}</code></td>
+          <td>8</td>
+          <td>2026-05-20 10:30:00</td>
+          <td>NULL</td>
+          <td><code>…0003 (Dr Arjun)</code></td><td>2026-05-13 10:30:00</td><td><code>…0003</code></td><td>2026-05-13 10:38:00</td><td>8</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…cd002</code></td>
+          <td><code>…0002 (Dr Priya)</code></td>
+          <td><code>…pt001 (Meena)</code></td>
+          <td><code>…ov001</code></td>
+          <td><code>{"chief_complaint":"Fever 3 days","diagnoses":[{"icd10":"J06.9","desc":"Acute URTI","type":"primary"}],"next_action":"prescription_only"}</code></td>
+          <td>15</td>
+          <td>2026-05-20 10:05:00</td>
+          <td>2026-05-13 11:44:00</td>
+          <td><code>…0002 (Dr Priya)</code></td><td>2026-05-13 10:05:00</td><td><code>…0002</code></td><td>2026-05-13 11:44:00</td><td>15</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — Dr Arjun's active draft for Rajan; autosaved 8 times, consultation still in progress (<code>restored_at = NULL</code>). Row 2 — Dr Priya's draft for Meena; restored at 11:44 into the real consultation just before locking (<code>restored_at</code> set, <code>autosave_count = 15</code>).</p>
+  </section>
+
+</main>
+
+</body>
+</html>

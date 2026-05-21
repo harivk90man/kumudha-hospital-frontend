@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Platform · Audit — HMS Schema v8</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script src="../shared/manifest.js"></script>
+  <script src="../shared/catalog.js"></script>
+  <script src="../shared/renderer.js"></script>
+  <script>
+  // ─── EDIT BELOW ONLY. Do not touch HTML/script tags. ────────────────────
+  const MODULE = {
+    id: 'platform-audit',
+    name: 'Platform · Audit',
+    color: '#7E6BC8',
+    bg: '#1c1830',
+    lbg: '#EBE7F8',
+    features: ['log', 'config'],
+    tables: [
+      { n:'audit_logs', feature:'log', desc:'Append-only Tier-1 log of every sensitive write. Trigger-based; captures JSONB before/after, user, IP, request_id. Monthly partitioning, 7-year retention.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants'},
+          {n:'user_id',t:'uuid',fk:'users',nl:1},
+          {n:'request_id',t:'uuid · all writes in one HTTP request',nl:1,nw:1},
+          {n:'entity_table',t:"varchar · target table name (polymorphic)",nw:1},
+          {n:'entity_id',t:'uuid · target row id',nl:1,nw:1},
+          {n:'action',t:"varchar · 'INSERT'|'UPDATE'|'DELETE'"},
+          {n:'changed_fields',t:'text[] · columns that actually changed',nl:1,nw:1},
+          {n:'old_values',t:'jsonb',nl:1},
+          {n:'new_values',t:'jsonb',nl:1},
+          {n:'ip_address',t:'varchar',nl:1},
+          {n:'user_agent',t:'text',nl:1},
+          {n:'occurred_at',t:'timestamptz · partition key'},
+        ]},
+      { n:'audit_excluded_tables', feature:'config', nw:1, desc:'Registry of Tier-3 tables (consultation_drafts, user_sessions, user_preferences, appointment_slots, patient_queue, notifications.read_at) that the audit trigger should skip.',
+        f:[
+          {n:'table_name',t:'varchar',pk:1},
+          {n:'exclusion_scope',t:"varchar · 'full'|'columns'"},
+          {n:'excluded_columns',t:'text[] · only used when scope=columns',nl:1},
+          {n:'reason',t:'text'},
+          {n:'added_by',t:'uuid',fk:'users'},
+          {n:'added_at',t:'timestamptz'},
+        ]},
+    ]
+  };
+  renderModule(MODULE);
+  </script>
+</body>
+</html>

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Billing — HMS Schema v8</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script src="../shared/manifest.js"></script>
+  <script src="../shared/catalog.js"></script>
+  <script src="../shared/renderer.js"></script>
+  <script>
+  // ─── EDIT BELOW ONLY. Do not touch HTML/script tags. ────────────────────
+  const MODULE = {
+    id: 'billing',
+    name: 'Billing',
+    color: '#E59332',
+    bg: '#2a1d08',
+    lbg: '#FEF2DE',
+    features: ['invoice', 'lines', 'credit'],
+    tables: [
+      { n:'invoices', feature:'invoice', desc:'One bill. OP / IP_INTERIM / IP_FINAL / PHARMACY / LAB_DIRECT / RADIOLOGY_DIRECT / OTHER. Layer 2 maker-checker on discounts. Idempotency key prevents double-bill.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'invoice_number',t:'varchar',uk:1},
+          {n:'patient_id',t:'uuid',fk:'patients'},
+          {n:'invoice_type',t:"varchar · 'OP'|'IP_INTERIM'|'IP_FINAL'|'PHARMACY'|'LAB_DIRECT'|'RADIOLOGY_DIRECT'|'OTHER'"},
+          {n:'op_visit_id',t:'uuid',fk:'op_visits',nl:1},
+          {n:'ip_admission_id',t:'uuid · phase 2',nl:1},
+          {n:'subtotal',t:'decimal'},
+          {n:'total_line_discount',t:'decimal DEFAULT 0'},
+          {n:'total_bill_discount',t:'decimal DEFAULT 0'},
+          {n:'discount_type',t:"varchar · 'percentage'|'flat'"},
+          {n:'discount_amount',t:'decimal'},
+          {n:'discount_approved_by',t:'uuid',fk:'users',nl:1},
+          {n:'discount_reason',t:'text',nl:1},
+          {n:'bill_discount_category',t:"varchar · 'senior_citizen'|'staff'|'camp'|'corporate'|'charity'|'management'|'special'",nl:1,nw:1},
+          {n:'tax_amount',t:'decimal'},
+          {n:'total_amount',t:'decimal'},
+          {n:'net_amount',t:'decimal'},
+          {n:'amount_paid',t:'decimal DEFAULT 0'},
+          {n:'balance',t:'decimal GENERATED · net_amount - amount_paid'},
+          {n:'payment_status',t:"varchar · 'draft'|'finalized'|'paid'|'partially_paid'|'refunded'|'cancelled'|'written_off'"},
+          {n:'finalized_at',t:'timestamptz',nl:1},
+          {n:'idempotency_key',t:'varchar · UNIQUE partial — prevents double-bill',nl:1,nw:1},
+          {n:'approval_status',t:"varchar · 'pending'|'approved'|'rejected' · for discount approval",nw:1},
+          {n:'approved_by',t:'uuid',fk:'users',nl:1,nw:1},
+          {n:'approved_at',t:'timestamptz',nl:1,nw:1},
+          {n:'rejection_reason',t:'text',nl:1,nw:1},
+          {n:'version',t:'int DEFAULT 0 · optimistic lock'},
+          {n:'created_by',t:'uuid',fk:'users'},
+          {n:'created_at',t:'timestamptz'},
+          {n:'updated_by',t:'uuid',fk:'users',nl:1,nw:1},
+          {n:'updated_at',t:'timestamptz',nw:1},
+        ]},
+      { n:'invoice_items', feature:'lines', desc:'Line items on a bill — consultation, drug, lab, room, procedure. Separate-column FKs (consultation_id|lab_order_item_id|radiology_order_id|pharmacy_sale_item_id|prescription_item_id|bed_assignment_id|surgery_schedule_id) + at-most-one-non-null.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'invoice_id',t:'uuid',fk:'invoices'},
+          {n:'service_id',t:'uuid',fk:'services',nl:1},
+          {n:'item_type',t:"varchar · 'consultation'|'lab_test'|'radiology'|'drug'|'room_charge'|'nursing'|'procedure'|'surgery'|'consumable'|'ambulance'|'other'"},
+          {n:'consultation_id',t:'uuid',fk:'consultations',nl:1,nw:1},
+          {n:'lab_order_item_id',t:'uuid',fk:'lab_order_items',nl:1,nw:1},
+          {n:'radiology_order_id',t:'uuid',fk:'radiology_orders',nl:1,nw:1},
+          {n:'pharmacy_sale_item_id',t:'uuid',fk:'pharmacy_sale_items',nl:1,nw:1},
+          {n:'prescription_item_id',t:'uuid',fk:'prescription_items',nl:1,nw:1},
+          {n:'bed_assignment_id',t:'uuid · phase 2',nl:1,nw:1},
+          {n:'surgery_schedule_id',t:'uuid · phase 2',nl:1,nw:1},
+          {n:'segment',t:'varchar · ortho|derma|lab…'},
+          {n:'item_name',t:'varchar'},
+          {n:'sequence_no',t:'int · stable display order',nw:1},
+          {n:'hsn_code',t:'varchar',nl:1},
+          {n:'sac_code',t:'varchar · 9993xx for healthcare',nl:1,nw:1},
+          {n:'quantity',t:'int'},
+          {n:'unit_price',t:'decimal'},
+          {n:'discount_pct',t:'decimal DEFAULT 0'},
+          {n:'discount_amount',t:'decimal DEFAULT 0'},
+          {n:'line_discount_reason',t:'text',nl:1},
+          {n:'line_discount_by',t:'uuid',fk:'users',nl:1},
+          {n:'cgst_pct',t:'decimal DEFAULT 0'},
+          {n:'cgst_amount',t:'decimal DEFAULT 0'},
+          {n:'sgst_pct',t:'decimal DEFAULT 0'},
+          {n:'sgst_amount',t:'decimal DEFAULT 0'},
+          {n:'igst_pct',t:'decimal DEFAULT 0'},
+          {n:'igst_amount',t:'decimal DEFAULT 0'},
+          {n:'total_price',t:'decimal · after discount'},
+          {n:'_check',t:'CHECK (num_nonnulls(consultation_id, lab_order_item_id, radiology_order_id, pharmacy_sale_item_id, prescription_item_id, bed_assignment_id, surgery_schedule_id) <= 1)',nw:1},
+        ]},
+      { n:'credit_notes', feature:'credit', desc:'Refund / store credit / write-off / adjustment. Layer 2 maker-checker. Apply against future invoices or refund as cash.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'credit_note_number',t:'varchar',uk:1},
+          {n:'credit_note_type',t:"varchar · 'refund'|'store_credit'|'write_off'|'adjustment'",nw:1},
+          {n:'patient_id',t:'uuid',fk:'patients',nl:1},
+          {n:'pharmacy_return_id',t:'uuid',fk:'pharmacy_returns',nl:1},
+          {n:'invoice_id',t:'uuid',fk:'invoices',nl:1},
+          {n:'amount',t:'decimal'},
+          {n:'status',t:"varchar · 'draft'|'pending_approval'|'approved'|'redeemed'|'expired'|'cancelled'"},
+          {n:'applied_to_invoice_id',t:'uuid',fk:'invoices',nl:1,nw:1},
+          {n:'redeemed_at',t:'timestamptz',nl:1,nw:1},
+          {n:'expires_at',t:'date',nl:1},
+          {n:'reason',t:'text · required'},
+          {n:'approval_status',t:"varchar · 'pending'|'approved'|'rejected'",nw:1},
+          {n:'approved_by',t:'uuid',fk:'users',nl:1,nw:1},
+          {n:'approved_at',t:'timestamptz',nl:1,nw:1},
+          {n:'rejection_reason',t:'text',nl:1,nw:1},
+          {n:'created_by',t:'uuid',fk:'users'},
+          {n:'created_at',t:'timestamptz'},
+        ]},
+    ]
+  };
+  renderModule(MODULE);
+  </script>
+</body>
+</html>

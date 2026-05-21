@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>07 · Patient — HMS Schema v3</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <style>
+    code { color: #d63384; font-size: 0.92em; }
+    .table th { white-space: nowrap; }
+    h2 .badge { font-size: 0.55em; vertical-align: middle; }
+    pre { background: #f8f9fa; padding: 1rem; border-radius: 0.375rem; font-size: 0.85em; }
+    .toc-card { background: #fff; }
+    .sample-data td, .sample-data th { white-space: nowrap; font-size: 0.78em; }
+  </style>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark sticky-top">
+  <div class="container">
+    <a href="../index.html" class="navbar-brand">
+      <i class="bi bi-arrow-left"></i> v3 Schema
+    </a>
+    <span class="navbar-text">Module <strong>07</strong> · Patient</span>
+  </div>
+</nav>
+
+<main class="container py-4">
+
+  <h1>Patient</h1>
+  <p class="lead">The core clinical entity — every OPD visit, prescription, lab order, and invoice eventually traces back to a patient row.</p>
+
+  <div class="card toc-card mb-4">
+    <div class="card-body">
+      <h6 class="card-subtitle text-muted mb-2">Module 07 contents — one table at a time</h6>
+      <ol class="mb-0 small">
+        <li><a href="#patients">patients</a> — demographics, UHID, address, emergency contact &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#patient_govt_ids">patient_govt_ids</a> — government ID documents per patient &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#patient_merges">patient_merges</a> — duplicate-patient merge records; Layer 2 maker-checker &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#patient_allergies">patient_allergies</a> — active allergies per patient, linked to allergies_lookup catalogue &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#patient_chronic_conditions">patient_chronic_conditions</a> — active chronic conditions per patient, linked to chronic_conditions_lookup catalogue &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#uhid_sequences">uhid_sequences</a> — per-year atomic UHID counter &nbsp;<span class="badge bg-success">signed off</span></li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- 1. patients                                                      -->
+  <!-- ================================================================ -->
+  <section id="patients" class="mb-5">
+    <h2>1. patients
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>One row per patient. UHID is generated at registration from the format defined in <code>hospital_profile</code> (<code>uhid_prefix</code>, <code>uhid_separator</code>, <code>uhid_sequence_padding</code>, <code>uhid_include_year</code>). Allergies and chronic conditions are normalised to child tables (<code>patient_allergies</code>, <code>patient_chronic_conditions</code>) — not stored as arrays on this row.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>uhid</code></td><td>text</td><td>NO</td><td>UNIQUE</td><td>—</td><td>Unique Hospital ID generated at registration (e.g. <code>KH-2026-00042</code>). Format driven by <code>hospital_profile</code> UHID columns.</td></tr>
+        <tr><td><code>first_name</code></td><td>text</td><td>NO</td><td>CHECK length 1–60</td><td>—</td><td>Patient first name as on government ID</td></tr>
+        <tr><td><code>last_name</code></td><td>text</td><td>NO</td><td>CHECK length 1–60</td><td>—</td><td>Patient last / family name as on government ID</td></tr>
+        <tr><td><code>date_of_birth</code></td><td>date</td><td>NO</td><td>CHECK &lt;= current_date</td><td>—</td><td>Used to compute age at visit time — not stored separately</td></tr>
+        <tr><td><code>gender</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td><code>m</code> | <code>f</code> | <code>o</code></td></tr>
+        <tr><td><code>blood_group</code></td><td>text</td><td>YES</td><td>CHECK IN (…)</td><td>—</td><td><code>A+</code> | <code>A-</code> | <code>B+</code> | <code>B-</code> | <code>AB+</code> | <code>AB-</code> | <code>O+</code> | <code>O-</code> | <code>unknown</code></td></tr>
+        <tr><td><code>mobile</code></td><td>text</td><td>YES</td><td>CHECK length 10–15</td><td>—</td><td>Primary contact number</td></tr>
+        <tr><td><code>alt_mobile</code></td><td>text</td><td>YES</td><td>CHECK length 10–15 when not NULL</td><td>—</td><td>Alternate / family contact number</td></tr>
+        <tr><td><code>email</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Optional contact email</td></tr>
+        <tr><td><code>address</code></td><td>jsonb</td><td>YES</td><td>—</td><td>—</td><td>Structured address — JSON shape below</td></tr>
+        <tr><td><code>address_city</code></td><td>text</td><td>YES</td><td>GENERATED</td><td>—</td><td><code>GENERATED ALWAYS AS ((address-&gt;&gt;'city')) STORED</code> — indexed for city-filter queries</td></tr>
+        <tr><td><code>address_pincode</code></td><td>text</td><td>YES</td><td>GENERATED</td><td>—</td><td><code>GENERATED ALWAYS AS ((address-&gt;&gt;'pincode')) STORED</code> — indexed for area-based reports</td></tr>
+        <tr><td><code>emergency_contact_name</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Next of kin / emergency contact name</td></tr>
+        <tr><td><code>emergency_contact_mobile</code></td><td>text</td><td>YES</td><td>CHECK length 10–15 when not NULL</td><td>—</td><td>Emergency contact phone</td></tr>
+        <tr><td><code>emergency_contact_relation</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Relation to patient (e.g. Spouse, Parent, Sibling)</td></tr>
+        <tr><td><code>created_via</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'web'</code></td><td>Channel that created the record: <code>web</code> | <code>android</code> | <code>ios</code> | <code>api</code> | <code>migration</code>. Backend reads <code>X-App-Channel</code> request header (defaults to <code>web</code>).</td></tr>
+        <tr><td><code>is_deceased</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>false</code></td><td>Marks the patient as deceased — suppresses appointment and prescription workflows</td></tr>
+        <tr><td><code>deceased_at</code></td><td>date</td><td>YES</td><td>CHECK <code>deceased_at IS NULL OR (is_deceased = true AND deceased_at &lt;= current_date)</code></td><td>—</td><td>Date of death. Must be NULL when <code>is_deceased = false</code>.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>JSON shape — <code>address</code> column</h5>
+    <table class="table table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Key</th><th>Type</th><th>Required</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>line1</code></td><td>string</td><td>Yes</td><td>Street / door number</td></tr>
+        <tr><td><code>line2</code></td><td>string | null</td><td>No</td><td>Apartment, area</td></tr>
+        <tr><td><code>city</code></td><td>string</td><td>Yes</td><td>Promoted to <code>address_city</code> generated column</td></tr>
+        <tr><td><code>state</code></td><td>string</td><td>Yes</td><td>—</td></tr>
+        <tr><td><code>pincode</code></td><td>string</td><td>Yes</td><td>Promoted to <code>address_pincode</code> generated column</td></tr>
+        <tr><td><code>country</code></td><td>string</td><td>No</td><td>ISO-3166-1 alpha-2; defaults to <code>IN</code> if omitted</td></tr>
+        <tr><td><code>landmark</code></td><td>string | null</td><td>No</td><td>Free-form landmark for delivery / ambulance routing</td></tr>
+      </tbody>
+    </table>
+<pre>{
+  "line1":    "14 Gandhi Nagar",
+  "line2":    null,
+  "city":     "Villupuram",
+  "state":    "Tamil Nadu",
+  "pincode":  "605602",
+  "country":  "IN",
+  "landmark": "Near SBI Bank"
+}</pre>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_patients</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_patients_uhid</code> — UNIQUE (uhid)</li>
+      <li><code>chk_patients_first_name_len</code> — CHECK <code>char_length(first_name) BETWEEN 1 AND 60</code></li>
+      <li><code>chk_patients_last_name_len</code> — CHECK <code>char_length(last_name) BETWEEN 1 AND 60</code></li>
+      <li><code>chk_patients_dob</code> — CHECK <code>date_of_birth &lt;= current_date</code></li>
+      <li><code>chk_patients_gender</code> — CHECK <code>gender IN ('m','f','o')</code></li>
+      <li><code>chk_patients_blood_group</code> — CHECK <code>blood_group IS NULL OR blood_group IN ('A+','A-','B+','B-','AB+','AB-','O+','O-','unknown')</code></li>
+      <li><code>chk_patients_mobile_len</code> — CHECK <code>mobile IS NULL OR char_length(mobile) BETWEEN 10 AND 15</code></li>
+      <li><code>chk_patients_alt_mobile_len</code> — CHECK <code>alt_mobile IS NULL OR char_length(alt_mobile) BETWEEN 10 AND 15</code></li>
+      <li><code>chk_patients_emergency_mobile_len</code> — CHECK <code>emergency_contact_mobile IS NULL OR char_length(emergency_contact_mobile) BETWEEN 10 AND 15</code></li>
+      <li><code>chk_patients_created_via</code> — CHECK <code>created_via IN ('web','android','ios','api','migration')</code></li>
+      <li><code>chk_patients_deceased</code> — CHECK <code>deceased_at IS NULL OR (is_deceased = true AND deceased_at &lt;= current_date)</code></li>
+      <li><code>ix_patients_uhid</code> — INDEX (uhid) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— reception search by UHID</span></li>
+      <li><code>ix_patients_mobile</code> — INDEX (mobile) WHERE <code>mobile IS NOT NULL AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— search by mobile number</span></li>
+      <li><code>ix_patients_first_name</code> — INDEX (first_name text_pattern_ops) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— prefix search by first name</span></li>
+      <li><code>ix_patients_last_name</code> — INDEX (last_name text_pattern_ops) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— prefix search by last name</span></li>
+      <li><code>ix_patients_city</code> — INDEX (address_city) WHERE <code>address_city IS NOT NULL AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— area-based reports</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_patients_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_patients_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns (split for readability)</h5>
+
+    <h6 class="text-muted mt-3">1.1 Demographics</h6>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>uhid</th><th>first_name</th><th>last_name</th><th>date_of_birth</th><th>gender</th><th>blood_group</th><th>mobile</th><th>alt_mobile</th><th>email</th><th>created_via</th><th>is_deceased</th><th>deceased_at</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>…pt001</code></td><td>KH-2026-00042</td><td>Meena</td><td>Krishnan</td><td>1985-03-20</td><td>f</td><td>A+</td><td>9876543210</td><td>NULL</td><td>meena.k@gmail.com</td><td>web</td><td>false</td><td>NULL</td></tr>
+        <tr><td><code>…pt002</code></td><td>KH-2026-00043</td><td>Rajan</td><td>Subramaniam</td><td>1960-11-05</td><td>m</td><td>unknown</td><td>9876543211</td><td>NULL</td><td>NULL</td><td>web</td><td>false</td><td>NULL</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h6 class="text-muted mt-3">1.2 Address (jsonb) + generated columns</h6>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>uhid</th><th>address</th><th>address_city (generated)</th><th>address_pincode (generated)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>KH-2026-00042</td><td><code>{"line1":"14 Gandhi Nagar","line2":null,"city":"Villupuram","state":"Tamil Nadu","pincode":"605602","country":"IN","landmark":"Near SBI Bank"}</code></td><td>Villupuram</td><td>605602</td></tr>
+        <tr><td>KH-2026-00043</td><td><code>{"line1":"7 Nehru Street","line2":"Anna Nagar","city":"Villupuram","state":"Tamil Nadu","pincode":"605601","country":"IN","landmark":null}</code></td><td>Villupuram</td><td>605601</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h6 class="text-muted mt-3">1.3 Emergency contact + audit</h6>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>uhid</th><th>emergency_contact_name</th><th>emergency_contact_mobile</th><th>emergency_contact_relation</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>KH-2026-00042</td><td>Suresh Krishnan</td><td>9876543299</td><td>Spouse</td><td><code>…0020 (Naveen)</code></td><td>2026-05-13 09:10:00</td><td>NULL</td><td>2026-05-13 09:10:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>KH-2026-00043</td><td>Priya Rajan</td><td>9876543212</td><td>Daughter</td><td><code>…0020 (Naveen)</code></td><td>2026-05-13 09:25:00</td><td>NULL</td><td>2026-05-13 09:25:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 2. patient_govt_ids                                             -->
+  <!-- ================================================================ -->
+  <section id="patient_govt_ids" class="mb-5">
+    <h2>2. patient_govt_ids
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Government-issued identity documents for a patient. One row per document type. CASCADE child of <code>patients</code> — hard-deleting a patient removes their ID records. The <code>is_primary</code> flag marks the document shown on prescriptions and billing forms.</p>
+    <p class="small text-muted"><strong>Aadhaar note:</strong> UIDAI regulations discourage storing the full 12-digit Aadhaar number. Store only the last 4 digits for Aadhaar rows (e.g. <code>XXXX-XXXX-7890</code>) — the app enforces this mask; the schema stores whatever text the app provides.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>patient_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>patients(id)</code> CASCADE</td><td>—</td><td>Parent patient. CASCADE: patient hard-delete removes all their ID rows.</td></tr>
+        <tr><td><code>id_type</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td><code>aadhaar</code> | <code>pan</code> | <code>voter_id</code> | <code>passport</code> | <code>driving_licence</code> | <code>ration_card</code> | <code>other</code></td></tr>
+        <tr><td><code>id_number</code></td><td>text</td><td>NO</td><td>CHECK length 1–50</td><td>—</td><td>Document number as printed. For Aadhaar, store masked form only (last 4 digits visible).</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_patient_govt_ids</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_patient_govt_ids_type</code> — CHECK <code>id_type IN ('aadhaar','pan','voter_id','passport','driving_licence','ration_card','other')</code></li>
+      <li><code>chk_patient_govt_ids_number_len</code> — CHECK <code>char_length(id_number) BETWEEN 1 AND 50</code></li>
+      <li><code>uq_patient_govt_ids_type</code> — UNIQUE INDEX (patient_id, id_type) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— a patient can't have two active rows of the same type</span></li>
+      <li><code>ix_patient_govt_ids_patient</code> — INDEX (patient_id) WHERE <code>deleted_at IS NULL</code></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_patient_govt_ids_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_patient_govt_ids_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>patient_id</th><th>id_type</th><th>id_number</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>…gi001</code></td><td><code>…pt001 (Meena)</code></td><td>aadhaar</td><td>XXXX-XXXX-7890</td><td><code>…0020 (Naveen)</code></td><td>2026-05-13 09:10:00</td><td>NULL</td><td>2026-05-13 09:10:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…gi002</code></td><td><code>…pt002 (Rajan)</code></td><td>voter_id</td><td>TN/05/012/345678</td><td><code>…0020 (Naveen)</code></td><td>2026-05-13 09:25:00</td><td>NULL</td><td>2026-05-13 09:25:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 3. patient_merges                                               -->
+  <!-- ================================================================ -->
+  <section id="patient_merges" class="mb-5">
+    <h2>3. patient_merges
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-danger">L2 maker-checker</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Records a duplicate-patient merge operation. The <strong>primary</strong> patient survives; the <strong>secondary</strong> is soft-deleted after merge. All clinical records (visits, prescriptions, lab orders) belonging to the secondary are re-pointed to the primary by the merge service. The <code>before_state</code> snapshot enables an unmerge if the merge was made in error — restores the secondary patient and reverses the record re-pointing.</p>
+    <p>One of the 7 Layer 2 maker-checker tables — the user who identifies the duplicate (<code>created_by</code>) cannot be the same user who approves it (<code>approved_by</code>).</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>primary_patient_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>patients(id)</code> RESTRICT</td><td>—</td><td>The surviving patient. RESTRICT: cannot delete the primary while a merge record exists.</td></tr>
+        <tr><td><code>secondary_patient_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>patients(id)</code> RESTRICT</td><td>—</td><td>The duplicate being merged in. Soft-deleted by the merge service on approval.</td></tr>
+        <tr><td><code>merge_reason</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Free-form note explaining why the two records are believed to be duplicates</td></tr>
+        <tr><td><code>before_state</code></td><td>jsonb</td><td>NO</td><td>—</td><td>—</td><td>Full snapshot of the secondary patient row at the time of merge. Used by the unmerge operation to restore the secondary patient.</td></tr>
+        <tr><td colspan="6" class="text-info-emphasis"><strong>Layer 2 — maker-checker</strong></td></tr>
+        <tr><td><code>approval_status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'pending'</code></td><td><code>pending</code> | <code>approved</code> | <code>rejected</code></td></tr>
+        <tr><td><code>approved_by</code></td><td>uuid</td><td>YES</td><td>FK → <code>users(id)</code> SET NULL</td><td>—</td><td>Must differ from <code>created_by</code> — enforced by CHECK below</td></tr>
+        <tr><td><code>approved_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>Timestamp of approval or rejection</td></tr>
+        <tr><td><code>rejection_reason</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Filled when <code>approval_status = 'rejected'</code></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>JSON shape — <code>before_state</code> column</h5>
+    <p class="small text-muted">Full <code>to_jsonb(secondary_patient_row)</code> snapshot captured by the merge service before soft-deleting the secondary. Same structure as a <code>patients</code> row.</p>
+<pre>{
+  "id":          "…pt-uuid",
+  "uhid":        "KH-2026-00040",
+  "full_name":   "Meena K",
+  "date_of_birth": "1985-03-20",
+  "gender":      "female",
+  "mobile":      "9876543210",
+  ...
+}</pre>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_patient_merges</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_patient_merges_not_self</code> — CHECK <code>primary_patient_id &lt;&gt; secondary_patient_id</code></li>
+      <li><code>chk_patient_merges_status</code> — CHECK <code>approval_status IN ('pending','approved','rejected')</code></li>
+      <li><code>chk_patient_merges_maker_checker</code> — CHECK <code>approval_status = 'pending' OR (created_by IS NOT NULL AND approved_by IS NOT NULL AND created_by &lt;&gt; approved_by)</code></li>
+      <li><code>chk_patient_merges_approval_consistency</code> — CHECK <code>(approval_status = 'pending' AND approved_by IS NULL AND approved_at IS NULL) OR (approval_status = 'approved' AND approved_by IS NOT NULL AND approved_at IS NOT NULL) OR (approval_status = 'rejected' AND rejection_reason IS NOT NULL)</code></li>
+      <li><code>ix_patient_merges_primary</code> — INDEX (primary_patient_id) WHERE <code>deleted_at IS NULL</code></li>
+      <li><code>ix_patient_merges_secondary</code> — INDEX (secondary_patient_id) WHERE <code>deleted_at IS NULL</code></li>
+      <li><code>ix_patient_merges_pending</code> — INDEX (approval_status) WHERE <code>approval_status = 'pending' AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— admin dashboard "pending approvals" list</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_patient_merges_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_patient_merges_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>primary_patient_id</th><th>secondary_patient_id</th><th>merge_reason</th><th>before_state</th><th>approval_status</th><th>approved_by</th><th>approved_at</th><th>rejection_reason</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…m001</code></td>
+          <td><code>…pt001 (Meena Krishnan)</code></td>
+          <td><code>…pt003 (Meena K — duplicate)</code></td>
+          <td>Same DOB, mobile and address — registered twice by different receptionists</td>
+          <td><code>{"id":"…pt003","uhid":"KH-2026-00040","full_name":"Meena K","date_of_birth":"1985-03-20",…}</code></td>
+          <td>approved</td>
+          <td><code>…0002 (Dr Priya — also holds admin role)</code></td>
+          <td>2026-05-13 10:00:00</td>
+          <td>NULL</td>
+          <td><code>…0020 (Naveen)</code></td><td>2026-05-13 09:45:00</td><td><code>…0002</code></td><td>2026-05-13 10:00:00</td><td>1</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…m002</code></td>
+          <td><code>…pt002 (Rajan Subramaniam)</code></td>
+          <td><code>…pt004 (R. Subramaniam — potential duplicate)</code></td>
+          <td>Similar name and mobile — flagged by system duplicate-check on registration</td>
+          <td><code>{"id":"…pt004","uhid":"KH-2026-00041","full_name":"R. Subramaniam","date_of_birth":"1960-11-05",…}</code></td>
+          <td>pending</td>
+          <td>NULL</td>
+          <td>NULL</td>
+          <td>NULL</td>
+          <td><code>…0020 (Naveen)</code></td><td>2026-05-13 09:50:00</td><td>NULL</td><td>2026-05-13 09:50:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 4. patient_allergies                                            -->
+  <!-- ================================================================ -->
+  <section id="patient_allergies" class="mb-5">
+    <h2>4. patient_allergies
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>One row per active allergy for a patient, linked to the <code>allergies_lookup</code> catalogue (Module 06). Replaces the v2 <code>patients.allergies text[]</code> column — each row carries clinical detail (severity, observed reaction, onset, source) that a flat array cannot express. Soft-deleting a row records that the allergy was removed or overridden; the history remains for audit.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>patient_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>patients(id)</code> CASCADE</td><td>—</td><td>Parent patient. CASCADE: patient hard-delete removes all their allergy rows.</td></tr>
+        <tr><td><code>allergy_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>allergies_lookup(id)</code> RESTRICT</td><td>—</td><td>Catalogue entry. RESTRICT: cannot delete a lookup entry while patients reference it.</td></tr>
+        <tr><td><code>severity</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td><code>mild</code> | <code>moderate</code> | <code>severe</code> | <code>life_threatening</code></td></tr>
+        <tr><td><code>reaction</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Observed reaction description (e.g. "hives and rash", "anaphylactic shock")</td></tr>
+        <tr><td><code>onset_date</code></td><td>date</td><td>YES</td><td>CHECK &lt;= current_date when not NULL</td><td>—</td><td>Approximate date the allergy was first observed or diagnosed</td></tr>
+        <tr><td><code>source</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'patient_reported'</code></td><td><code>patient_reported</code> | <code>doctor_recorded</code> | <code>medical_records</code></td></tr>
+        <tr><td><code>notes</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Additional clinical context — cross-reactivity warnings, management instructions</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_patient_allergies</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_patient_allergies_severity</code> — CHECK <code>severity IN ('mild','moderate','severe','life_threatening')</code></li>
+      <li><code>chk_patient_allergies_onset</code> — CHECK <code>onset_date IS NULL OR onset_date &lt;= current_date</code></li>
+      <li><code>chk_patient_allergies_source</code> — CHECK <code>source IN ('patient_reported','doctor_recorded','medical_records')</code></li>
+      <li><code>uq_patient_allergies_active</code> — UNIQUE INDEX (patient_id, allergy_id) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— one active row per allergy per patient; a soft-deleted row does not block re-adding the allergy</span></li>
+      <li><code>ix_patient_allergies_patient</code> — INDEX (patient_id) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— load allergy list on patient chart</span></li>
+      <li><code>ix_patient_allergies_allergy</code> — INDEX (allergy_id) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— find patients with a given allergy (drug-safety check)</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_patient_allergies_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_patient_allergies_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>patient_id</th><th>allergy_id</th><th>severity</th><th>reaction</th><th>onset_date</th><th>source</th><th>notes</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…pa001</code></td>
+          <td><code>…pt001 (Meena)</code></td>
+          <td><code>…al001 (PENICILLIN)</code></td>
+          <td>severe</td>
+          <td>Anaphylactic shock — required ER admission in 2019</td>
+          <td>2019-06-15</td>
+          <td>patient_reported</td>
+          <td>Avoid all penicillin-class antibiotics including amoxicillin; use macrolides as alternative</td>
+          <td><code>…0002 (Dr Priya)</code></td>
+          <td>2026-05-13 09:15:00</td>
+          <td>NULL</td><td>2026-05-13 09:15:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…pa002</code></td>
+          <td><code>…pt002 (Rajan)</code></td>
+          <td><code>…al005 (NSAIDS)</code></td>
+          <td>moderate</td>
+          <td>Gastric bleeding — observed after ibuprofen course in 2022</td>
+          <td>2022-03-10</td>
+          <td>doctor_recorded</td>
+          <td>Avoid NSAIDs; prescribe paracetamol for pain management</td>
+          <td><code>…0003 (Dr Arjun)</code></td>
+          <td>2026-05-13 09:30:00</td>
+          <td>NULL</td><td>2026-05-13 09:30:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 5. patient_chronic_conditions                                    -->
+  <!-- ================================================================ -->
+  <section id="patient_chronic_conditions" class="mb-5">
+    <h2>5. patient_chronic_conditions
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>One row per chronic condition for a patient, linked to the <code>chronic_conditions_lookup</code> catalogue (Module 06). Replaces the v2 <code>patients.chronic_conditions text[]</code> column — each row captures clinical detail (diagnosis date, severity, controlled status, resolution) that a flat array cannot express. A resolved condition is marked <code>is_resolved = true</code> rather than soft-deleted, preserving the medical history on the patient chart.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>patient_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>patients(id)</code> CASCADE</td><td>—</td><td>Parent patient. CASCADE: patient hard-delete removes all their condition rows.</td></tr>
+        <tr><td><code>condition_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>chronic_conditions_lookup(id)</code> RESTRICT</td><td>—</td><td>Catalogue entry. RESTRICT: cannot delete a lookup entry while patients reference it.</td></tr>
+        <tr><td><code>diagnosed_date</code></td><td>date</td><td>YES</td><td>CHECK &lt;= current_date when not NULL</td><td>—</td><td>Date of formal diagnosis; NULL when only approximate year is known</td></tr>
+        <tr><td><code>severity</code></td><td>text</td><td>YES</td><td>CHECK IN (…) when not NULL</td><td>—</td><td><code>mild</code> | <code>moderate</code> | <code>severe</code> — NULL when severity grading does not apply to the condition</td></tr>
+        <tr><td><code>controlled_status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'unknown'</code></td><td><code>controlled</code> | <code>partially_controlled</code> | <code>uncontrolled</code> | <code>unknown</code> — updated at each consultation review</td></tr>
+        <tr><td><code>is_resolved</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>false</code></td><td>True when the condition is in remission or resolved. Row is kept (not soft-deleted) so medical history is preserved on the chart.</td></tr>
+        <tr><td><code>resolved_date</code></td><td>date</td><td>YES</td><td>CHECK consistency with <code>is_resolved</code></td><td>—</td><td>Date resolution was confirmed. Must be NULL when <code>is_resolved = false</code>.</td></tr>
+        <tr><td><code>notes</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Clinical context — stage, comorbidity notes, management plan summary</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_patient_chronic_conditions</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_patient_chronic_conditions_diagnosed</code> — CHECK <code>diagnosed_date IS NULL OR diagnosed_date &lt;= current_date</code></li>
+      <li><code>chk_patient_chronic_conditions_severity</code> — CHECK <code>severity IS NULL OR severity IN ('mild','moderate','severe')</code></li>
+      <li><code>chk_patient_chronic_conditions_controlled</code> — CHECK <code>controlled_status IN ('controlled','partially_controlled','uncontrolled','unknown')</code></li>
+      <li><code>chk_patient_chronic_conditions_resolved</code> — CHECK <code>(is_resolved = false AND resolved_date IS NULL) OR (is_resolved = true AND resolved_date IS NOT NULL AND resolved_date &lt;= current_date)</code></li>
+      <li><code>uq_patient_chronic_conditions_active</code> — UNIQUE INDEX (patient_id, condition_id) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— one active row per condition per patient</span></li>
+      <li><code>ix_patient_chronic_conditions_patient</code> — INDEX (patient_id) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— load condition list on patient chart</span></li>
+      <li><code>ix_patient_chronic_conditions_condition</code> — INDEX (condition_id) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— population-level condition reports</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_patient_chronic_conditions_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_patient_chronic_conditions_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>patient_id</th><th>condition_id</th><th>diagnosed_date</th><th>severity</th><th>controlled_status</th><th>is_resolved</th><th>resolved_date</th><th>notes</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…pc001</code></td>
+          <td><code>…pt001 (Meena)</code></td>
+          <td><code>…cc001 (T2DM)</code></td>
+          <td>2015-03-10</td>
+          <td>moderate</td>
+          <td>uncontrolled</td>
+          <td>false</td>
+          <td>NULL</td>
+          <td>HbA1c 9.2% at last review; on metformin 500 mg BD — dose escalation pending</td>
+          <td><code>…0002 (Dr Priya)</code></td>
+          <td>2026-05-13 09:15:00</td>
+          <td>NULL</td><td>2026-05-13 09:15:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…pc002</code></td>
+          <td><code>…pt002 (Rajan)</code></td>
+          <td><code>…cc002 (HYPERTENSION)</code></td>
+          <td>2010-06-20</td>
+          <td>moderate</td>
+          <td>controlled</td>
+          <td>false</td>
+          <td>NULL</td>
+          <td>BP stable at 128/82 on amlodipine 5 mg OD; annual renal function review due</td>
+          <td><code>…0003 (Dr Arjun)</code></td>
+          <td>2026-05-13 09:30:00</td>
+          <td>NULL</td><td>2026-05-13 09:30:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 6. uhid_sequences                                               -->
+  <!-- ================================================================ -->
+  <section id="uhid_sequences" class="mb-5">
+    <h2>6. uhid_sequences
+      <span class="badge bg-secondary">append / update</span>
+    </h2>
+    <p>One row per calendar year. The service atomically increments <code>last_seq</code> using
+    <code>INSERT … ON CONFLICT DO UPDATE RETURNING</code> — safe under concurrent registrations,
+    no explicit locking required. The formatted UHID is assembled in <code>UhidService</code>
+    using the format columns in <code>hospital_profile</code>
+    (<code>uhid_prefix</code>, <code>uhid_separator</code>, <code>uhid_sequence_padding</code>,
+    <code>uhid_include_year</code>).</p>
+
+    <h5>Columns</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>year</code></td><td>int</td><td>NO</td><td>PK</td><td>—</td><td>Calendar year (e.g. 2026)</td></tr>
+        <tr><td><code>last_seq</code></td><td>bigint</td><td>NO</td><td>—</td><td><code>0</code></td><td>Last issued sequence number for this year. 0 = no patients yet.</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h5>Atomic increment SQL</h5>
+<pre>INSERT INTO uhid_sequences (year, last_seq)
+VALUES (:year, 1)
+ON CONFLICT (year)
+DO UPDATE SET last_seq = uhid_sequences.last_seq + 1
+RETURNING last_seq;</pre>
+
+    <h5>Sample data</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>year</th><th>last_seq</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>2025</td><td>312</td></tr>
+        <tr><td>2026</td><td>42</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Example: with <code>uhid_prefix=KH</code>, <code>uhid_separator=-</code>, <code>uhid_sequence_padding=5</code>, <code>uhid_include_year=true</code> → UHID = <code>KH-2026-00042</code>.</p>
+  </section>
+
+</main>
+
+</body>
+</html>

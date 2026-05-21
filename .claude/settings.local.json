@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git clone *)",
+      "Bash(rm -rf /c/Hari/hms/.git)",
+      "Bash(shopt -s dotglob)",
+      "Bash(mv /c/Hari/hms/temp_clone/* /c/Hari/hms/)",
+      "Bash(mv /c/Hari/hms/temp_clone/.git /c/Hari/hms/)",
+      "Bash(mv /c/Hari/hms/temp_clone/.gitignore /c/Hari/hms/)",
+      "Bash(git pull *)",
+      "Bash(git checkout *)",
+      "Bash(git stash *)",
+      "Bash(npm run *)",
+      "Bash(git -C c:/hari/hms/hospital-management-system add frontend/src/features/patient/PatientProfilePage.tsx)",
+      "Bash(git -C c:/hari/hms/hospital-management-system status --short)",
+      "Bash(git -C c:/hari/hms/hospital-management-system commit -m ' *)",
+      "Bash(git -C c:/hari/hms/hospital-management-system push origin develop)",
+      "Bash(git -C c:/hari/hms/hospital-management-system log --oneline -3)"
+    ]
+  }
+}

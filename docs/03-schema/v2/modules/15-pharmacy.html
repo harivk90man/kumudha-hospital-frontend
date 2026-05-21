@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Pharmacy — HMS Schema v8</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script src="../shared/manifest.js"></script>
+  <script src="../shared/catalog.js"></script>
+  <script src="../shared/renderer.js"></script>
+  <script>
+  // ─── EDIT BELOW ONLY. Do not touch HTML/script tags. ────────────────────
+  const MODULE = {
+    id: 'pharmacy',
+    name: 'Pharmacy',
+    color: '#D4537E',
+    bg: '#281020',
+    lbg: '#FBEAF0',
+    features: ['sales', 'returns'],
+    tables: [
+      { n:'pharmacy_sales', feature:'sales', desc:'One pharmacy bill — OP / IP / walk-in. Items, discounts, GST, cash session, idempotency key prevents double-charge.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'sale_number',t:'varchar',uk:1},
+          {n:'patient_id',t:'uuid',fk:'patients',nl:1},
+          {n:'sale_type',t:"varchar · 'op_patient'|'ip_patient'|'walkin_prescription'|'walkin_otc'|'staff_self'|'department_use'"},
+          {n:'cash_session_id',t:'uuid',fk:'cash_sessions'},
+          {n:'customer_name',t:'varchar',nl:1},
+          {n:'customer_mobile',t:'varchar',nl:1},
+          {n:'customer_age',t:'int',nl:1},
+          {n:'external_prescription_ref',t:'varchar',nl:1},
+          {n:'prescription_id',t:'uuid',fk:'prescriptions',nl:1},
+          {n:'invoice_id',t:'uuid',fk:'invoices',nl:1},
+          {n:'subtotal',t:'decimal'},
+          {n:'total_tax',t:'decimal DEFAULT 0',nw:1},
+          {n:'bill_discount_type',t:"varchar · 'percentage'|'flat'"},
+          {n:'bill_discount_value',t:'decimal DEFAULT 0'},
+          {n:'bill_discount_amount',t:'decimal DEFAULT 0'},
+          {n:'net_amount',t:'decimal'},
+          {n:'discount_approved_by',t:'uuid',fk:'users',nl:1},
+          {n:'discount_reason',t:'text',nl:1},
+          {n:'status',t:"varchar · 'draft'|'billed'|'dispensed'|'partially_dispensed'|'cancelled'|'returned'",nw:1},
+          {n:'printer_target',t:"varchar · 'dot_matrix_main'"},
+          {n:'sale_date',t:'timestamptz'},
+          {n:'idempotency_key',t:'varchar · UNIQUE partial — prevents double-charge',nl:1},
+          {n:'version',t:'int DEFAULT 0 · optimistic lock'},
+          {n:'created_by',t:'uuid',fk:'users'},
+          {n:'created_at',t:'timestamptz',nw:1},
+          {n:'updated_by',t:'uuid',fk:'users',nl:1,nw:1},
+          {n:'updated_at',t:'timestamptz',nw:1},
+        ]},
+      { n:'pharmacy_sale_items', feature:'sales', desc:'One drug per row on a pharmacy sale — batch, qty, price, discount, GST split. Triggers FEFO decrement + Rx dispense increment + stock movement + narcotic check.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'pharmacy_sale_id',t:'uuid',fk:'pharmacy_sales'},
+          {n:'medicine_id',t:'uuid',fk:'medicines'},
+          {n:'medicine_batch_id',t:'uuid',fk:'medicine_batches'},
+          {n:'prescription_item_id',t:'uuid',fk:'prescription_items',nl:1,nw:1},
+          {n:'quantity',t:'int'},
+          {n:'unit_price',t:'decimal'},
+          {n:'discount_pct',t:'decimal DEFAULT 0'},
+          {n:'discount_amount',t:'decimal DEFAULT 0'},
+          {n:'cgst_pct',t:'decimal DEFAULT 0',nw:1},
+          {n:'sgst_pct',t:'decimal DEFAULT 0',nw:1},
+          {n:'total_price',t:'decimal · after item discount'},
+        ]},
+      { n:'pharmacy_returns', feature:'returns', desc:'Customer return event — reason (required), refund mode, credit-note link, approver.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'return_number',t:'varchar',uk:1},
+          {n:'original_sale_id',t:'uuid',fk:'pharmacy_sales'},
+          {n:'patient_id',t:'uuid',fk:'patients',nl:1},
+          {n:'customer_name',t:'varchar',nl:1},
+          {n:'customer_mobile',t:'varchar',nl:1},
+          {n:'return_type',t:"varchar · 'full'|'partial'"},
+          {n:'return_reason',t:'text · required'},
+          {n:'total_return_amount',t:'decimal'},
+          {n:'refund_mode',t:"varchar · 'cash'|'upi'|'card'|'credit_note'|'original_method'"},
+          {n:'refund_amount',t:'decimal'},
+          {n:'cash_session_id',t:'uuid',fk:'cash_sessions',nl:1},
+          {n:'credit_note_id',t:'uuid',fk:'credit_notes',nl:1},
+          {n:'approved_by',t:'uuid',fk:'users'},
+          {n:'processed_by',t:'uuid',fk:'users'},
+          {n:'created_at',t:'timestamptz'},
+        ]},
+      { n:'pharmacy_return_items', feature:'returns', desc:'One drug per row on a return — qty, condition (good/damaged/expired), restock qty, writeoff qty (generated).',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'pharmacy_return_id',t:'uuid',fk:'pharmacy_returns'},
+          {n:'pharmacy_sale_item_id',t:'uuid',fk:'pharmacy_sale_items'},
+          {n:'medicine_id',t:'uuid',fk:'medicines'},
+          {n:'medicine_batch_id',t:'uuid',fk:'medicine_batches'},
+          {n:'quantity_returned',t:'int'},
+          {n:'unit_price',t:'decimal · from original sale'},
+          {n:'return_amount',t:'decimal · qty × price − disc'},
+          {n:'condition',t:"varchar · 'good'|'opened'|'damaged'|'expired'"},
+          {n:'restock_quantity',t:'int · 0 if damaged'},
+          {n:'writeoff_quantity',t:'int GENERATED · qty - restock',nw:1},
+          {n:'notes',t:'text',nl:1},
+        ]},
+    ]
+  };
+  renderModule(MODULE);
+  </script>
+</body>
+</html>

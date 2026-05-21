@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>14 · Inventory — HMS Schema v3</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <style>
+    code { color: #d63384; font-size: 0.92em; }
+    .table th { white-space: nowrap; }
+    h2 .badge { font-size: 0.55em; vertical-align: middle; }
+    pre { background: #f8f9fa; padding: 1rem; border-radius: 0.375rem; font-size: 0.85em; }
+    .toc-card { background: #fff; }
+    .sample-data td, .sample-data th { white-space: nowrap; font-size: 0.78em; }
+  </style>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark sticky-top">
+  <div class="container">
+    <a href="../index.html" class="navbar-brand">
+      <i class="bi bi-arrow-left"></i> v3 Schema
+    </a>
+    <span class="navbar-text">Module <strong>14</strong> · Inventory</span>
+  </div>
+</nav>
+
+<main class="container py-4">
+
+  <h1>Inventory</h1>
+  <p class="lead">Drug supply chain — supplier registry, medicine catalogue, batch-level stock, purchase orders, stock movement ledger, and the NDPS Act narcotic register.</p>
+
+  <div class="alert alert-info small mb-4">
+    <strong>Pricing note:</strong> Medicine prices are <strong>batch-level</strong> (<code>drug_stock.selling_price</code> ≤ MRP), not catalogue-level.
+    The centralized <code>services</code> table (Module 16) covers consultations, lab tests, and radiology — not drug_catalogue.
+    FEFO (First Expiry First Out) is the dispense rule: always pick the batch with the earliest expiry date first.<br>
+    <strong>Narcotic rule:</strong> Any transaction involving a <code>drug_catalogue.is_narcotic = true</code> drug <em>must</em> insert a paired <code>narcotic_register</code> row in the same transaction — enforced by trigger.
+  </div>
+
+  <div class="card toc-card mb-4">
+    <div class="card-body">
+      <h6 class="card-subtitle text-muted mb-2">Module 14 contents — one table at a time</h6>
+      <ol class="mb-0 small">
+        <li><a href="#vendors">vendors</a> — supplier registry; GST, PAN, narcotic-supplier flag &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#vendor_contacts">vendor_contacts</a> — one row per contact person per vendor (sales rep, delivery, accounts) &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#drug_catalogue">drug_catalogue</a> — drug catalogue; schedule, drug class, narcotic flag, GST, reorder level &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#drug_stock">drug_stock</a> — batch-level stock; expiry, MRP, selling price, FEFO, optimistic lock &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#purchase_orders">purchase_orders</a> — PO header; L2 maker-checker for approval &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#purchase_order_items">purchase_order_items</a> — PO lines; quantity ordered vs received, GST split &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#drug_stock_ledger">drug_stock_ledger</a> — append-only ledger of every drug stock quantity change &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#narcotic_register">narcotic_register</a> — NDPS Act Schedule X register; append-only; two-person witness; 7-year retention &nbsp;<span class="badge bg-success">signed off</span></li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- 1. vendors                                                         -->
+  <!-- ================================================================ -->
+  <section id="vendors" class="mb-5">
+    <h2>1. vendors
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Supplier registry — pharmaceutical distributors and consumables suppliers. Soft-delete keeps historical PO and batch references intact when a supplier relationship ends. The <code>is_narcotic_supplier</code> flag gates Schedule X purchase orders — a trigger blocks narcotic POs pointing at a non-narcotic vendor. Contact persons (sales rep, delivery, accounts) live in the child table <code>vendor_contacts</code>.</p>
+    <p class="small text-muted"><strong>v3 delta from TSD-10:</strong> <code>tenant_id</code> dropped. <code>is_active boolean</code> replaced by <code>deleted_at</code> soft-delete. <code>contact_person</code>, <code>mobile</code>, <code>email</code> moved to child table <code>vendor_contacts</code> (multiple contacts per vendor). <code>gstin</code> gets a length CHECK (GSTIN is always 15 characters). <code>address jsonb</code> kept — same <code>VendorAddress</code> POJO shape as <code>HospitalAddress</code>.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>vendor_code</code></td><td>text</td><td>NO</td><td>UNIQUE (partial), CHECK length 2–20</td><td>—</td><td>Short machine code (e.g. <code>MEDPLUS01</code>, <code>SUNPHARMA</code>). Used on POs and batch labels.</td></tr>
+        <tr><td><code>vendor_name</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Trading/company name as registered</td></tr>
+        <tr><td><code>address</code></td><td>jsonb</td><td>YES</td><td>—</td><td>—</td><td>Vendor address — same shape as <code>hospital_profile.address</code>: <code>{line1, line2, city, state, pincode, country, gstStateCode}</code></td></tr>
+        <tr><td><code>gstin</code></td><td>text</td><td>YES</td><td>CHECK length = 15 when not NULL</td><td>—</td><td>GST Identification Number — 15-character alphanumeric. Required for GST-registered vendors to claim input tax credit.</td></tr>
+        <tr><td><code>pan</code></td><td>text</td><td>YES</td><td>CHECK length = 10 when not NULL</td><td>—</td><td>PAN — 10-character alphanumeric. Required for TDS deduction reporting above ₹30,000 per transaction.</td></tr>
+        <tr><td><code>drug_licence_number</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>State drug licence number — required for vendors supplying Schedule H / H1 / X drugs. Pharmacist verifies this before creating a narcotic PO.</td></tr>
+        <tr><td><code>payment_terms_days</code></td><td>int</td><td>NO</td><td>CHECK &gt; 0</td><td><code>30</code></td><td>Net payment days from invoice date (e.g. Net 30 = pay within 30 days of delivery)</td></tr>
+        <tr><td><code>is_narcotic_supplier</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>false</code></td><td>When true, this vendor is licensed to supply Schedule X (narcotic) drugs. A trigger blocks narcotic <code>purchase_orders</code> pointing at a vendor where this is false.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. <code>deleted_at</code> replaces TSD's <code>is_active boolean</code>.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_vendors</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_vendors_code</code> — UNIQUE INDEX (vendor_code) WHERE <code>deleted_at IS NULL</code></li>
+      <li><code>chk_vendors_code_len</code> — CHECK <code>char_length(vendor_code) BETWEEN 2 AND 20</code></li>
+      <li><code>chk_vendors_gstin_len</code> — CHECK <code>gstin IS NULL OR char_length(gstin) = 15</code></li>
+      <li><code>chk_vendors_pan_len</code> — CHECK <code>pan IS NULL OR char_length(pan) = 10</code></li>
+      <li><code>chk_vendors_payment_terms</code> — CHECK <code>payment_terms_days &gt; 0</code></li>
+      <li><code>ix_vendors_active</code> — INDEX (vendor_name) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— vendor picklist</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_vendors_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_vendors_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>vendor_code</th><th>vendor_name</th><th>address</th><th>gstin</th><th>pan</th><th>drug_licence_number</th><th>payment_terms_days</th><th>is_narcotic_supplier</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…vn001</code></td><td>MEDPLUS01</td><td>MedPlus Pharma Distributors</td>
+          <td><code>{"line1":"12 Anna Salai","city":"Chennai","state":"Tamil Nadu","pincode":"600002","country":"India","gstStateCode":"33"}</code></td>
+          <td>33AABCM1234A1Z5</td><td>AABCM1234A</td>
+          <td>TN/DL/2019/00421</td><td>30</td><td>true</td>
+          <td><code>…usr01 (Admin)</code></td><td>2024-01-05 10:00</td><td>NULL</td><td>2024-01-05 10:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…vn002</code></td><td>SUNPHARMA</td><td>Sun Pharma Distributors</td>
+          <td><code>{"line1":"45 GST Road","city":"Chennai","state":"Tamil Nadu","pincode":"600032","country":"India","gstStateCode":"33"}</code></td>
+          <td>33AABCS5678B1Z2</td><td>AABCS5678B</td>
+          <td>NULL</td><td>45</td><td>false</td>
+          <td><code>…usr01 (Admin)</code></td><td>2024-01-06 11:00</td><td>NULL</td><td>2024-01-06 11:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — MedPlus: narcotic supplier with drug licence; can receive Schedule X POs. Row 2 — Sun Pharma: non-narcotic distributor; no drug licence on file; narcotic POs blocked by trigger. Contacts for both vendors are in <code>vendor_contacts</code> below.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 3. drug_catalogue                                                      -->
+  <!-- ================================================================ -->
+  <section id="drug_catalogue" class="mb-5">
+    <h2>3. drug_catalogue
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Drug catalogue — the "what can be prescribed and dispensed" reference. Drives three critical runtime behaviours: (1) <strong>allergy alerting</strong> at prescribing time via <code>drug_class</code> matched against <code>patient_allergies</code>; (2) <strong>narcotic register enforcement</strong> — any transaction on a row where <code>is_narcotic = true</code> must insert a paired <code>narcotic_register</code> row in the same transaction (trigger-enforced); (3) <strong>FEFO stock check</strong> at dispense — the doctor's prescribing UI shows In Stock / Low / Out of Stock by joining to <code>drug_stock</code>.</p>
+    <p class="small text-muted"><strong>Pricing note:</strong> medicine prices are batch-level (<code>drug_stock.selling_price</code>), not catalogue-level. No <code>service_id</code> FK here — pharmacy billing uses <code>pharmacy_sale_items.unit_price</code> snapshotted from the batch at dispense time.</p>
+    <p class="small text-muted"><strong>v3 delta from TSD-10:</strong> <code>tenant_id</code> dropped. <code>is_active boolean</code> replaced by <code>deleted_at</code> soft-delete. All other columns kept as specified.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>drug_code</code></td><td>text</td><td>NO</td><td>UNIQUE (partial), CHECK length 2–20</td><td>—</td><td>Short machine code (e.g. <code>PARA500</code>, <code>AMOX250</code>, <code>MORPHINE10</code>). Printed on batch labels and POs.</td></tr>
+        <tr><td><code>generic_name</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>INN (International Nonproprietary Name) / generic name. Used for allergy matching and prescribing-time duplicate checks.</td></tr>
+        <tr><td><code>brand_name</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Trade/brand name (e.g. <code>Crocin</code>, <code>Augmentin</code>). NULL for generic-only stock.</td></tr>
+        <tr><td><code>manufacturer</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Manufacturing company — shown on the dispense label and batch receipt</td></tr>
+        <tr><td><code>drug_class</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Pharmacological class (e.g. <code>penicillin</code>, <code>nsaid</code>, <code>beta_blocker</code>, <code>opioid</code>). Matched against <code>patient_allergies.allergy_id → allergies_lookup.drug_class_code</code> at prescribing time to raise an allergy alert.</td></tr>
+        <tr><td><code>category</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Therapeutic category (e.g. <code>antibiotic</code>, <code>analgesic</code>, <code>antihypertensive</code>, <code>antidiabetic</code>). Used for owner analytics and formulary grouping.</td></tr>
+        <tr><td><code>drug_schedule</code></td><td>text</td><td>YES</td><td>CHECK IN (…)</td><td>—</td><td>Drugs &amp; Cosmetics Act schedule: <code>H</code> (prescription-only) | <code>H1</code> (high-risk prescription) | <code>X</code> (narcotic — also sets <code>is_narcotic=true</code>) | <code>G</code> (cautionary label) | <code>OTC</code> | NULL (unscheduled)</td></tr>
+        <tr><td><code>is_narcotic</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>false</code></td><td>NDPS Act Schedule X flag. When true, every <code>pharmacy_sale_items</code> or <code>drug_stock_ledger</code> INSERT against this medicine must have a paired <code>narcotic_register</code> row in the same transaction — enforced by trigger.</td></tr>
+        <tr><td><code>form</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td>Dosage form: <code>tablet</code> | <code>capsule</code> | <code>syrup</code> | <code>injection</code> | <code>cream</code> | <code>ointment</code> | <code>drops</code> | <code>inhaler</code> | <code>patch</code> | <code>suppository</code> | <code>powder</code> | <code>other</code></td></tr>
+        <tr><td><code>strength</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Dose strength (e.g. <code>500 mg</code>, <code>5 ml</code>, <code>10 mg/ml</code>). Combined with <code>form</code> for the prescribing UI display: <code>Paracetamol 500mg Tablet</code>.</td></tr>
+        <tr><td><code>unit</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Sale unit for counting stock (e.g. <code>tablet</code>, <code>bottle</code>, <code>vial</code>, <code>tube</code>). Pharmacy counter uses this to display quantity.</td></tr>
+        <tr><td><code>pack_size</code></td><td>int</td><td>NO</td><td>CHECK &gt; 0</td><td><code>1</code></td><td>Units per physical pack (e.g. 10 tablets per strip). Used to convert between strip count and unit count at receipt.</td></tr>
+        <tr><td><code>hsn_code</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>GST HSN code for drug_catalogue (typically <code>3004</code> for formulations). Printed on GST invoices.</td></tr>
+        <tr><td><code>gst_pct</code></td><td>numeric(4,2)</td><td>NO</td><td>CHECK IN (0, 5, 12, 18, 28)</td><td><code>12.00</code></td><td>Default GST % at sale. Life-saving drugs: 0% or 5%; most drug_catalogue: 12%. CHECK restricts to valid GST slabs — prevents typos like 11%.</td></tr>
+        <tr><td><code>requires_prescription</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>true</code></td><td>When false, the medicine can be dispensed OTC without a prescription. Pharmacist override allowed with documented reason.</td></tr>
+        <tr><td><code>low_stock_threshold</code></td><td>int</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Total units across all batches below which a low-stock alert fires and a PO suggestion is raised. 0 = no alert configured.</td></tr>
+        <tr><td><code>max_stock_threshold</code></td><td>int</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Ordering ceiling — prevents over-purchasing. 0 = no ceiling configured.</td></tr>
+        <tr><td><code>storage_temp</code></td><td>text</td><td>YES</td><td>CHECK IN (…)</td><td>—</td><td>Storage requirement: <code>room</code> | <code>refrigerated</code> (2–8°C) | <code>frozen</code> (&lt;0°C) | <code>controlled</code> (15–25°C). NULL = room temperature assumed. Shown on batch receipt label.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. <code>deleted_at</code> replaces TSD's <code>is_active boolean</code>.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_drug_catalogue</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_drug_catalogue_code</code> — UNIQUE INDEX (drug_code) WHERE <code>deleted_at IS NULL</code></li>
+      <li><code>chk_drug_catalogue_code_len</code> — CHECK <code>char_length(drug_code) BETWEEN 2 AND 20</code></li>
+      <li><code>chk_drug_catalogue_schedule</code> — CHECK <code>drug_schedule IN ('H','H1','X','G','OTC') OR drug_schedule IS NULL</code></li>
+      <li><code>chk_drug_catalogue_form</code> — CHECK <code>form IN ('tablet','capsule','syrup','injection','cream','ointment','drops','inhaler','patch','suppository','powder','other')</code></li>
+      <li><code>chk_drug_catalogue_gst</code> — CHECK <code>gst_pct IN (0, 5, 12, 18, 28)</code></li>
+      <li><code>chk_drug_catalogue_pack_size</code> — CHECK <code>pack_size &gt; 0</code></li>
+      <li><code>chk_drug_catalogue_reorder</code> — CHECK <code>low_stock_threshold &gt;= 0 AND max_stock_threshold &gt;= 0</code></li>
+      <li><code>chk_drug_catalogue_storage_temp</code> — CHECK <code>storage_temp IN ('room','refrigerated','frozen','controlled') OR storage_temp IS NULL</code></li>
+      <li><code>ix_drug_catalogue_generic</code> — INDEX (lower(generic_name), strength, form) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— duplicate detection at catalogue entry</span></li>
+      <li><code>ix_drug_catalogue_drug_class</code> — INDEX (drug_class) WHERE <code>drug_class IS NOT NULL AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— allergy-alert join at prescribing time</span></li>
+      <li><code>ix_drug_catalogue_narcotic</code> — INDEX (is_narcotic) WHERE <code>is_narcotic = true AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— narcotic-only views and register checks</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_drug_catalogue_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_drug_catalogue_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>drug_code</th><th>generic_name</th><th>brand_name</th><th>manufacturer</th><th>drug_class</th><th>category</th><th>drug_schedule</th><th>is_narcotic</th><th>form</th><th>strength</th><th>unit</th><th>pack_size</th><th>hsn_code</th><th>gst_pct</th><th>requires_prescription</th><th>low_stock_threshold</th><th>max_stock_threshold</th><th>storage_temp</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…md001</code></td><td>PARA500</td><td>Paracetamol</td><td>Crocin</td><td>GSK</td>
+          <td>NULL</td><td>analgesic</td><td>OTC</td><td>false</td>
+          <td>tablet</td><td>500 mg</td><td>tablet</td><td>10</td><td>3004</td><td>12.00</td><td>false</td>
+          <td>500</td><td>5000</td><td>room</td>
+          <td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…md002</code></td><td>AMOX500</td><td>Amoxicillin</td><td>Mox</td><td>Ranbaxy</td>
+          <td>penicillin</td><td>antibiotic</td><td>H</td><td>false</td>
+          <td>capsule</td><td>500 mg</td><td>capsule</td><td>10</td><td>3004</td><td>12.00</td><td>true</td>
+          <td>200</td><td>2000</td><td>room</td>
+          <td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…md003</code></td><td>MORPHINE10</td><td>Morphine Sulphate</td><td>NULL</td><td>Neon Labs</td>
+          <td>opioid</td><td>analgesic</td><td>X</td><td>true</td>
+          <td>injection</td><td>10 mg/ml</td><td>vial</td><td>1</td><td>3004</td><td>5.00</td><td>true</td>
+          <td>10</td><td>50</td><td>controlled</td>
+          <td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — Paracetamol: OTC, no drug class (no allergy class to match), pack of 10 tablets. Row 2 — Amoxicillin: <code>drug_class = 'penicillin'</code> — triggers an allergy alert if the patient has a penicillin allergy recorded; Schedule H requires prescription. Row 3 — Morphine: <code>is_narcotic = true</code>, Schedule X — every dispense must have a paired <code>narcotic_register</code> row or the transaction is rejected by trigger. Flyway-seeded rows have <code>created_by = NULL</code>.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 4. drug_stock                                               -->
+  <!-- ================================================================ -->
+  <section id="drug_stock" class="mb-5">
+    <h2>4. drug_stock
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+    </h2>
+    <p>Batch-level stock — the <strong>single source of truth</strong> for "what can we dispense right now?" Every physical delivery of a medicine creates one row here. FEFO (First Expiry First Out) pick order is enforced at dispense time by sorting active batches by <code>expiry_date ASC</code>. Optimistic-lock <code>version</code> (from L1 audit) prevents lost decrements when two pharmacists dispense from the same batch concurrently.</p>
+    <p class="small text-muted"><strong>No soft-delete on this table</strong> — batches are financial and compliance records. Instead, <code>is_blocked = true</code> marks a batch as unavailable for dispense (expired, recalled, damaged) while keeping the row for audit. Hard DELETE is blocked by downstream RESTRICT FKs from <code>pharmacy_sale_items</code> and <code>drug_stock_ledger</code>.</p>
+    <p class="small text-muted"><strong>v3 delta from TSD-10:</strong> <code>tenant_id</code> dropped. All other columns kept. The nightly expiry-block job sets <code>is_blocked = true</code> where <code>expiry_date &lt; current_date</code>; an additional BEFORE INSERT trigger on <code>pharmacy_sale_items</code> also guards against race conditions by rejecting a blocked batch at dispense time.</p>
+
+    <h5>Columns (table-specific; L1 audit block also present — no soft-delete)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>drug_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>drug_catalogue(id)</code> RESTRICT</td><td>—</td><td>The drug this batch belongs to</td></tr>
+        <tr><td><code>batch_number</code></td><td>text</td><td>NO</td><td>UNIQUE with vendor — see constraints</td><td>—</td><td>Manufacturer's batch number printed on the pack (e.g. <code>BN2024A001</code>). Same vendor cannot supply two batches with the same number.</td></tr>
+        <tr><td><code>mfg_date</code></td><td>date</td><td>YES</td><td>—</td><td>—</td><td>Manufacture date. NULL allowed — some packs print only expiry.</td></tr>
+        <tr><td><code>expiry_date</code></td><td>date</td><td>NO</td><td>CHECK &gt; mfg_date when mfg_date not NULL</td><td>—</td><td>Expiry date — the primary FEFO sort key. Indexed for both FEFO pick and 30-day expiry alerts.</td></tr>
+        <tr><td><code>purchase_price</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td>—</td><td>Cost per unit paid to the vendor. Used for margin reporting and purchase value tracking.</td></tr>
+        <tr><td><code>mrp</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>Maximum Retail Price as printed on the pack — legally mandated ceiling (DPCO). Hospital cannot charge more than this.</td></tr>
+        <tr><td><code>selling_price</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt; 0 AND selling_price &lt;= mrp</td><td>—</td><td>Hospital's selling price per unit. Snapshotted into <code>pharmacy_sale_items.unit_price</code> at dispense time.</td></tr>
+        <tr><td><code>quantity_received</code></td><td>int</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>Units received at GRN (Goods Receipt Note). Immutable snapshot — never updated after receipt.</td></tr>
+        <tr><td><code>quantity_available</code></td><td>int</td><td>NO</td><td>CHECK &gt;= 0</td><td>—</td><td>Current dispensable units. Decremented atomically by <code>fn_decrement_stock</code> trigger on <code>pharmacy_sale_items</code> INSERT. Never goes negative — trigger raises EXCEPTION if insufficient.</td></tr>
+        <tr><td><code>vendor_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>vendors(id)</code> RESTRICT</td><td>—</td><td>Supplier who delivered this batch</td></tr>
+        <tr><td><code>purchase_order_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>purchase_orders(id)</code> RESTRICT</td><td>—</td><td>Originating PO. NULL for emergency direct purchases without a formal PO.</td></tr>
+        <tr><td><code>received_date</code></td><td>date</td><td>NO</td><td>—</td><td>—</td><td>Date the batch physically arrived at the pharmacy store</td></tr>
+        <tr><td><code>is_blocked</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>false</code></td><td>When true, batch is unavailable for dispense. Set by nightly expiry job or manually (recall, damage). FEFO pick filters <code>WHERE is_blocked = false AND expiry_date &gt;= current_date</code>.</td></tr>
+        <tr><td><code>blocked_reason</code></td><td>text</td><td>YES</td><td>CHECK IN (…) when not NULL</td><td>—</td><td>Why the batch is blocked: <code>expired</code> | <code>recalled</code> | <code>damaged</code> | <code>quality_hold</code>. Required when <code>is_blocked = true</code>.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ L1 audit columns (<code>created_by</code>, <code>created_at</code>, <code>updated_by</code>, <code>updated_at</code>, <code>version</code>). No soft-delete — <code>is_blocked</code> serves the availability gate; financial/compliance rows are never physically deleted.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_drug_stock</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_drug_stock_batch</code> — UNIQUE (drug_id, batch_number, vendor_id) &nbsp;<span class="text-muted">— same vendor cannot supply two batches with the same number for the same drug</span></li>
+      <li><code>chk_drug_stock_expiry</code> — CHECK <code>mfg_date IS NULL OR expiry_date &gt; mfg_date</code></li>
+      <li><code>chk_drug_stock_prices</code> — CHECK <code>purchase_price &gt;= 0 AND mrp &gt; 0 AND selling_price &gt; 0 AND selling_price &lt;= mrp</code></li>
+      <li><code>chk_drug_stock_qty</code> — CHECK <code>quantity_received &gt; 0 AND quantity_available &gt;= 0</code></li>
+      <li><code>chk_drug_stock_blocked_reason</code> — CHECK <code>(is_blocked = false AND blocked_reason IS NULL) OR (is_blocked = true AND blocked_reason IS NOT NULL)</code></li>
+      <li><code>chk_drug_stock_blocked_reason_val</code> — CHECK <code>blocked_reason IN ('expired','recalled','damaged','quality_hold') OR blocked_reason IS NULL</code></li>
+      <li><code>ix_drug_stock_fefo</code> — INDEX (drug_id, expiry_date) WHERE <code>quantity_available &gt; 0 AND is_blocked = false</code> &nbsp;<span class="text-muted">— FEFO pick: earliest non-blocked batch with stock</span></li>
+      <li><code>ix_drug_stock_expiry_alert</code> — INDEX (expiry_date) WHERE <code>expiry_date &lt;= current_date + interval '30 days' AND is_blocked = false</code> &nbsp;<span class="text-muted">— 30-day expiry warning job</span></li>
+      <li><code>ix_drug_stock_stock</code> — INDEX (drug_id, quantity_available) &nbsp;<span class="text-muted">— stock summary by drug for prescribing-time In Stock / Low / Out display</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_drug_stock_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_drug_stock_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+      <li><code>tr_drug_stock_bi_check_blocked</code> — BEFORE INSERT on <code>pharmacy_sale_items</code>: raises EXCEPTION if the chosen batch has <code>is_blocked = true</code> or <code>expiry_date &lt; current_date</code> — guards against race conditions between the nightly expiry job and a concurrent dispense.</li>
+      <li><code>tr_drug_stock_nightly_expire</code> — Scheduled job (not a row trigger): sets <code>is_blocked = true</code>, <code>blocked_reason = 'expired'</code> for all batches where <code>expiry_date &lt; current_date AND is_blocked = false</code>.</li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>drug_id</th><th>batch_number</th><th>mfg_date</th><th>expiry_date</th><th>purchase_price</th><th>mrp</th><th>selling_price</th><th>quantity_received</th><th>quantity_available</th><th>vendor_id</th><th>purchase_order_id</th><th>received_date</th><th>is_blocked</th><th>blocked_reason</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…mb001</code></td>
+          <td><code>…md001 (PARA500)</code></td>
+          <td>BN2025A001</td><td>2025-01-01</td><td>2027-12-31</td>
+          <td>1.20</td><td>2.50</td><td>2.50</td>
+          <td>5000</td><td>4320</td>
+          <td><code>…vn001 (MEDPLUS01)</code></td><td><code>…po001</code></td>
+          <td>2025-01-10</td><td>false</td><td>NULL</td>
+          <td><code>…usr01</code></td><td>2025-01-10 10:00</td><td><code>…usr03</code></td><td>2026-03-10 14:00</td><td>68</td>
+        </tr>
+        <tr>
+          <td><code>…mb002</code></td>
+          <td><code>…md002 (AMOX500)</code></td>
+          <td>BN2024B012</td><td>2024-06-01</td><td>2026-05-31</td>
+          <td>8.50</td><td>14.00</td><td>14.00</td>
+          <td>1000</td><td>0</td>
+          <td><code>…vn002 (SUNPHARMA)</code></td><td><code>…po002</code></td>
+          <td>2024-07-01</td><td>true</td><td>expired</td>
+          <td><code>…usr01</code></td><td>2024-07-01 09:00</td><td><code>…usr09 (nightly job)</code></td><td>2026-06-01 01:00</td><td>12</td>
+        </tr>
+        <tr>
+          <td><code>…mb003</code></td>
+          <td><code>…md003 (MORPHINE10)</code></td>
+          <td>BN2026C003</td><td>2026-01-01</td><td>2028-12-31</td>
+          <td>45.00</td><td>85.00</td><td>85.00</td>
+          <td>20</td><td>17</td>
+          <td><code>…vn001 (MEDPLUS01)</code></td><td><code>…po003</code></td>
+          <td>2026-01-15</td><td>false</td><td>NULL</td>
+          <td><code>…usr01</code></td><td>2026-01-15 11:00</td><td><code>…usr03</code></td><td>2026-03-08 16:00</td><td>3</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — Paracetamol batch: 680 tablets dispensed so far (5000 − 4320); still active; <code>version=68</code> shows many concurrent dispense updates. Row 2 — Amoxicillin batch: fully dispensed and expired; <code>is_blocked=true</code> set by the nightly job; kept for audit. Row 3 — Morphine batch: narcotic; 3 vials dispensed; every dispense required a paired <code>narcotic_register</code> row.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 5. purchase_orders                                                -->
+  <!-- ================================================================ -->
+  <section id="purchase_orders" class="mb-5">
+    <h2>5. purchase_orders
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-danger">L2 maker-checker</span>
+      <span class="badge bg-info">L3 audit</span>
+    </h2>
+    <p>Purchase order header to a vendor. Carries <strong>Layer 2 maker-checker</strong> — POs above the requesting staff's spending limit require a second person to approve before the PO is sent to the vendor (BRD §12 approval matrix, configurable via <code>system_config</code>). One PO → many line items in <code>purchase_order_items</code>. When goods arrive, batches are created in <code>drug_stock</code> and <code>drug_stock_ledger</code> rows are appended.</p>
+    <p class="small text-muted"><strong>v3 delta from TSD-10:</strong> <code>tenant_id</code> dropped. <code>ordered_at</code> dropped — use <code>created_at</code> from L1 audit. All other columns kept. <code>includes_narcotics</code> is recomputed by a trigger on <code>purchase_order_items</code> INSERT — no manual maintenance needed.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>po_number</code></td><td>text</td><td>NO</td><td>UNIQUE, CHECK length 5–30</td><td>—</td><td>Human-readable reference (e.g. <code>PO-2026-00834</code>). Printed on the PO document sent to vendor.</td></tr>
+        <tr><td><code>vendor_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>vendors(id)</code> RESTRICT</td><td>—</td><td>Target supplier</td></tr>
+        <tr><td><code>expected_date</code></td><td>date</td><td>YES</td><td>—</td><td>—</td><td>Expected delivery date agreed with vendor. Used for follow-up alerts when delivery is overdue.</td></tr>
+        <tr><td><code>status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'draft'</code></td><td><code>draft</code> → <code>pending_approval</code> → <code>approved</code> → <code>sent</code> → <code>partially_received</code> → <code>received</code> | <code>cancelled</code> | <code>rejected</code></td></tr>
+        <tr><td><code>total_amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Sum of all line totals including GST. Recomputed by the app on every <code>purchase_order_items</code> INSERT/UPDATE/DELETE. Used by the approval matrix to decide whether L2 approval is needed.</td></tr>
+        <tr><td><code>received_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>When the last batch was received and status moved to <code>received</code>. NULL until fully received.</td></tr>
+        <tr><td><code>includes_narcotics</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>false</code></td><td>TRUE when any line item is a narcotic drug. Recomputed by trigger on <code>purchase_order_items</code> INSERT. When true, vendor must have <code>is_narcotic_supplier = true</code> — enforced by trigger.</td></tr>
+        <tr class="table-warning"><td><code>approval_status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'pending_approval'</code></td><td><em>L2 maker-checker.</em> <code>pending_approval</code> | <code>approved</code> | <code>rejected</code></td></tr>
+        <tr class="table-warning"><td><code>approved_by</code></td><td>uuid</td><td>YES</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td><em>L2 maker-checker.</em> User who approved the PO — must differ from <code>created_by</code></td></tr>
+        <tr class="table-warning"><td><code>approved_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td><em>L2 maker-checker.</em> When approval was recorded</td></tr>
+        <tr class="table-warning"><td><code>rejection_reason</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td><em>L2 maker-checker.</em> Reason when PO is rejected — returned to draft for correction</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. Yellow rows = Layer 2 maker-checker block.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_purchase_orders</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_purchase_orders_number</code> — UNIQUE (po_number)</li>
+      <li><code>chk_purchase_orders_number_len</code> — CHECK <code>char_length(po_number) BETWEEN 5 AND 30</code></li>
+      <li><code>chk_purchase_orders_status</code> — CHECK <code>status IN ('draft','pending_approval','approved','sent','partially_received','received','cancelled','rejected')</code></li>
+      <li><code>chk_purchase_orders_total</code> — CHECK <code>total_amount &gt;= 0</code></li>
+      <li><code>chk_purchase_orders_approval_status</code> — CHECK <code>approval_status IN ('pending_approval','approved','rejected')</code></li>
+      <li><code>chk_purchase_orders_sod</code> — CHECK <code>created_by &lt;&gt; approved_by OR approved_by IS NULL</code> &nbsp;<span class="text-muted">— separation of duties: requester ≠ approver</span></li>
+      <li><code>ix_purchase_orders_pending</code> — INDEX (status, created_at DESC) WHERE <code>status IN ('pending_approval','approved','sent','partially_received')</code> &nbsp;<span class="text-muted">— pending PO queue</span></li>
+      <li><code>ix_purchase_orders_vendor</code> — INDEX (vendor_id, status) &nbsp;<span class="text-muted">— vendor-side view</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_purchase_orders_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_purchase_orders_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+      <li><code>tr_purchase_orders_bi_narcotic_vendor</code> — BEFORE UPDATE OF includes_narcotics: raises EXCEPTION if <code>includes_narcotics = true</code> and <code>vendors.is_narcotic_supplier = false</code> — blocks narcotic POs to unlicensed vendors.</li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>po_number</th><th>vendor_id</th><th>expected_date</th><th>status</th><th>total_amount</th><th>received_at</th><th>includes_narcotics</th><th>approval_status</th><th>approved_by</th><th>approved_at</th><th>rejection_reason</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…po001</code></td><td>PO-2026-00001</td>
+          <td><code>…vn001 (MEDPLUS01)</code></td>
+          <td>2026-01-12</td><td>received</td>
+          <td>62500.00</td><td>2026-01-10 14:00</td><td>false</td>
+          <td>approved</td>
+          <td><code>…usr01 (Admin)</code></td><td>2026-01-06 10:30</td><td>NULL</td>
+          <td><code>…usr10 (Pharmacist)</code></td><td>2026-01-05 17:00</td>
+          <td><code>…usr10</code></td><td>2026-01-10 14:00</td><td>8</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…po003</code></td><td>PO-2026-00003</td>
+          <td><code>…vn001 (MEDPLUS01)</code></td>
+          <td>2026-01-20</td><td>approved</td>
+          <td>1700.00</td><td>NULL</td><td>true</td>
+          <td>approved</td>
+          <td><code>…usr01 (Admin)</code></td><td>2026-01-14 09:00</td><td>NULL</td>
+          <td><code>…usr10 (Pharmacist)</code></td><td>2026-01-13 16:00</td>
+          <td><code>…usr01</code></td><td>2026-01-14 09:00</td><td>3</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — routine PO for Paracetamol and other non-narcotics; fully received. Row 2 — narcotic PO for Morphine (<code>includes_narcotics = true</code>); approved and sent to MEDPLUS01 (a licensed narcotic supplier); not yet received.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 6. purchase_order_items                                           -->
+  <!-- ================================================================ -->
+  <section id="purchase_order_items" class="mb-5">
+    <h2>6. purchase_order_items
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+    </h2>
+    <p>PO line items — one row per drug per PO. Tracks ordered quantity vs received quantity for partial-receipt scenarios (vendor delivers in multiple trips). GST is split into CGST + SGST (intra-state) or IGST (inter-state) per Indian GST rules — both amount and percentage stored so the purchase invoice can be reconstructed exactly.</p>
+    <p class="small text-muted"><strong>v3 delta from TSD-10:</strong> <code>tenant_id</code> dropped (inherited from parent PO). ON DELETE CASCADE from <code>purchase_orders</code> — if a draft PO is hard-deleted, its lines go with it. A trigger on INSERT recomputes <code>purchase_orders.total_amount</code> and sets <code>purchase_orders.includes_narcotics = true</code> if the added medicine is narcotic.</p>
+
+    <h5>Columns (table-specific; L1 audit block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>purchase_order_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>purchase_orders(id)</code> CASCADE</td><td>—</td><td>Parent PO. CASCADE — lines deleted when a draft PO is hard-deleted.</td></tr>
+        <tr><td><code>drug_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>drug_catalogue(id)</code> RESTRICT</td><td>—</td><td>The drug being ordered</td></tr>
+        <tr><td><code>quantity_ordered</code></td><td>int</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>Units ordered from the vendor</td></tr>
+        <tr><td><code>quantity_received</code></td><td>int</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Units received so far. Updated as batches arrive at GRN. When <code>quantity_received = quantity_ordered</code> the line is fully received.</td></tr>
+        <tr><td><code>unit_price</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>Agreed purchase price per unit from the vendor's quotation</td></tr>
+        <tr><td><code>cgst_pct</code></td><td>numeric(4,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Central GST % (intra-state purchases — CGST + SGST = total GST)</td></tr>
+        <tr><td><code>cgst_amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>CGST amount = <code>quantity_ordered × unit_price × cgst_pct / 100</code></td></tr>
+        <tr><td><code>sgst_pct</code></td><td>numeric(4,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>State GST % (intra-state; equals <code>cgst_pct</code> by definition)</td></tr>
+        <tr><td><code>sgst_amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>SGST amount</td></tr>
+        <tr><td><code>igst_pct</code></td><td>numeric(4,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Integrated GST % (inter-state purchases; IGST = CGST + SGST combined; mutually exclusive with CGST/SGST)</td></tr>
+        <tr><td><code>igst_amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>IGST amount</td></tr>
+        <tr><td><code>total_price</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>Line total after tax: <code>quantity_ordered × unit_price + cgst_amount + sgst_amount + igst_amount</code></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ L1 audit columns. No soft-delete — lines are immutable once the PO is approved; corrections happen by cancelling the PO and raising a new one.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_purchase_order_items</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_purchase_order_items_drug</code> — UNIQUE (purchase_order_id, drug_id) &nbsp;<span class="text-muted">— same drug listed twice on one PO is a data error; combine quantities instead</span></li>
+      <li><code>chk_purchase_order_items_qty</code> — CHECK <code>quantity_ordered &gt; 0 AND quantity_received &gt;= 0</code></li>
+      <li><code>chk_purchase_order_items_unit_price</code> — CHECK <code>unit_price &gt; 0</code></li>
+      <li><code>chk_purchase_order_items_gst</code> — CHECK <code>cgst_pct &gt;= 0 AND sgst_pct &gt;= 0 AND igst_pct &gt;= 0</code></li>
+      <li><code>chk_purchase_order_items_gst_exclusive</code> — CHECK <code>(igst_pct = 0) OR (cgst_pct = 0 AND sgst_pct = 0)</code> &nbsp;<span class="text-muted">— IGST and CGST/SGST are mutually exclusive</span></li>
+      <li><code>chk_purchase_order_items_total</code> — CHECK <code>total_price &gt; 0</code></li>
+      <li><code>ix_purchase_order_items_po</code> — INDEX (purchase_order_id) &nbsp;<span class="text-muted">— all lines for a PO</span></li>
+      <li><code>ix_purchase_order_items_medicine</code> — INDEX (drug_id) &nbsp;<span class="text-muted">— purchase history for a drug</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_purchase_order_items_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_purchase_order_items_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+      <li><code>tr_purchase_order_items_au_recompute</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_recompute_po_totals()</code>: recomputes <code>purchase_orders.total_amount</code> and sets <code>purchase_orders.includes_narcotics = true</code> if any line's medicine has <code>is_narcotic = true</code>.</li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>purchase_order_id</th><th>drug_id</th><th>quantity_ordered</th><th>quantity_received</th><th>unit_price</th><th>cgst_pct</th><th>cgst_amount</th><th>sgst_pct</th><th>sgst_amount</th><th>igst_pct</th><th>igst_amount</th><th>total_price</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…pi001</code></td>
+          <td><code>…po001 (PO-2026-00001)</code></td>
+          <td><code>…md001 (PARA500)</code></td>
+          <td>5000</td><td>5000</td>
+          <td>1.20</td>
+          <td>6.00</td><td>360.00</td>
+          <td>6.00</td><td>360.00</td>
+          <td>0.00</td><td>0.00</td>
+          <td>6720.00</td>
+          <td><code>…usr10</code></td><td>2026-01-05 17:10</td><td>NULL</td><td>2026-01-05 17:10</td><td>0</td>
+        </tr>
+        <tr>
+          <td><code>…pi002</code></td>
+          <td><code>…po003 (PO-2026-00003)</code></td>
+          <td><code>…md003 (MORPHINE10)</code></td>
+          <td>20</td><td>0</td>
+          <td>45.00</td>
+          <td>2.50</td><td>22.50</td>
+          <td>2.50</td><td>22.50</td>
+          <td>0.00</td><td>0.00</td>
+          <td>945.00</td>
+          <td><code>…usr10</code></td><td>2026-01-13 16:05</td><td>NULL</td><td>2026-01-13 16:05</td><td>0</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — Paracetamol: 5000 units ordered and fully received; intra-state (CGST 6% + SGST 6% = 12% total); line total = 5000 × 1.20 + 360 + 360 = ₹6,720. Row 2 — Morphine: 20 vials ordered, none received yet (PO still in transit); this line triggered <code>purchase_orders.includes_narcotics = true</code> on the parent PO via trigger.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 7. drug_stock_ledger                                              -->
+  <!-- ================================================================ -->
+  <section id="drug_stock_ledger" class="mb-5">
+    <h2>7. drug_stock_ledger
+      <span class="badge bg-secondary">append-only</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+    </h2>
+    <p>Append-only ledger — every change to <code>drug_stock.quantity_available</code> writes one row here. The authoritative audit trail for stock reconciliation and pharmacy inspection. Each row points at the business event that caused the movement via separate-column FKs (<code>purchase_order_item_id</code>, <code>pharmacy_sale_item_id</code>, <code>pharmacy_return_item_id</code>) with a CHECK ensuring at most one is non-NULL.</p>
+    <p class="small text-muted"><strong>Append-only enforcement:</strong> a BEFORE UPDATE OR DELETE trigger raises an EXCEPTION. Errors are corrected by appending a counter-<code>adjustment</code> row with a negative quantity and a mandatory <code>adjustment_reason</code>. 7-year retention.</p>
+    <p class="small text-muted"><strong>v3 delta from TSD-10:</strong> <code>tenant_id</code> dropped. <code>performed_at</code> dropped — <code>created_at</code> from L1 audit serves the same purpose. All FK columns kept.</p>
+
+    <h5>Columns (table-specific; L1 audit block also present — no soft-delete, no UPDATE)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>drug_stock_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>drug_stock(id)</code> RESTRICT</td><td>—</td><td>The batch whose <code>quantity_available</code> changed</td></tr>
+        <tr><td><code>movement_type</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td><code>purchase_in</code> | <code>sale_out</code> | <code>return_in</code> | <code>return_writeoff</code> | <code>adjustment</code> | <code>expiry_writeoff</code> | <code>ward_use</code> | <code>transfer_in</code> | <code>transfer_out</code></td></tr>
+        <tr><td><code>quantity_before</code></td><td>int</td><td>NO</td><td>CHECK &gt;= 0</td><td>—</td><td>Snapshot of <code>drug_stock.quantity_available</code> before this movement. Combined with <code>quantity_after</code>, the net movement is <code>quantity_after - quantity_before</code>.</td></tr>
+        <tr><td><code>quantity_after</code></td><td>int</td><td>NO</td><td>CHECK &gt;= 0</td><td>—</td><td>Snapshot of <code>drug_stock.quantity_available</code> after this movement. Never goes negative — trigger raises EXCEPTION if the movement would make it negative.</td></tr>
+        <tr><td><code>purchase_order_item_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>purchase_order_items(id)</code> RESTRICT</td><td>—</td><td>Set when <code>movement_type = 'purchase_in'</code></td></tr>
+        <tr><td><code>pharmacy_sale_item_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>pharmacy_sale_items(id)</code> RESTRICT</td><td>—</td><td>Set when <code>movement_type = 'sale_out'</code> (Module 15 forward FK)</td></tr>
+        <tr><td><code>pharmacy_return_item_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>pharmacy_return_items(id)</code> RESTRICT</td><td>—</td><td>Set when <code>movement_type IN ('return_in','return_writeoff')</code> (Module 15 forward FK)</td></tr>
+        <tr><td><code>adjustment_reason</code></td><td>text</td><td>YES</td><td>CHECK (see constraints)</td><td>—</td><td>Required when <code>movement_type = 'adjustment'</code>. Must be at least 10 characters — enforces a meaningful reason.</td></tr>
+        <tr><td><code>transfer_counterpart_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>drug_stock_ledger(id)</code> RESTRICT</td><td>—</td><td>Self-FK pairing <code>transfer_out</code> with its matching <code>transfer_in</code> row (inter-counter stock transfer)</td></tr>
+        <tr><td><code>performed_by</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>The staff member who caused this movement (pharmacist, store keeper, or system job for expiry write-offs)</td></tr>
+        <tr><td><code>notes</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Free-form notes — e.g. reason for manual adjustment, transfer destination counter</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ L1 audit columns (<code>created_by</code>, <code>created_at</code>, <code>version</code>). No <code>updated_at</code> / <code>updated_by</code> — rows are never updated. No soft-delete.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_drug_stock_ledger</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_drug_stock_ledger_type</code> — CHECK <code>movement_type IN ('purchase_in','sale_out','return_in','return_writeoff','adjustment','expiry_writeoff','ward_use','transfer_in','transfer_out')</code></li>
+      <li><code>chk_drug_stock_ledger_qty</code> — CHECK <code>quantity_before &gt;= 0 AND quantity_after &gt;= 0</code></li>
+      <li><code>chk_drug_stock_ledger_nonzero</code> — CHECK <code>quantity_before &lt;&gt; quantity_after</code> &nbsp;<span class="text-muted">— a movement that changes nothing is a data error</span></li>
+      <li><code>chk_drug_stock_ledger_one_source</code> — CHECK <code>num_nonnulls(purchase_order_item_id, pharmacy_sale_item_id, pharmacy_return_item_id, transfer_counterpart_id) &lt;= 1</code> &nbsp;<span class="text-muted">— at most one source FK non-NULL</span></li>
+      <li><code>chk_drug_stock_ledger_purchase_in</code> — CHECK <code>(movement_type = 'purchase_in') = (purchase_order_item_id IS NOT NULL)</code></li>
+      <li><code>chk_drug_stock_ledger_sale_out</code> — CHECK <code>(movement_type = 'sale_out') = (pharmacy_sale_item_id IS NOT NULL)</code></li>
+      <li><code>chk_drug_stock_ledger_return</code> — CHECK <code>(movement_type IN ('return_in','return_writeoff')) = (pharmacy_return_item_id IS NOT NULL)</code></li>
+      <li><code>chk_drug_stock_ledger_adjustment_reason</code> — CHECK <code>(movement_type = 'adjustment') = (adjustment_reason IS NOT NULL AND char_length(adjustment_reason) &gt;= 10)</code></li>
+      <li><code>ix_drug_stock_ledger_batch</code> — INDEX (drug_stock_id, created_at DESC) &nbsp;<span class="text-muted">— full ledger for one batch</span></li>
+      <li><code>ix_drug_stock_ledger_type</code> — INDEX (movement_type, created_at DESC) &nbsp;<span class="text-muted">— owner dashboard by movement type</span></li>
+      <li><code>ix_drug_stock_ledger_sale_item</code> — INDEX (pharmacy_sale_item_id) WHERE <code>pharmacy_sale_item_id IS NOT NULL</code> &nbsp;<span class="text-muted">— reverse lookup from sale item</span></li>
+      <li><code>ix_drug_stock_ledger_po_item</code> — INDEX (purchase_order_item_id) WHERE <code>purchase_order_item_id IS NOT NULL</code></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_drug_stock_ledger_bu_append_only</code> — BEFORE UPDATE OR DELETE → raises EXCEPTION: <em>"drug_stock_ledger is append-only — correct by inserting an adjustment row"</em></li>
+      <li><code>tr_drug_stock_ledger_au_audit</code> — AFTER INSERT → <code>fn_audit_row()</code> (INSERT only; UPDATE/DELETE blocked above)</li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>drug_stock_id</th><th>movement_type</th><th>quantity_before</th><th>quantity_after</th><th>purchase_order_item_id</th><th>pharmacy_sale_item_id</th><th>pharmacy_return_item_id</th><th>adjustment_reason</th><th>transfer_counterpart_id</th><th>performed_by</th><th>notes</th><th>created_by</th><th>created_at</th><th>version</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…sm001</code></td>
+          <td><code>…mb001 (PARA500 BN2025A001)</code></td>
+          <td>purchase_in</td><td>0</td><td>5000</td>
+          <td><code>…pi001</code></td><td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td>
+          <td><code>…usr10</code></td><td>GRN-2026-00001 received in full</td>
+          <td><code>…usr10</code></td><td>2026-01-10 14:05</td><td>0</td>
+        </tr>
+        <tr>
+          <td><code>…sm002</code></td>
+          <td><code>…mb001 (PARA500 BN2025A001)</code></td>
+          <td>sale_out</td><td>5000</td><td>4990</td>
+          <td>NULL</td><td><code>…psi001</code></td><td>NULL</td><td>NULL</td><td>NULL</td>
+          <td><code>…usr10</code></td><td>NULL</td>
+          <td><code>…usr10</code></td><td>2026-01-15 11:30</td><td>0</td>
+        </tr>
+        <tr>
+          <td><code>…sm003</code></td>
+          <td><code>…mb001 (PARA500 BN2025A001)</code></td>
+          <td>adjustment</td><td>4340</td><td>4320</td>
+          <td>NULL</td><td>NULL</td><td>NULL</td>
+          <td>Physical count variance — 20 tablets found damaged in storage</td>
+          <td>NULL</td>
+          <td><code>…usr01</code></td><td>Monthly stock audit 2026-03-01</td>
+          <td><code>…usr01</code></td><td>2026-03-01 10:00</td><td>0</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — initial stock receipt (<code>quantity_before=0</code>, <code>quantity_after=5000</code>). Row 2 — first dispense (<code>quantity_before=5000</code>, <code>quantity_after=4990</code>, net −10 tablets for a patient sale). Row 3 — manual downward adjustment after physical stock count revealed 20 damaged tablets (<code>quantity_before=4340</code>, <code>quantity_after=4320</code>); <code>adjustment_reason</code> is mandatory and must be ≥ 10 characters. The <code>quantity_after</code> column traces the running stock level: 5000 → 4990 → 4320 (many dispenses happened between rows 2 and 3 not shown here).</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 8. narcotic_register                                              -->
+  <!-- ================================================================ -->
+  <section id="narcotic_register" class="mb-5">
+    <h2>8. narcotic_register
+      <span class="badge bg-danger">append-only</span>
+      <span class="badge bg-danger">L2 maker-checker</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+    </h2>
+    <p>NDPS Act 1985 mandated Schedule X transactions register. <strong>Append-only, 7-year legal retention.</strong> Every transaction involving a narcotic drug (purchase, dispense, wastage, transfer, expiry write-off) must be recorded with the prescriber, recipient, ID proof, and a witness — and the running balance must reconcile with physical stock at every Drug Inspector audit.</p>
+    <p>Enforcement: any <code>pharmacy_sale_items</code> or <code>drug_stock_ledger</code> INSERT referencing a <code>drug_catalogue.is_narcotic = true</code> drug fails unless a paired <code>narcotic_register</code> row is inserted in the same transaction (trigger-enforced).</p>
+    <p class="small text-muted"><strong>v3 delta from TSD-10:</strong> <code>tenant_id</code> dropped. <code>performed_at</code> dropped — use <code>created_at</code>. <code>quantity_before</code> and <code>quantity_after</code> computed by trigger <code>fn_compute_narcotic_balance()</code> — never set by app code (resolves TSD-10 open note). Net movement derivable as <code>quantity_after - quantity_before</code>.</p>
+
+    <h5>Columns (table-specific; L1 audit block also present — no soft-delete, no UPDATE)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>drug_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>drug_catalogue(id)</code> RESTRICT</td><td>—</td><td>Must satisfy <code>drug_catalogue.is_narcotic = true</code> — validated by trigger on INSERT</td></tr>
+        <tr><td><code>drug_stock_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>drug_stock(id)</code> RESTRICT</td><td>—</td><td>Specific batch involved. NULL only for opening-balance entries at system go-live.</td></tr>
+        <tr><td><code>transaction_type</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td><code>opening_balance</code> | <code>purchase_in</code> | <code>dispense_out</code> | <code>wastage</code> | <code>transfer_in</code> | <code>transfer_out</code> | <code>return</code> | <code>expired_writeoff</code> | <code>adjustment</code></td></tr>
+        <tr><td><code>quantity_before</code></td><td>int</td><td>NO</td><td>CHECK &gt;= 0</td><td>—</td><td>Narcotic stock balance before this transaction. Computed and set by trigger <code>fn_compute_narcotic_balance()</code> — never set by app code.</td></tr>
+        <tr><td><code>quantity_after</code></td><td>int</td><td>NO</td><td>CHECK &gt;= 0</td><td>—</td><td>Narcotic stock balance after this transaction. Computed by trigger as <code>quantity_before + delta</code>. Must reconcile with physical stock at Drug Inspector audit. Never set by app code.</td></tr>
+        <tr><td><code>pharmacy_sale_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>pharmacy_sales(id)</code> RESTRICT</td><td>—</td><td>Set for <code>dispense_out</code> — links to the sale record</td></tr>
+        <tr><td><code>prescription_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>prescriptions(id)</code> RESTRICT</td><td>—</td><td>Set for <code>dispense_out</code> when dispensed against an in-house prescription — required by NDPS Act</td></tr>
+        <tr><td><code>prescriber_name</code></td><td>text</td><td>YES</td><td>CHECK (see constraints)</td><td>—</td><td>Required for <code>dispense_out</code> — full name of the prescribing doctor as per NDPS Act</td></tr>
+        <tr><td><code>prescriber_reg_no</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>TNMC / MCI registration number of the prescribing doctor</td></tr>
+        <tr><td><code>recipient_name</code></td><td>text</td><td>YES</td><td>CHECK (see constraints)</td><td>—</td><td>Required for <code>dispense_out</code> — patient or person receiving the drug</td></tr>
+        <tr><td><code>recipient_relation</code></td><td>text</td><td>YES</td><td>CHECK IN (…)</td><td>—</td><td><code>self</code> | <code>mother</code> | <code>father</code> | <code>spouse</code> | <code>sibling</code> | <code>child</code> | <code>attender</code> | <code>other</code> — relation of recipient to patient per NDPS Act</td></tr>
+        <tr><td><code>recipient_id_proof</code></td><td>text</td><td>YES</td><td>CHECK (see constraints)</td><td>—</td><td>Required for <code>dispense_out</code> — Aadhaar last 4 digits, voter ID, or driving licence number for identity verification</td></tr>
+        <tr><td><code>performed_by</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>Pharmacist who performed the transaction (the maker)</td></tr>
+        <tr><td><code>witnessed_by</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>Second pharmacist or senior who witnessed — required by NDPS Act two-person rule. Must differ from <code>performed_by</code>.</td></tr>
+        <tr><td><code>notes</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Free-form notes — e.g. patient condition, wastage circumstances</td></tr>
+        <tr class="table-warning"><td><code>approval_status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'approved'</code></td><td><em>L2 maker-checker.</em> Defaults to <code>approved</code> for routine transactions. <code>pending_approval</code> for <code>wastage</code> and <code>adjustment</code> — requires additional sign-off.</td></tr>
+        <tr class="table-warning"><td><code>approved_by</code></td><td>uuid</td><td>YES</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td><em>L2 maker-checker.</em> Required for <code>wastage</code> and <code>adjustment</code> transaction types</td></tr>
+        <tr class="table-warning"><td><code>approved_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td><em>L2 maker-checker.</em> When the additional approval was recorded</td></tr>
+        <tr class="table-warning"><td><code>rejection_reason</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td><em>L2 maker-checker.</em> Used if wastage/adjustment approval is rejected</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ L1 audit columns (<code>created_by</code>, <code>created_at</code>, <code>version</code>). No <code>updated_at</code> / <code>updated_by</code> — append-only. No soft-delete. Yellow rows = Layer 2 maker-checker block.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_narcotic_register</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_narcotic_register_type</code> — CHECK <code>transaction_type IN ('opening_balance','purchase_in','dispense_out','wastage','transfer_in','transfer_out','return','expired_writeoff','adjustment')</code></li>
+      <li><code>chk_narcotic_register_qty</code> — CHECK <code>quantity_before &gt;= 0 AND quantity_after &gt;= 0</code></li>
+      <li><code>chk_narcotic_register_nonzero</code> — CHECK <code>quantity_before &lt;&gt; quantity_after</code> &nbsp;<span class="text-muted">— a transaction that changes nothing is a data error</span></li>
+      <li><code>chk_narcotic_register_sod_witness</code> — CHECK <code>performed_by &lt;&gt; witnessed_by</code> &nbsp;<span class="text-muted">— two distinct people required</span></li>
+      <li><code>chk_narcotic_register_dispense_fields</code> — CHECK <code>(transaction_type &lt;&gt; 'dispense_out') OR (prescriber_name IS NOT NULL AND recipient_name IS NOT NULL AND recipient_id_proof IS NOT NULL)</code> &nbsp;<span class="text-muted">— NDPS Act mandatory fields for dispense</span></li>
+      <li><code>chk_narcotic_register_wastage_approval</code> — CHECK <code>(transaction_type NOT IN ('wastage','adjustment')) OR (approval_status = 'approved' AND approved_by IS NOT NULL)</code> &nbsp;<span class="text-muted">— wastage requires additional approval</span></li>
+      <li><code>chk_narcotic_register_recipient_relation</code> — CHECK <code>recipient_relation IN ('self','mother','father','spouse','sibling','child','attender','other') OR recipient_relation IS NULL</code></li>
+      <li><code>ix_narcotic_register_medicine</code> — INDEX (drug_id, created_at DESC) &nbsp;<span class="text-muted">— drug-level register printout for Drug Inspector</span></li>
+      <li><code>ix_narcotic_register_dispense</code> — INDEX (created_at DESC) WHERE <code>transaction_type = 'dispense_out'</code> &nbsp;<span class="text-muted">— dispense ledger</span></li>
+      <li><code>ix_narcotic_register_prescription</code> — INDEX (prescription_id) WHERE <code>prescription_id IS NOT NULL</code></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_narcotic_register_bu_append_only</code> — BEFORE UPDATE OR DELETE → raises EXCEPTION: <em>"narcotic_register is append-only — correct by inserting an adjustment row"</em></li>
+      <li><code>tr_narcotic_register_bi_validate</code> — BEFORE INSERT: (1) validates <code>drug_catalogue.is_narcotic = true</code> for the given <code>drug_id</code>; (2) computes and sets <code>quantity_before</code> and <code>quantity_after</code> from the previous row's <code>quantity_after</code> — app never sets these columns.</li>
+      <li><code>tr_narcotic_register_au_audit</code> — AFTER INSERT → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>drug_id</th><th>drug_stock_id</th><th>transaction_type</th><th>quantity_before</th><th>quantity_after</th><th>pharmacy_sale_id</th><th>prescription_id</th><th>prescriber_name</th><th>prescriber_reg_no</th><th>recipient_name</th><th>recipient_relation</th><th>recipient_id_proof</th><th>performed_by</th><th>witnessed_by</th><th>notes</th><th>approval_status</th><th>approved_by</th><th>approved_at</th><th>rejection_reason</th><th>created_by</th><th>created_at</th><th>version</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…nr001</code></td>
+          <td><code>…md003 (MORPHINE10)</code></td><td><code>…mb003</code></td>
+          <td>purchase_in</td><td>0</td><td>20</td>
+          <td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td>
+          <td><code>…usr10</code></td><td><code>…usr01</code></td>
+          <td>Received per PO-2026-00003</td>
+          <td>approved</td><td>NULL</td><td>NULL</td><td>NULL</td>
+          <td><code>…usr10</code></td><td>2026-01-15 09:00</td><td>0</td>
+        </tr>
+        <tr>
+          <td><code>…nr002</code></td>
+          <td><code>…md003 (MORPHINE10)</code></td><td><code>…mb003</code></td>
+          <td>dispense_out</td><td>20</td><td>19</td>
+          <td><code>…ps001</code></td><td><code>…pr001</code></td>
+          <td>Dr. Arjun Mehta</td><td>TNMC/2015/04521</td>
+          <td>Ravi Kumar</td><td>self</td><td>Aadhaar 6789</td>
+          <td><code>…usr10</code></td><td><code>…usr01</code></td>
+          <td>NULL</td>
+          <td>approved</td><td>NULL</td><td>NULL</td><td>NULL</td>
+          <td><code>…usr10</code></td><td>2026-03-08 16:05</td><td>0</td>
+        </tr>
+        <tr>
+          <td><code>…nr003</code></td>
+          <td><code>…md003 (MORPHINE10)</code></td><td><code>…mb003</code></td>
+          <td>wastage</td><td>19</td><td>17</td>
+          <td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td>
+          <td><code>…usr10</code></td><td><code>…usr01</code></td>
+          <td>2 vials dropped and broken during preparation — witnessed and disposed per NDPS protocol</td>
+          <td>approved</td><td><code>…usr11 (Chief Pharmacist)</code></td><td>2026-03-10 09:30</td><td>NULL</td>
+          <td><code>…usr10</code></td><td>2026-03-10 09:00</td><td>0</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — purchase in (0 → 20 vials); <code>witnessed_by = usr01</code>; routine so <code>approval_status = 'approved'</code> by default. Row 2 — first dispense (20 → 19); all NDPS Act fields present: prescriber, reg no, recipient, relation, ID proof. Row 3 — wastage of 2 broken vials (19 → 17); <code>transaction_type = 'wastage'</code> requires L2 approval beyond the witness — Chief Pharmacist approved. Running balance 0 → 20 → 19 → 17 matches <code>drug_stock.quantity_available = 17</code>. Net movement per row = <code>quantity_after - quantity_before</code>.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 2. vendor_contacts                                                -->
+  <!-- ================================================================ -->
+  <section id="vendor_contacts" class="mb-5">
+    <h2>2. vendor_contacts
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>One row per contact person per vendor. A vendor typically has a sales rep (for placing orders), a delivery/logistics contact (for GRN follow-up), and an accounts contact (for payment disputes). Exactly one contact per vendor is marked <code>is_primary = true</code> — this is the default contact shown on the PO and used for automated reminders.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>vendor_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>vendors(id)</code> CASCADE</td><td>—</td><td>Parent vendor. CASCADE delete — if a vendor is hard-deleted, their contacts go with it.</td></tr>
+        <tr><td><code>contact_name</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Full name of the contact person (e.g. <code>Suresh Babu</code>)</td></tr>
+        <tr><td><code>role</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td><code>sales_rep</code> | <code>delivery</code> | <code>accounts</code> | <code>support</code> | <code>other</code> — shown as a label next to the contact in the vendor card</td></tr>
+        <tr><td><code>mobile</code></td><td>text</td><td>YES</td><td>CHECK length 10–15 when not NULL</td><td>—</td><td>Mobile number. At least one of <code>mobile</code> or <code>phone</code> should be non-NULL (enforced by CHECK).</td></tr>
+        <tr><td><code>phone</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Office / landline number (e.g. <code>044-23456789</code>)</td></tr>
+        <tr><td><code>email</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Email address — used for PO dispatch when this contact is primary</td></tr>
+        <tr><td><code>is_primary</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>false</code></td><td>Exactly one primary contact per vendor (enforced by partial UNIQUE). Shown first on the vendor card; used as the default PO recipient.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. Soft-delete lets a contact be retired without deleting history (e.g. former sales rep).</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_vendor_contacts</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_vendor_contacts_primary</code> — UNIQUE INDEX (vendor_id) WHERE <code>is_primary = true AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— at most one primary contact per vendor</span></li>
+      <li><code>chk_vendor_contacts_role</code> — CHECK <code>role IN ('sales_rep','delivery','accounts','support','other')</code></li>
+      <li><code>chk_vendor_contacts_mobile_len</code> — CHECK <code>mobile IS NULL OR char_length(mobile) BETWEEN 10 AND 15</code></li>
+      <li><code>chk_vendor_contacts_has_contact</code> — CHECK <code>num_nonnulls(mobile, phone, email) &gt;= 1</code> &nbsp;<span class="text-muted">— must have at least one way to reach the contact</span></li>
+      <li><code>ix_vendor_contacts_vendor</code> — INDEX (vendor_id) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— all contacts for a vendor</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_vendor_contacts_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_vendor_contacts_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>vendor_id</th><th>contact_name</th><th>role</th><th>mobile</th><th>phone</th><th>email</th><th>is_primary</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…vc001</code></td><td><code>…vn001 (MEDPLUS01)</code></td>
+          <td>Suresh Babu</td><td>sales_rep</td>
+          <td>9876543210</td><td>NULL</td><td>suresh@medplus.in</td><td>true</td>
+          <td><code>…usr01</code></td><td>2024-01-05 10:05</td><td>NULL</td><td>2024-01-05 10:05</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…vc002</code></td><td><code>…vn001 (MEDPLUS01)</code></td>
+          <td>Ravi Logistics</td><td>delivery</td>
+          <td>9444000001</td><td>044-23456001</td><td>NULL</td><td>false</td>
+          <td><code>…usr01</code></td><td>2024-01-05 10:06</td><td>NULL</td><td>2024-01-05 10:06</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…vc003</code></td><td><code>…vn001 (MEDPLUS01)</code></td>
+          <td>Accounts Dept</td><td>accounts</td>
+          <td>NULL</td><td>044-23456002</td><td>accounts@medplus.in</td><td>false</td>
+          <td><code>…usr01</code></td><td>2024-01-05 10:07</td><td>NULL</td><td>2024-01-05 10:07</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…vc004</code></td><td><code>…vn002 (SUNPHARMA)</code></td>
+          <td>Kavitha R</td><td>sales_rep</td>
+          <td>9444123456</td><td>NULL</td><td>kavitha@sunpharma.com</td><td>true</td>
+          <td><code>…usr01</code></td><td>2024-01-06 11:05</td><td>NULL</td><td>2024-01-06 11:05</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">MedPlus has 3 contacts: sales rep (primary, receives POs), delivery (logistics follow-up), and accounts (payment queries). The accounts contact has no mobile — only office phone and email, which satisfies the <code>num_nonnulls &gt;= 1</code> CHECK. Sun Pharma has one primary contact.</p>
+  </section>
+
+</main>
+</body>
+</html>

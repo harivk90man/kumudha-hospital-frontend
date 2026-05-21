@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>06 · Platform Lookups — HMS Schema v3</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <style>
+    code { color: #d63384; font-size: 0.92em; }
+    .table th { white-space: nowrap; }
+    h2 .badge { font-size: 0.55em; vertical-align: middle; }
+    pre { background: #f8f9fa; padding: 1rem; border-radius: 0.375rem; font-size: 0.85em; }
+    .toc-card { background: #fff; }
+    .sample-data td, .sample-data th { white-space: nowrap; font-size: 0.78em; }
+  </style>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark sticky-top">
+  <div class="container">
+    <a href="../index.html" class="navbar-brand">
+      <i class="bi bi-arrow-left"></i> v3 Schema
+    </a>
+    <span class="navbar-text">Module <strong>06</strong> · Platform Lookups</span>
+  </div>
+</nav>
+
+<main class="container py-4">
+
+  <h1>Platform Lookups</h1>
+  <p class="lead">Flyway-seeded reference catalogues for clinical data entry. Both tables feed child tables in Module 07 (Patient) — <code>patient_allergies</code> and <code>patient_chronic_conditions</code>.</p>
+
+  <div class="card toc-card mb-4">
+    <div class="card-body">
+      <h6 class="card-subtitle text-muted mb-2">Module 06 contents</h6>
+      <ol class="mb-0 small">
+        <li><a href="#allergies_lookup">allergies_lookup</a> — standard allergy catalogue (drug, food, environmental) &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#chronic_conditions_lookup">chronic_conditions_lookup</a> — standard chronic condition catalogue with ICD-10 codes &nbsp;<span class="badge bg-success">signed off</span></li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- 1. allergies_lookup                                              -->
+  <!-- ================================================================ -->
+  <section id="allergies_lookup" class="mb-5">
+    <h2>1. allergies_lookup
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Standard allergy catalogue. Flyway seeds common allergens; admin can add hospital-specific entries. Referenced by <code>patient_allergies.allergy_id</code> in Module 07.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>allergy_code</code></td><td>text</td><td>NO</td><td>UNIQUE, CHECK length 2–40</td><td>—</td><td>Short machine code in SCREAMING_SNAKE (e.g. <code>PENICILLIN</code>, <code>PEANUTS</code>, <code>LATEX</code>)</td></tr>
+        <tr><td><code>allergy_name</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Display name shown in UI and printed on prescription</td></tr>
+        <tr><td><code>category</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td><code>drug</code> | <code>food</code> | <code>environmental</code> | <code>other</code></td></tr>
+        <tr><td><code>description</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Clinical note — cross-reactivity warnings, examples of related substances</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. Flyway-seeded rows have <code>created_by = NULL</code>.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_allergies_lookup</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_allergies_lookup_code</code> — UNIQUE (allergy_code)</li>
+      <li><code>chk_allergies_lookup_code_len</code> — CHECK <code>char_length(allergy_code) BETWEEN 2 AND 40</code></li>
+      <li><code>chk_allergies_lookup_category</code> — CHECK <code>category IN ('drug','food','environmental','other')</code></li>
+      <li><code>ix_allergies_lookup_category</code> — INDEX (category) WHERE <code>deleted_at IS NULL</code></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_allergies_lookup_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_allergies_lookup_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>allergy_code</th><th>allergy_name</th><th>category</th><th>description</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>…al001</code></td><td>PENICILLIN</td><td>Penicillin</td><td>drug</td><td>Includes all penicillin-class antibiotics (amoxicillin, ampicillin, etc.)</td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…al002</code></td><td>PEANUTS</td><td>Peanuts</td><td>food</td><td>Ground nuts and peanut-derived products</td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…al003</code></td><td>SULFONAMIDES</td><td>Sulfonamides</td><td>drug</td><td>Sulpha drugs — cross-reactivity with some diuretics and diabetes medications</td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…al004</code></td><td>LATEX</td><td>Latex</td><td>environmental</td><td>Natural rubber latex — relevant for surgical gloves and medical equipment</td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…al005</code></td><td>NSAIDS</td><td>NSAIDs</td><td>drug</td><td>Non-steroidal anti-inflammatory drugs including aspirin, ibuprofen, diclofenac</td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 2. chronic_conditions_lookup                                     -->
+  <!-- ================================================================ -->
+  <section id="chronic_conditions_lookup" class="mb-5">
+    <h2>2. chronic_conditions_lookup
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Standard chronic condition catalogue with ICD-10 codes for interoperability. Flyway seeds common conditions; admin can add hospital-specific entries. Referenced by <code>patient_chronic_conditions.condition_id</code> in Module 07.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>condition_code</code></td><td>text</td><td>NO</td><td>UNIQUE, CHECK length 2–40</td><td>—</td><td>Short machine code in SCREAMING_SNAKE (e.g. <code>T2DM</code>, <code>HYPERTENSION</code>, <code>ASTHMA</code>)</td></tr>
+        <tr><td><code>condition_name</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Display name shown in UI and printed on clinical documents</td></tr>
+        <tr><td><code>icd10_code</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>ICD-10 code for insurance / ABDM / health exchange interoperability (e.g. <code>E11</code>, <code>I10</code>)</td></tr>
+        <tr><td><code>category</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td>Body system: <code>endocrine</code> | <code>cardiovascular</code> | <code>respiratory</code> | <code>neurological</code> | <code>musculoskeletal</code> | <code>renal</code> | <code>gastrointestinal</code> | <code>other</code></td></tr>
+        <tr><td><code>description</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Clinical note — management guidelines, related conditions</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. Flyway-seeded rows have <code>created_by = NULL</code>.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_chronic_conditions_lookup</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_chronic_conditions_lookup_code</code> — UNIQUE (condition_code)</li>
+      <li><code>chk_chronic_conditions_lookup_code_len</code> — CHECK <code>char_length(condition_code) BETWEEN 2 AND 40</code></li>
+      <li><code>chk_chronic_conditions_lookup_category</code> — CHECK <code>category IN ('endocrine','cardiovascular','respiratory','neurological','musculoskeletal','renal','gastrointestinal','other')</code></li>
+      <li><code>ix_chronic_conditions_lookup_category</code> — INDEX (category) WHERE <code>deleted_at IS NULL</code></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_chronic_conditions_lookup_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_chronic_conditions_lookup_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>condition_code</th><th>condition_name</th><th>icd10_code</th><th>category</th><th>description</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>…cc001</code></td><td>T2DM</td><td>Type 2 Diabetes Mellitus</td><td>E11</td><td>endocrine</td><td>Non-insulin-dependent diabetes; chronic condition requiring ongoing management</td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…cc002</code></td><td>HYPERTENSION</td><td>Hypertension</td><td>I10</td><td>cardiovascular</td><td>Persistently elevated blood pressure; primary or secondary</td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…cc003</code></td><td>ASTHMA</td><td>Asthma</td><td>J45</td><td>respiratory</td><td>Chronic inflammatory airway disease; includes allergic and non-allergic variants</td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…cc004</code></td><td>CKD</td><td>Chronic Kidney Disease</td><td>N18</td><td>renal</td><td>Staged I–V; stage recorded on patient_chronic_conditions row</td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…cc005</code></td><td>HYPOTHYROIDISM</td><td>Hypothyroidism</td><td>E03.9</td><td>endocrine</td><td>Underactive thyroid; typically managed with thyroxine replacement</td><td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+</main>
+
+</body>
+</html>

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>08 · Journey — HMS Schema v3</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <style>
+    code { color: #d63384; font-size: 0.92em; }
+    .table th { white-space: nowrap; }
+    h2 .badge { font-size: 0.55em; vertical-align: middle; }
+    pre { background: #f8f9fa; padding: 1rem; border-radius: 0.375rem; font-size: 0.85em; }
+    .toc-card { background: #fff; }
+    .sample-data td, .sample-data th { white-space: nowrap; font-size: 0.78em; }
+  </style>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark sticky-top">
+  <div class="container">
+    <a href="../index.html" class="navbar-brand">
+      <i class="bi bi-arrow-left"></i> v3 Schema
+    </a>
+    <span class="navbar-text">Module <strong>08</strong> · Journey</span>
+  </div>
+</nav>
+
+<main class="container py-4">
+
+  <h1>Patient Journey</h1>
+  <p class="lead">Physical-location tracking through the hospital. One table: <code>stations</code> — the registry of all stages a patient can pass through. Patient movement is recorded in <code>patient_states</code> (Module 10), which FKs into this table.</p>
+
+  <div class="alert alert-warning small mb-4">
+    <strong>Stage sign-off required.</strong> The <code>stations</code> table below lists every stage in the patient flow. Review the <code>station_type</code> values and <code>display_name</code> labels — these are seeded by Flyway and drive the queue boards, analytics, and <code>patient_states</code> routing. Confirm or amend before the migration is finalised.
+  </div>
+
+  <div class="card toc-card mb-4">
+    <div class="card-body">
+      <h6 class="card-subtitle text-muted mb-2">Module 08 contents</h6>
+      <ol class="mb-0 small">
+        <li><a href="#stations">stations</a> — stage registry; every physical area a patient passes through &nbsp;<span class="badge bg-warning text-dark">awaiting sign-off</span></li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- 1. stations                                                       -->
+  <!-- ================================================================ -->
+  <section id="stations" class="mb-5">
+    <h2>1. stations
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Registry of every physical stage a patient can be at. One row per stage. Flyway seeds all rows at deployment; the admin rarely changes this table at runtime. <code>station_type</code> is the machine key used in application logic and CHECK constraints; <code>display_name</code> is the label shown on queue boards and dashboards.</p>
+    <p><code>patient_states.station_id</code> (Module 10) FKs into this table — every row in the patient state log references exactly one station here.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key — FK target for <code>patient_states.station_id</code> in Module 10</td></tr>
+        <tr><td><code>display_name</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Human label shown on queue boards and dashboards (e.g. <code>Reception</code>, <code>Doctor Consultation</code>, <code>Lab Collection</code>)</td></tr>
+        <tr><td><code>station_type</code></td><td>text</td><td>NO</td><td>UNIQUE (partial WHERE deleted_at IS NULL), CHECK IN (…)</td><td>—</td><td>Machine identifier: <code>front_desk</code> | <code>vitals</code> | <code>doctor</code> | <code>billing</code> | <code>lab_collection</code> | <code>lab_processing</code> | <code>radiology</code> | <code>pharmacy</code>. One active row per type enforced by partial unique index.</td></tr>
+        <tr><td><code>display_order</code></td><td>int</td><td>NO</td><td>—</td><td>—</td><td>Sort order for queue board columns and stage dropdown. Lower = appears first.</td></tr>
+        <tr><td><code>sla_minutes</code></td><td>int</td><td>YES</td><td>CHECK &gt; 0 when not NULL</td><td>—</td><td>Target minutes before patient should leave this stage. NULL = no SLA. Breached rows are flagged on the queue board.</td></tr>
+        <tr><td><code>color</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>CSS hex color for the queue board chip (e.g. <code>#0d6efd</code>). NULL = use theme default.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. Flyway-seeded rows have <code>created_by = NULL</code>.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_stations</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_stations_type</code> — CHECK <code>station_type IN ('front_desk','vitals','doctor','billing','lab_collection','lab_processing','radiology','pharmacy')</code></li>
+      <li><code>uq_stations_type</code> — UNIQUE INDEX (station_type) WHERE <code>deleted_at IS NULL</code> — one active station per type</li>
+      <li><code>chk_stations_sla</code> — CHECK <code>sla_minutes IS NULL OR sla_minutes &gt; 0</code></li>
+      <li><code>ix_stations_order</code> — INDEX (display_order) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— ordered stage list for dropdowns</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_stations_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_stations_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Seed data — all stages &nbsp;<span class="badge bg-warning text-dark">review &amp; confirm</span></h5>
+    <p class="small text-muted">These rows are seeded by Flyway at deployment. Review each stage — confirm the <code>station_type</code>, <code>display_name</code>, <code>display_order</code>, and <code>sla_minutes</code> before signing off. Add or remove rows as needed.</p>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>#</th><th>id</th><th>display_name</th><th>station_type</th><th>display_order</th><th>sla_minutes</th><th>color</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td><code>…st001</code></td>
+          <td>Reception</td>
+          <td><code>front_desk</code></td>
+          <td>10</td>
+          <td>10</td>
+          <td><code>#6c757d</code></td>
+          <td>Patient registers, appointment is confirmed. Receptionist creates the OP visit.</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td><code>…st002</code></td>
+          <td>Billing / Cashier</td>
+          <td><code>billing</code></td>
+          <td>20</td>
+          <td>15</td>
+          <td><code>#0d6efd</code></td>
+          <td>Consultation fee collected; OP number issued. Also used for test fee collection mid-visit.</td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td><code>…st003</code></td>
+          <td>Vitals</td>
+          <td><code>vitals</code></td>
+          <td>30</td>
+          <td>15</td>
+          <td><code>#198754</code></td>
+          <td>Nurse captures BP, pulse, temperature, weight, SpO₂. Patient then waits for doctor.</td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td><code>…st004</code></td>
+          <td>Doctor Consultation</td>
+          <td><code>doctor</code></td>
+          <td>40</td>
+          <td>60</td>
+          <td><code>#6f42c1</code></td>
+          <td>Doctor reviews vitals, examines patient, records consultation note. May send patient for tests.</td>
+        </tr>
+        <tr>
+          <td>5</td>
+          <td><code>…st005</code></td>
+          <td>Lab Collection</td>
+          <td><code>lab_collection</code></td>
+          <td>50</td>
+          <td>30</td>
+          <td><code>#fd7e14</code></td>
+          <td>Blood / urine / other sample collected by lab technician.</td>
+        </tr>
+        <tr>
+          <td>6</td>
+          <td><code>…st006</code></td>
+          <td>Lab — Awaiting Results</td>
+          <td><code>lab_processing</code></td>
+          <td>60</td>
+          <td>120</td>
+          <td><code>#ffc107</code></td>
+          <td>Patient waits (or goes home) while the lab processes samples and releases results.</td>
+        </tr>
+        <tr>
+          <td>7</td>
+          <td><code>…st007</code></td>
+          <td>Radiology</td>
+          <td><code>radiology</code></td>
+          <td>70</td>
+          <td>60</td>
+          <td><code>#0dcaf0</code></td>
+          <td>X-ray, ultrasound, MRI, CT. Imaging done and report released before patient returns to doctor.</td>
+        </tr>
+        <tr>
+          <td>8</td>
+          <td><code>…st008</code></td>
+          <td>Pharmacy</td>
+          <td><code>pharmacy</code></td>
+          <td>80</td>
+          <td>20</td>
+          <td><code>#20c997</code></td>
+          <td>Patient collects medicines against the doctor's prescription. Final stage before leaving.</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+</main>
+
+</body>
+</html>

@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Appointments — HMS Schema v8</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script src="../shared/manifest.js"></script>
+  <script src="../shared/catalog.js"></script>
+  <script src="../shared/renderer.js"></script>
+  <script>
+  // ─── EDIT BELOW ONLY. Do not touch HTML/script tags. ────────────────────
+  const MODULE = {
+    id: 'appointments',
+    name: 'Appointments',
+    color: '#378ADD',
+    bg: '#182038',
+    lbg: '#E6F1FB',
+    features: ['slots', 'booking', 'tokens'],
+    tables: [
+      { n:'appointment_slots', feature:'slots', desc:'Bookable time slots per doctor per date. Status flips to booked once reserved.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants',nw:1},
+          {n:'doctor_id',t:'uuid',fk:'users'},
+          {n:'slot_date',t:'date'},
+          {n:'slot_time',t:'time'},
+          {n:'duration_minutes',t:'int'},
+          {n:'status',t:"varchar · 'available'|'booked'|'blocked'|'cancelled'",nw:1},
+          {n:'booked_by',t:'uuid',fk:'users',nl:1,nw:1},
+          {n:'block_reason',t:'varchar',nl:1},
+          {n:'created_at',t:'timestamptz',nw:1},
+          {n:'updated_at',t:'timestamptz',nw:1},
+        ]},
+      { n:'appointments', feature:'booking', desc:'A patient\'s reservation for a future visit. Source (walk-in/phone/online), visit type drives fee, lifecycle status mirrors patient_states.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants',nw:1},
+          {n:'appointment_no',t:'varchar · APT-2026-12345',uk:1,nw:1},
+          {n:'patient_id',t:'uuid',fk:'patients'},
+          {n:'doctor_id',t:'uuid',fk:'users'},
+          {n:'slot_id',t:'uuid',fk:'appointment_slots',nl:1},
+          {n:'appointment_date',t:'date'},
+          {n:'appointment_time',t:'time'},
+          {n:'visit_type',t:"varchar · 'new'|'follow_up'|'emergency'|'procedure'",nw:1},
+          {n:'source',t:"varchar · 'walk_in'|'phone'|'online'|'referral'"},
+          {n:'reason',t:'text',nl:1},
+          {n:'status',t:"varchar · scheduled→checked_in→billed→vitals_done→in_consultation→completed|cancelled|no_show"},
+          {n:'cancelled_at',t:'timestamptz',nl:1,nw:1},
+          {n:'cancelled_by',t:'uuid',fk:'users',nl:1,nw:1},
+          {n:'cancel_reason',t:'text',nl:1,nw:1},
+          {n:'created_by',t:'uuid',fk:'users'},
+          {n:'created_at',t:'timestamptz'},
+          {n:'updated_by',t:'uuid',fk:'users',nl:1,nw:1},
+          {n:'updated_at',t:'timestamptz',nw:1},
+          {n:'version',t:'int DEFAULT 0',nw:1},
+        ]},
+      { n:'tokens', feature:'tokens', desc:'Token-issuance ledger with separate-column FKs (op_visit_id|lab_order_id|pharmacy_sale_id|radiology_order_id|invoice_id) and exactly-one-non-null check. Never reused after cancellation.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants'},
+          {n:'service_type',t:"varchar · 'doctor'|'lab'|'radiology'|'pharmacy'|'billing'|'vitals'"},
+          {n:'service_provider_id',t:'uuid · doctor_id or null for shared counters',fk:'users',nl:1},
+          {n:'token_date',t:'date'},
+          {n:'token_number',t:"varchar · 'D-04'|'L-12'|'P-08'"},
+          {n:'token_sequence',t:'int · sequential per (tenant, service, provider, date)'},
+          {n:'slot_id',t:'uuid · locks token to slot — never reused',fk:'appointment_slots',nl:1},
+          {n:'patient_id',t:'uuid',fk:'patients'},
+          {n:'op_visit_id',t:'uuid',fk:'op_visits',nl:1,nw:1},
+          {n:'lab_order_id',t:'uuid',fk:'lab_orders',nl:1,nw:1},
+          {n:'pharmacy_sale_id',t:'uuid',fk:'pharmacy_sales',nl:1,nw:1},
+          {n:'radiology_order_id',t:'uuid',fk:'radiology_orders',nl:1,nw:1},
+          {n:'invoice_id',t:'uuid',fk:'invoices',nl:1,nw:1},
+          {n:'state_code',t:'int · current state of token holder',fk:'patient_states',nl:1},
+          {n:'status',t:"varchar · 'active'|'called'|'completed'|'cancelled'|'no_show'"},
+          {n:'priority',t:"varchar · 'normal'|'urgent'|'emergency'"},
+          {n:'issued_at',t:'timestamptz'},
+          {n:'called_at',t:'timestamptz',nl:1},
+          {n:'completed_at',t:'timestamptz',nl:1},
+          {n:'_check',t:'CHECK (num_nonnulls(op_visit_id, lab_order_id, pharmacy_sale_id, radiology_order_id, invoice_id) = 1)',nw:1},
+          {n:'_uk',t:'UNIQUE(tenant_id, service_type, service_provider_id, token_date, token_sequence) — prevents reuse'},
+        ]},
+    ]
+  };
+  renderModule(MODULE);
+  </script>
+</body>
+</html>

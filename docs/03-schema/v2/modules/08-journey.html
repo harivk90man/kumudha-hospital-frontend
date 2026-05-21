@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Journey — HMS Schema v8</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script src="../shared/manifest.js"></script>
+  <script src="../shared/catalog.js"></script>
+  <script src="../shared/renderer.js"></script>
+  <script>
+  // ─── EDIT BELOW ONLY. Do not touch HTML/script tags. ────────────────────
+  const MODULE = {
+    id: 'journey',
+    name: 'Journey',
+    color: '#C49B5B',
+    bg: '#1F1A0F',
+    lbg: '#F8EFDC',
+    features: ['catalog', 'station', 'events'],
+    tables: [
+      { n:'patient_states', feature:'catalog', desc:'Catalog of every state in the patient journey (100..710). Drives the state machine and analytics.',
+        f:[
+          {n:'code',t:'int PK · 100|101|...|710',pk:1},
+          {n:'phase',t:'int · 0|1|2|3|4|5|6|7 (0=ER, 7=IP)'},
+          {n:'phase_label',t:"varchar · 'Front Desk & Initial Billing'"},
+          {n:'slug',t:"varchar UNIQUE · 'reg_paid'|'consult_finalized'",uk:1},
+          {n:'display_name',t:"varchar · 'Reg. Paid'"},
+          {n:'description',t:'text · meaning + when entered'},
+          {n:'owning_dept',t:"varchar · 'front_desk'|'nursing'|'doctor'|'lab'|'radiology'|'pharmacy'|'ward'|'er'"},
+          {n:'derived_from',t:"varchar · 'patients'|'op_visits'|'patient_queue'|'invoices'"},
+          {n:'is_blocking',t:'boolean · true if patient cannot proceed without resolving'},
+          {n:'is_terminal',t:'boolean DEFAULT FALSE'},
+          {n:'sla_minutes',t:'int · target time before next state',nl:1},
+          {n:'next_possible_codes',t:'int[] · valid transitions for state-machine validation'},
+          {n:'display_color',t:"varchar · '#378ADD' for UI pill"},
+          {n:'is_active',t:'boolean DEFAULT true'},
+        ]},
+      { n:'stations', feature:'station', desc:'Physical service points (front desk, billing, vitals, doctor rooms, lab, pharmacy, radiology). Patients move between stations.',
+        f:[
+          {n:'code',t:'int PK',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants'},
+          {n:'slug',t:"varchar UNIQUE · 'front_desk'|'billing'|'vitals'|'doctor:1'|'lab'|'radiology'|'pharmacy'",uk:1},
+          {n:'display_name',t:"varchar · 'Front Desk', 'Billing Counter'"},
+          {n:'phase',t:'int · 1|2|3|4|5|6'},
+          {n:'station_type',t:"varchar · 'front_desk'|'billing'|'vitals'|'doctor'|'lab'|'pharmacy'|'radiology'|'er_triage'|'ward'"},
+          {n:'owning_dept',t:'varchar'},
+          {n:'physical_location',t:"varchar · 'Ground floor, Counter 1'",nl:1},
+          {n:'avg_service_time_minutes',t:'int · for ETA computation',nl:1},
+          {n:'is_active',t:'boolean DEFAULT true'},
+        ]},
+      { n:'patient_journey_events', feature:'events', desc:'Append-only state-transition log per patient. Source of truth for journey analytics. Monthly partitioning, 7-year retention.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants'},
+          {n:'patient_id',t:'uuid',fk:'patients'},
+          {n:'op_visit_id',t:'uuid',fk:'op_visits',nl:1},
+          {n:'ip_admission_id',t:'uuid · phase 2',nl:1},
+          {n:'from_state_code',t:'int · 100..710',fk:'patient_states',nl:1},
+          {n:'to_state_code',t:'int · 100..710',fk:'patient_states'},
+          {n:'station_id',t:'int · where transition happened',fk:'stations',nl:1},
+          {n:'duration_in_prev_state_seconds',t:'int · precomputed for fast SLA metrics',nl:1},
+          {n:'triggered_by_user_id',t:'uuid · who caused it',fk:'users',nl:1},
+          {n:'reason',t:'text',nl:1},
+          {n:'metadata',t:"jsonb · snapshot + return_to_provider_id for side trips",nl:1},
+          {n:'occurred_at',t:'timestamptz · partition key'},
+        ]},
+    ]
+  };
+  renderModule(MODULE);
+  </script>
+</body>
+</html>

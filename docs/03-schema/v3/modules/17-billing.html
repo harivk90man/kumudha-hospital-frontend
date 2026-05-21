@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>17 · Billing — HMS Schema v3</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <style>
+    code { color: #d63384; font-size: 0.92em; }
+    .table th { white-space: nowrap; }
+    h2 .badge { font-size: 0.55em; vertical-align: middle; }
+    pre { background: #f8f9fa; padding: 1rem; border-radius: 0.375rem; font-size: 0.85em; }
+    .toc-card { background: #fff; }
+    .sample-data td, .sample-data th { white-space: nowrap; font-size: 0.78em; }
+  </style>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark sticky-top">
+  <div class="container">
+    <a href="../index.html" class="navbar-brand">
+      <i class="bi bi-arrow-left"></i> v3 Schema
+    </a>
+    <span class="navbar-text">Module <strong>17</strong> · Billing</span>
+  </div>
+</nav>
+
+<main class="container py-4">
+
+  <h1>Billing &amp; Invoicing</h1>
+  <p class="lead">The invoice as a business artefact — bill header and line items with GST split. Every billable item from every module resolves to an invoice line here.</p>
+
+  <div class="alert alert-info small mb-4">
+    <strong>What lives here vs Module 18:</strong>
+    <code>invoices</code> records <em>what was billed</em>. <code>payments</code> (Module 18) records <em>how it was paid</em>. They are linked via <code>payment_allocations</code> (Module 18).<br>
+    <strong>Discount pattern:</strong> same as <code>pharmacy_sales</code> — <code>bill_discount_pct</code> (nullable %) + <code>bill_discount_amount</code> (always ₹). <code>bill_discount_type</code> dropped.<br>
+    <strong>Generated columns:</strong> <code>invoices.balance</code> and <code>invoices.total_discount</code> are <code>GENERATED ALWAYS AS … STORED</code> — balance can never silently drift.
+  </div>
+
+  <div class="card toc-card mb-4">
+    <div class="card-body">
+      <h6 class="card-subtitle text-muted mb-2">Module 17 contents</h6>
+      <ol class="mb-0 small">
+        <li><a href="#invoices">invoices</a> — bill header; totals, GST, discount, balance, idempotency; L2 maker-checker for discount approval &nbsp;<span class="badge bg-success">locked</span></li>
+        <li><a href="#invoice_items">invoice_items</a> — bill lines; item type discriminator; separate-column source FKs; GST split &nbsp;<span class="badge bg-success">locked</span></li>
+        <li class="text-muted"><s>credit_notes</s> — dropped. Payment-before-service model means no write-offs. No store credit (refund-only policy). Pharmacy return refunds traced via <code>payments.pharmacy_return_id</code> (<code>payment_direction = 'out'</code>, Module 18). Over-collection corrections handled as reverse payments in Module 18.</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- 1. invoices                                                        -->
+  <!-- ================================================================ -->
+  <section id="invoices" class="mb-5">
+    <h2>1. invoices
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-danger">L2 maker-checker</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Bill header — one per billing event. Every paid service (OPD consultation, lab order, radiology, pharmacy sale) links to an invoice row. Carries the full financial summary: subtotal, discounts, GST, total, amount paid, and outstanding balance. <strong>Layer 2 maker-checker</strong> governs discount approval per BRD §9 — when total discount exceeds <code>system_config.billing.discount_threshold_for_approval</code>, the invoice moves to <code>pending_approval</code> and payment is blocked until a second person approves.</p>
+    <p class="small text-muted"><strong>v3 delta from TSD-12:</strong> <code>tenant_id</code> dropped. <code>bill_discount_type</code> + <code>bill_discount_value</code> replaced by <code>bill_discount_pct</code> (nullable) + <code>bill_discount_amount</code> — same pattern as <code>pharmacy_sales</code> and <code>pharmacy_sale_items</code>. <code>invoice_date</code> kept — financial reporting date, may differ from <code>created_at</code> (e.g. late-night service billed next morning). <code>balance</code> and <code>total_discount</code> are GENERATED ALWAYS AS columns — can never drift.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>invoice_number</code></td><td>text</td><td>NO</td><td>UNIQUE, CHECK length 5–30</td><td>—</td><td>Human-readable reference (e.g. <code>INV-2026-04821</code>). Format locked after first record per BRD §13 — same guard pattern as UHID.</td></tr>
+        <tr><td><code>invoice_type</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td><code>op</code> | <code>ip_interim</code> | <code>ip_final</code> | <code>pharmacy</code> | <code>lab_direct</code> | <code>radiology_direct</code> | <code>other</code> — determines which dashboard rolls it up</td></tr>
+        <tr><td><code>patient_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>patients(id)</code> RESTRICT</td><td>—</td><td>Subject of the bill</td></tr>
+        <tr><td><code>op_visit_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>op_visits(id)</code> RESTRICT</td><td>—</td><td>OPD context. NULL for pharmacy direct, lab direct, or IP invoices.</td></tr>
+        <tr><td><code>ip_admission_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>ip_admissions(id)</code> RESTRICT</td><td>—</td><td>IP admission context (Phase 2). At most one of <code>op_visit_id</code> / <code>ip_admission_id</code> set.</td></tr>
+        <tr><td><code>invoice_date</code></td><td>date</td><td>NO</td><td>—</td><td><code>current_date</code></td><td>Financial reporting date — may differ from <code>created_at</code> (e.g. late-night service billed next morning). Used for period-wise revenue reports.</td></tr>
+        <tr><td><code>subtotal</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Sum of all line totals before discount and tax. Recomputed by trigger on each <code>invoice_items</code> change.</td></tr>
+        <tr><td><code>total_line_discount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Sum of all <code>invoice_items.line_discount_amount</code>. Recomputed by trigger.</td></tr>
+        <tr><td><code>bill_discount_pct</code></td><td>numeric(4,2)</td><td>YES</td><td>CHECK &gt; 0 AND &lt;= 100 when not NULL</td><td>—</td><td>Whole-bill percentage discount. NULL = flat discount or no discount. Same pattern as <code>pharmacy_sales.bill_discount_pct</code>.</td></tr>
+        <tr><td><code>bill_discount_amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Whole-bill rupee discount — computed from <code>bill_discount_pct</code> when percentage, or entered directly as flat. 0 = no whole-bill discount.</td></tr>
+        <tr><td><code>bill_discount_reason</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Required when any discount is applied — mandatory reason for audit trail (BRD §9)</td></tr>
+        <tr><td><code>bill_discount_category</code></td><td>text</td><td>YES</td><td>CHECK IN (…)</td><td>—</td><td><code>senior_citizen</code> | <code>staff</code> | <code>camp</code> | <code>corporate</code> | <code>charity</code> | <code>management</code> | <code>special</code> — BRD §9 discount category list. Used for discount analytics.</td></tr>
+        <tr><td><code>total_discount</code></td><td>numeric(14,2)</td><td>NO</td><td>GENERATED ALWAYS AS (<code>total_line_discount + bill_discount_amount</code>) STORED</td><td>—</td><td>Combined discount — line discounts + whole-bill discount. Never set by app code.</td></tr>
+        <tr><td><code>total_tax</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Sum of CGST + SGST + IGST across all line items. Recomputed by trigger.</td></tr>
+        <tr><td><code>total_amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td><code>subtotal − total_discount + total_tax</code>. Recomputed by trigger.</td></tr>
+        <tr><td><code>amount_paid</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Auto-maintained by <code>fn_update_invoice_paid_amount()</code> trigger on <code>payment_allocations</code> AFTER INSERT — recomputes as SUM of all active allocations for this invoice. App never writes this column directly.</td></tr>
+        <tr><td><code>balance</code></td><td>numeric(14,2)</td><td>NO</td><td>GENERATED ALWAYS AS (<code>total_amount - amount_paid</code>) STORED</td><td>—</td><td>Outstanding amount. Never set by app code — can never silently drift.</td></tr>
+        <tr><td><code>payment_status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'draft'</code></td><td><code>draft</code> → <code>finalized</code> → <code>paid</code> | <code>partially_paid</code> | <code>refunded</code> | <code>cancelled</code></td></tr>
+        <tr><td><code>insurance_covered_amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Phase 2 placeholder — TPA/insurance covered portion. Today always 0.</td></tr>
+        <tr><td><code>patient_copay_amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Phase 2 placeholder — patient's share after insurance. Today always 0.</td></tr>
+        <tr><td><code>finalized_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>Set when status moves from <code>draft</code> → <code>finalized</code>. Once set, no more line items can be added.</td></tr>
+        <tr><td><code>idempotency_key</code></td><td>uuid</td><td>YES</td><td>UNIQUE (partial)</td><td>—</td><td>Client-generated UUID to prevent double-bill on UI retry. Second request with the same key returns the existing invoice.</td></tr>
+        <tr class="table-warning"><td><code>approval_status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'pending_approval'</code></td><td><em>L2 maker-checker.</em> <code>pending_approval</code> | <code>approved</code> | <code>rejected</code>. When <code>total_discount &gt; system_config.billing.discount_threshold_for_approval</code>, invoice stays <code>pending_approval</code> and payment is blocked.</td></tr>
+        <tr class="table-warning"><td><code>approved_by</code></td><td>uuid</td><td>YES</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td><em>L2 maker-checker.</em> User who approved the discount — must differ from <code>created_by</code></td></tr>
+        <tr class="table-warning"><td><code>approved_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td><em>L2 maker-checker.</em> When approval was recorded</td></tr>
+        <tr class="table-warning"><td><code>rejection_reason</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td><em>L2 maker-checker.</em> Reason when discount approval is rejected — invoice returned to billing clerk for correction</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. Yellow rows = Layer 2 maker-checker block.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_invoices</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_invoices_number</code> — UNIQUE (invoice_number)</li>
+      <li><code>uq_invoices_idempotency</code> — UNIQUE INDEX (idempotency_key) WHERE <code>idempotency_key IS NOT NULL</code></li>
+      <li><code>chk_invoices_number_len</code> — CHECK <code>char_length(invoice_number) BETWEEN 5 AND 30</code></li>
+      <li><code>chk_invoices_type</code> — CHECK <code>invoice_type IN ('op','ip_interim','ip_final','pharmacy','lab_direct','radiology_direct','other')</code></li>
+      <li><code>chk_invoices_status</code> — CHECK <code>payment_status IN ('draft','finalized','paid','partially_paid','refunded','cancelled')</code></li>
+      <li><code>chk_invoices_discount_pct</code> — CHECK <code>bill_discount_pct IS NULL OR (bill_discount_pct &gt; 0 AND bill_discount_pct &lt;= 100)</code></li>
+      <li><code>chk_invoices_discount_category</code> — CHECK <code>bill_discount_category IN ('senior_citizen','staff','camp','corporate','charity','management','special') OR bill_discount_category IS NULL</code></li>
+      <li><code>chk_invoices_discount_reason</code> — CHECK <code>(total_line_discount = 0 AND bill_discount_amount = 0) OR bill_discount_reason IS NOT NULL</code> &nbsp;<span class="text-muted">— any discount requires a reason</span></li>
+      <li><code>chk_invoices_amounts</code> — CHECK <code>subtotal &gt;= 0 AND total_tax &gt;= 0 AND total_amount &gt;= 0 AND amount_paid &gt;= 0</code></li>
+      <li><code>chk_invoices_amount_paid</code> — CHECK <code>amount_paid &lt;= total_amount</code></li>
+      <li><code>chk_invoices_sod</code> — CHECK <code>created_by &lt;&gt; approved_by OR approved_by IS NULL</code></li>
+      <li><code>chk_invoices_context</code> — CHECK <code>num_nonnulls(op_visit_id, ip_admission_id) &lt;= 1</code></li>
+      <li><code>chk_invoices_approval_status</code> — CHECK <code>approval_status IN ('pending_approval','approved','rejected')</code></li>
+      <li><code>ix_invoices_patient</code> — INDEX (patient_id, invoice_date DESC) &nbsp;<span class="text-muted">— patient billing history</span></li>
+      <li><code>ix_invoices_status</code> — INDEX (payment_status, invoice_date) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— owner outstanding bills view</span></li>
+      <li><code>ix_invoices_overdue</code> — INDEX (payment_status, balance) WHERE <code>balance &gt; 0 AND payment_status NOT IN ('cancelled','written_off','draft') AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— overdue dashboard</span></li>
+      <li><code>ix_invoices_visit</code> — INDEX (op_visit_id) WHERE <code>op_visit_id IS NOT NULL</code></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_invoices_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_invoices_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+      <li><code>tr_invoices_au_update_paid_amount</code> — AFTER INSERT on <code>payment_allocations</code> → <code>fn_update_invoice_paid_amount()</code>: recomputes <code>amount_paid</code> as SUM of all active allocations; sets <code>payment_status</code> to <code>paid</code>, <code>partially_paid</code>, or restores <code>draft</code> accordingly. App never writes <code>amount_paid</code> directly — this trigger is the only writer.</li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>invoice_number</th><th>invoice_type</th><th>patient_id</th><th>op_visit_id</th><th>ip_admission_id</th><th>invoice_date</th><th>subtotal</th><th>total_line_discount</th><th>bill_discount_pct</th><th>bill_discount_amount</th><th>bill_discount_reason</th><th>bill_discount_category</th><th>total_discount</th><th>total_tax</th><th>total_amount</th><th>amount_paid</th><th>balance</th><th>payment_status</th><th>insurance_covered_amount</th><th>patient_copay_amount</th><th>finalized_at</th><th>idempotency_key</th><th>approval_status</th><th>approved_by</th><th>approved_at</th><th>rejection_reason</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…inv001</code></td><td>INV-2026-00001</td><td>op</td>
+          <td><code>…pt001 (Ravi Kumar)</code></td><td><code>…ov001</code></td><td>NULL</td>
+          <td>2026-03-10</td>
+          <td>500.00</td><td>0</td>
+          <td>NULL</td><td>0</td><td>NULL</td><td>NULL</td>
+          <td>0</td><td>60.00</td><td>560.00</td><td>560.00</td><td>0</td>
+          <td>paid</td><td>0</td><td>0</td>
+          <td>2026-03-10 13:05</td><td><code>…idem001</code></td>
+          <td>approved</td><td>NULL</td><td>NULL</td><td>NULL</td>
+          <td><code>…usr05</code></td><td>2026-03-10 13:00</td>
+          <td><code>…usr05</code></td><td>2026-03-10 14:00</td><td>4</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…inv002</code></td><td>INV-2026-00002</td><td>op</td>
+          <td><code>…pt002 (Sunita Devi)</code></td><td><code>…ov002</code></td><td>NULL</td>
+          <td>2026-03-11</td>
+          <td>1200.00</td><td>0</td>
+          <td>10.00</td><td>120.00</td>
+          <td>Senior citizen — age 68</td><td>senior_citizen</td>
+          <td>120.00</td><td>130.00</td><td>1210.00</td><td>0</td><td>1210.00</td>
+          <td>finalized</td><td>0</td><td>0</td>
+          <td>2026-03-11 10:30</td><td>NULL</td>
+          <td>approved</td><td><code>…usr01 (Admin)</code></td><td>2026-03-11 10:35</td><td>NULL</td>
+          <td><code>…usr05</code></td><td>2026-03-11 10:25</td>
+          <td><code>…usr01</code></td><td>2026-03-11 10:35</td><td>2</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — OPD invoice fully paid; no discount; <code>balance = 0</code> (generated). <code>approval_status = 'approved'</code> by default (discount = 0, below threshold). Row 2 — 10% senior citizen discount (₹120); required L2 approval before payment could be collected; <code>balance = ₹1210</code> (generated, payment pending).</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 2. invoice_items                                                   -->
+  <!-- ================================================================ -->
+  <section id="invoice_items" class="mb-5">
+    <h2>2. invoice_items
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+    </h2>
+    <p>Bill lines — one row per billable item. Each line has an <code>item_type</code> discriminator and a separate-column FK to the source business object (consultation, lab order item, radiology order, pharmacy sale item). GST split is per line. On INSERT/UPDATE/DELETE, a trigger recomputes the parent <code>invoices</code> totals atomically.</p>
+    <p class="small text-muted"><strong>v3 delta from TSD-12:</strong> <code>tenant_id</code> dropped. <code>item_type</code> CHECK extended to include <code>lab_panel</code> (matching <code>services.service_type</code>). Phase 2 FKs (<code>bed_assignment_id</code>, <code>surgery_schedule_id</code>) kept as nullable placeholders. Immutable once parent invoice <code>payment_status = 'finalized'</code>.</p>
+
+    <h5>Columns (table-specific; L1 audit block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>invoice_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>invoices(id)</code> CASCADE</td><td>—</td><td>Parent invoice. CASCADE — lines deleted when a draft invoice is hard-deleted.</td></tr>
+        <tr><td><code>service_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>services(id)</code> RESTRICT</td><td>—</td><td>Pricing catalogue row (Module 16). Set for consultation, lab test, lab panel, radiology, ECG, room charge. NULL for drugs (priced from batch) and Phase 2 surgery items.</td></tr>
+        <tr><td><code>item_type</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td><code>consultation</code> | <code>lab_test</code> | <code>lab_panel</code> | <code>radiology</code> | <code>drug</code> | <code>room_charge</code> | <code>nursing</code> | <code>procedure</code> | <code>surgery</code> | <code>consumable</code> | <code>ambulance</code> | <code>other</code></td></tr>
+        <tr><td><code>item_name</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Snapshot of the item name at billing time — so retroactive catalogue renames never alter historic invoice display</td></tr>
+        <tr><td><code>sequence_no</code></td><td>int</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>Display order of lines on the printed invoice</td></tr>
+        <tr><td><code>consultation_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>consultations(id)</code> RESTRICT</td><td>—</td><td>Set when <code>item_type = 'consultation'</code></td></tr>
+        <tr><td><code>lab_order_item_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>lab_order_items(id)</code> RESTRICT</td><td>—</td><td>Set when <code>item_type = 'lab_test'</code> or <code>'lab_panel'</code></td></tr>
+        <tr><td><code>radiology_order_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>radiology_orders(id)</code> RESTRICT</td><td>—</td><td>Set when <code>item_type = 'radiology'</code></td></tr>
+        <tr><td><code>pharmacy_sale_item_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>pharmacy_sale_items(id)</code> RESTRICT</td><td>—</td><td>Set when <code>item_type = 'drug'</code></td></tr>
+        <tr><td><code>bed_assignment_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>bed_assignments(id)</code> RESTRICT</td><td>—</td><td>Phase 2 — set when <code>item_type = 'room_charge'</code></td></tr>
+        <tr><td><code>surgery_schedule_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>surgery_schedules(id)</code> RESTRICT</td><td>—</td><td>Phase 2 — set when <code>item_type = 'surgery'</code></td></tr>
+        <tr><td><code>quantity</code></td><td>int</td><td>NO</td><td>CHECK &gt; 0</td><td><code>1</code></td><td>Units billed. Usually 1 for services; can be &gt; 1 for consumables or multi-day room charges.</td></tr>
+        <tr><td><code>unit_price</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>Price snapshot at billing time — from <code>services.default_price</code> (for services) or <code>drug_stock.selling_price</code> (for drugs). Immutable after finalization.</td></tr>
+        <tr><td><code>line_discount_pct</code></td><td>numeric(4,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Per-line discount percentage. 0 = no line discount.</td></tr>
+        <tr><td><code>line_discount_amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Per-line discount in rupees — computed from <code>line_discount_pct</code> or entered as flat.</td></tr>
+        <tr><td><code>line_discount_reason</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Required when <code>line_discount_amount &gt; 0</code></td></tr>
+        <tr><td><code>line_discount_approved_by</code></td><td>uuid</td><td>YES</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>Approver when line discount requires sign-off per <code>system_config.billing.discount_max_pct_by_role</code></td></tr>
+        <tr><td><code>cgst_pct</code></td><td>numeric(4,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Central GST % — intra-state. Healthcare services = 0.</td></tr>
+        <tr><td><code>cgst_amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>CGST amount for this line</td></tr>
+        <tr><td><code>sgst_pct</code></td><td>numeric(4,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>State GST % — equals <code>cgst_pct</code> for intra-state</td></tr>
+        <tr><td><code>sgst_amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>SGST amount for this line</td></tr>
+        <tr><td><code>igst_pct</code></td><td>numeric(4,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>IGST % — inter-state; mutually exclusive with CGST/SGST</td></tr>
+        <tr><td><code>igst_amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>IGST amount for this line</td></tr>
+        <tr><td><code>total_price</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td>—</td><td><code>(quantity × unit_price) − line_discount_amount + cgst_amount + sgst_amount + igst_amount</code></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ L1 audit columns. No soft-delete — lines are immutable once finalized. Corrections to a finalized invoice require cancelling it and re-raising (admin operation, audit-logged).</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_invoice_items</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_invoice_items_seq</code> — UNIQUE (invoice_id, sequence_no) &nbsp;<span class="text-muted">— stable display order</span></li>
+      <li><code>chk_invoice_items_type</code> — CHECK <code>item_type IN ('consultation','lab_test','lab_panel','radiology','drug','room_charge','nursing','procedure','surgery','consumable','ambulance','other')</code></li>
+      <li><code>chk_invoice_items_one_source</code> — CHECK <code>num_nonnulls(consultation_id, lab_order_item_id, radiology_order_id, pharmacy_sale_item_id, bed_assignment_id, surgery_schedule_id) &lt;= 1</code> &nbsp;<span class="text-muted">— at most one source FK</span></li>
+      <li><code>chk_invoice_items_consultation</code> — CHECK <code>(item_type = 'consultation') = (consultation_id IS NOT NULL)</code></li>
+      <li><code>chk_invoice_items_lab</code> — CHECK <code>(item_type IN ('lab_test','lab_panel')) = (lab_order_item_id IS NOT NULL)</code></li>
+      <li><code>chk_invoice_items_radiology</code> — CHECK <code>(item_type = 'radiology') = (radiology_order_id IS NOT NULL)</code></li>
+      <li><code>chk_invoice_items_drug</code> — CHECK <code>(item_type = 'drug') = (pharmacy_sale_item_id IS NOT NULL)</code></li>
+      <li><code>chk_invoice_items_gst_exclusive</code> — CHECK <code>(igst_pct = 0) OR (cgst_pct = 0 AND sgst_pct = 0)</code></li>
+      <li><code>chk_invoice_items_discount_reason</code> — CHECK <code>line_discount_amount = 0 OR line_discount_reason IS NOT NULL</code></li>
+      <li><code>chk_invoice_items_prices</code> — CHECK <code>unit_price &gt; 0 AND total_price &gt;= 0</code></li>
+      <li><code>ix_invoice_items_invoice</code> — INDEX (invoice_id, sequence_no) &nbsp;<span class="text-muted">— all lines for an invoice in display order</span></li>
+      <li><code>ix_invoice_items_consultation</code> — INDEX (consultation_id) WHERE <code>consultation_id IS NOT NULL</code></li>
+      <li><code>ix_invoice_items_lab_order_item</code> — INDEX (lab_order_item_id) WHERE <code>lab_order_item_id IS NOT NULL</code></li>
+      <li><code>ix_invoice_items_radiology_order</code> — INDEX (radiology_order_id) WHERE <code>radiology_order_id IS NOT NULL</code></li>
+      <li><code>ix_invoice_items_pharmacy_sale_item</code> — INDEX (pharmacy_sale_item_id) WHERE <code>pharmacy_sale_item_id IS NOT NULL</code></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_invoice_items_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+      <li><code>tr_invoice_items_au_recompute</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_recompute_invoice_totals()</code>: recomputes <code>invoices.subtotal</code>, <code>total_line_discount</code>, <code>total_tax</code>, <code>total_amount</code> on the parent invoice atomically.</li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>invoice_id</th><th>service_id</th><th>item_type</th><th>item_name</th><th>seq</th><th>consultation_id</th><th>lab_order_item_id</th><th>radiology_order_id</th><th>pharmacy_sale_item_id</th><th>bed_assignment_id</th><th>surgery_schedule_id</th><th>qty</th><th>unit_price</th><th>line_discount_pct</th><th>line_discount_amount</th><th>line_discount_reason</th><th>line_discount_approved_by</th><th>cgst_pct</th><th>cgst_amount</th><th>sgst_pct</th><th>sgst_amount</th><th>igst_pct</th><th>igst_amount</th><th>total_price</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…ii001</code></td><td><code>…inv001</code></td>
+          <td><code>…sv_consult (CONSULT_NEW)</code></td><td>consultation</td>
+          <td>New Consultation — Dr. Arjun Mehta</td><td>1</td>
+          <td><code>…cn001</code></td><td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td>
+          <td>1</td><td>400.00</td><td>0</td><td>0</td><td>NULL</td><td>NULL</td>
+          <td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>400.00</td>
+          <td><code>…usr05</code></td><td>2026-03-10 13:01</td><td>NULL</td><td>2026-03-10 13:01</td><td>0</td>
+        </tr>
+        <tr>
+          <td><code>…ii002</code></td><td><code>…inv001</code></td>
+          <td><code>…sv001 (LAB_HB)</code></td><td>lab_test</td>
+          <td>Haemoglobin</td><td>2</td>
+          <td>NULL</td><td><code>…loi001</code></td><td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td>
+          <td>1</td><td>80.00</td><td>0</td><td>0</td><td>NULL</td><td>NULL</td>
+          <td>6.00</td><td>4.80</td><td>6.00</td><td>4.80</td><td>0</td><td>0</td><td>89.60</td>
+          <td><code>…usr05</code></td><td>2026-03-10 13:02</td><td>NULL</td><td>2026-03-10 13:02</td><td>0</td>
+        </tr>
+        <tr>
+          <td><code>…ii003</code></td><td><code>…inv001</code></td>
+          <td><code>…sv002 (LAB_PANEL_CBC)</code></td><td>lab_panel</td>
+          <td>Complete Blood Count (CBC)</td><td>3</td>
+          <td>NULL</td><td><code>…loi002</code></td><td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td>
+          <td>1</td><td>350.00</td><td>0</td><td>0</td><td>NULL</td><td>NULL</td>
+          <td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>350.00</td>
+          <td><code>…usr05</code></td><td>2026-03-10 13:03</td><td>NULL</td><td>2026-03-10 13:03</td><td>0</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Three lines on <code>inv001</code>: consultation (no GST — healthcare exempt), Haemoglobin individual test (GST applies as a taxable service in this example), CBC panel (<code>item_type='lab_panel'</code> — immediately distinguishable from individual tests without a join). Each INSERT triggered <code>fn_recompute_invoice_totals()</code> on the parent invoice.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 3. credit_notes — DROPPED                                         -->
+  <!-- ================================================================ -->
+  <div id="credit_notes" class="alert alert-secondary small mb-5">
+    <s><strong>credit_notes</strong></s> — <strong>dropped.</strong>
+    <ul class="mb-0 mt-1">
+      <li><strong>No write-offs</strong> — payment-before-service model means patients cannot leave without paying. Write-offs are theoretically impossible.</li>
+      <li><strong>No store credit</strong> — refund-only policy chosen. Store credit requires a patient wallet with expiry tracking — out of scope.</li>
+      <li><strong>Pharmacy return refunds</strong> — traced via <code>payments.pharmacy_return_id</code> (<code>payment_direction = 'out'</code>, Module 18). Full traceability: payment → pharmacy return → return items → original sale.</li>
+      <li><strong>Over-collection corrections</strong> — handled as a reverse payment (<code>payment_direction = 'out'</code>) in Module 18.</li>
+    </ul>
+  </div>
+
+
+</main>
+</body>
+</html>

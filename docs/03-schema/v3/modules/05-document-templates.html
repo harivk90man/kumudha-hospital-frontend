@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>05 · Document Templates — HMS Schema v3</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <style>
+    code { color: #d63384; font-size: 0.92em; }
+    .table th { white-space: nowrap; }
+    h2 .badge { font-size: 0.55em; vertical-align: middle; }
+    pre { background: #f8f9fa; padding: 1rem; border-radius: 0.375rem; font-size: 0.85em; }
+    .toc-card { background: #fff; }
+    .sample-data td, .sample-data th { white-space: nowrap; font-size: 0.78em; }
+  </style>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark sticky-top">
+  <div class="container">
+    <a href="../index.html" class="navbar-brand">
+      <i class="bi bi-arrow-left"></i> v3 Schema
+    </a>
+    <span class="navbar-text">Module <strong>05</strong> · Document Templates</span>
+  </div>
+</nav>
+
+<main class="container py-4">
+
+  <h1>Document Templates</h1>
+  <p class="lead">Admin-managed HTML templates rendered by the app at print time — prescription printouts, invoice PDFs, discharge summaries, and similar patient-facing documents.</p>
+
+  <div class="alert alert-secondary small">
+    <strong>File attachments decision:</strong> A central polymorphic <code>file_attachments</code> table was considered and dropped — no FK means no lifecycle management (orphans on entity delete). File references are handled per entity in their owning module:
+    <ul class="mb-0 mt-1">
+      <li><code>doctor_profiles.signature_path</code> — one signature per doctor (already in Slice 1B)</li>
+      <li><code>lab_results.report_path</code> — one report PDF per result (Module 12)</li>
+      <li><code>radiology_study_files</code> — N DICOM images per study, child table with FK CASCADE (Module 13)</li>
+    </ul>
+  </div>
+
+  <div class="card toc-card mb-4">
+    <div class="card-body">
+      <h6 class="card-subtitle text-muted mb-2">Module 05 contents</h6>
+      <ol class="mb-0 small">
+        <li><a href="#document_templates">document_templates</a> — HTML/text templates rendered to PDF or SMS at print/send time &nbsp;<span class="badge bg-warning text-dark">under review</span></li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- 1. document_templates                                            -->
+  <!-- ================================================================ -->
+  <section id="document_templates" class="mb-5">
+    <h2>1. document_templates
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Catalogue of document templates managed by the admin. The app fetches a template by <code>template_code</code> at print/send time, injects the runtime variables, and produces the final output (PDF, HTML, SMS text). Soft-deleting a template is safe — already-rendered documents are static files and hold no reference back to this table.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>template_code</code></td><td>text</td><td>NO</td><td>UNIQUE, CHECK length 2–80</td><td>—</td><td>App-level constant used to fetch the template (e.g. <code>PRESCRIPTION_PDF</code>, <code>INVOICE_PDF</code>). SCREAMING_SNAKE by convention.</td></tr>
+        <tr><td><code>template_name</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Display name in admin UI (e.g. "Prescription printout")</td></tr>
+        <tr><td><code>template_type</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td>Output format: <code>pdf</code> | <code>html</code> | <code>sms</code> | <code>email</code></td></tr>
+        <tr><td><code>entity_table</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>The table this template renders data from (e.g. <code>prescriptions</code>, <code>invoices</code>). Informational — no FK.</td></tr>
+        <tr><td><code>content</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Template source — HTML with <code>{{variable}}</code> placeholders (Mustache/Handlebars syntax). Plain text for <code>sms</code> type.</td></tr>
+        <tr><td><code>variables</code></td><td>jsonb</td><td>NO</td><td>—</td><td><code>'{}'</code></td><td>Variable manifest — documents what the template expects so the app knows what to inject. JSON shape below.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. No <code>is_active</code> — <code>deleted_at IS NOT NULL</code> is the single soft-delete signal per CONVENTIONS.md §4.</p>
+
+    <h5>JSON shape — <code>variables</code> column</h5>
+    <table class="table table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Key</th><th>Type</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>required</code></td><td>array of string</td><td>Variable names the app MUST inject before rendering. App raises if any are missing.</td></tr>
+        <tr><td><code>optional</code></td><td>array of string</td><td>Variable names the app MAY inject. Template handles their absence gracefully (e.g. hides the signature block if <code>doctor_signature_path</code> is not provided).</td></tr>
+      </tbody>
+    </table>
+<pre>{
+  "required": ["doctor_name", "patient_uhid", "medicines", "hospital_name"],
+  "optional": ["doctor_signature_path", "follow_up_date"]
+}</pre>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_document_templates</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_document_templates_code</code> — UNIQUE (template_code) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— partial: allows a new version of a retired template with the same code</span></li>
+      <li><code>chk_document_templates_code_len</code> — CHECK <code>char_length(template_code) BETWEEN 2 AND 80</code></li>
+      <li><code>chk_document_templates_type</code> — CHECK <code>template_type IN ('pdf','html','sms','email')</code></li>
+      <li><code>ix_document_templates_type</code> — INDEX (template_type) WHERE <code>deleted_at IS NULL</code></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_document_templates_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_document_templates_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>template_code</th><th>template_name</th><th>template_type</th><th>entity_table</th><th>content (truncated)</th><th>variables</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…dt001</code></td>
+          <td>PRESCRIPTION_PDF</td>
+          <td>Prescription printout</td>
+          <td>pdf</td>
+          <td>prescriptions</td>
+          <td><code>&lt;html&gt;...{{hospital_name}}...{{doctor_name}}...{{patient_uhid}}...{{medicines}}...&lt;/html&gt;</code></td>
+          <td><code>{"required":["hospital_name","doctor_name","patient_uhid","medicines"],"optional":["doctor_signature_path","follow_up_date"]}</code></td>
+          <td><code>…0001 (admin)</code></td><td>2024-01-01 09:00</td>
+          <td><code>…0001 (admin)</code></td><td>2025-06-10 11:00</td>
+          <td>2</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…dt002</code></td>
+          <td>INVOICE_PDF</td>
+          <td>Patient invoice</td>
+          <td>pdf</td>
+          <td>invoices</td>
+          <td><code>&lt;html&gt;...{{invoice_no}}...{{patient_name}}...{{line_items}}...{{total}}...&lt;/html&gt;</code></td>
+          <td><code>{"required":["invoice_no","patient_name","line_items","total","hospital_name"],"optional":["gst_amount","discount_amount"]}</code></td>
+          <td><code>…0001 (admin)</code></td><td>2024-01-01 09:00</td>
+          <td>NULL</td><td>2024-01-01 09:00</td>
+          <td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+</main>
+
+</body>
+</html>

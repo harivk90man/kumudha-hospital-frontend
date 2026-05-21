@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Lab — HMS Schema v8</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script src="../shared/manifest.js"></script>
+  <script src="../shared/catalog.js"></script>
+  <script src="../shared/renderer.js"></script>
+  <script>
+  // ─── EDIT BELOW ONLY. Do not touch HTML/script tags. ────────────────────
+  const MODULE = {
+    id: 'lab',
+    name: 'Lab',
+    color: '#639922',
+    bg: '#182208',
+    lbg: '#EAF3DE',
+    features: ['catalog', 'orders', 'samples', 'results'],
+    tables: [
+      { n:'lab_tests', feature:'catalog', desc:'Test catalog — code, name, category, sample type, reference ranges (gendered), critical thresholds.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants',nw:1},
+          {n:'test_code',t:'varchar',uk:1},
+          {n:'test_name',t:'varchar'},
+          {n:'category',t:"varchar · 'hematology'|'biochemistry'|'microbiology'|'serology'|'pathology'|'endocrinology'|'immunology'"},
+          {n:'sample_type',t:'varchar'},
+          {n:'sample_volume_ml',t:'decimal',nl:1,nw:1},
+          {n:'department_id',t:'uuid',fk:'departments',nl:1},
+          {n:'default_price',t:'decimal'},
+          {n:'normal_range_male',t:'varchar · display string',nl:1},
+          {n:'normal_range_female',t:'varchar · display string',nl:1},
+          {n:'ref_min_male',t:'decimal · for auto-flag',nl:1},
+          {n:'ref_max_male',t:'decimal · for auto-flag',nl:1},
+          {n:'ref_min_female',t:'decimal',nl:1},
+          {n:'ref_max_female',t:'decimal',nl:1},
+          {n:'critical_low',t:'decimal · alerts trigger',nl:1},
+          {n:'critical_high',t:'decimal · alerts trigger',nl:1},
+          {n:'unit',t:'varchar',nl:1},
+          {n:'tat_hours',t:'int',nl:1},
+          {n:'result_type',t:"varchar · 'numeric'|'positive_negative'|'reactive_nonreactive'|'grade'|'free_text'|'image'",nw:1},
+          {n:'requires_fasting',t:'boolean DEFAULT FALSE',nw:1},
+          {n:'is_active',t:'boolean'},
+        ]},
+      { n:'lab_test_panels', feature:'catalog', desc:'Bundled test groups (CBC, LFT, Diabetes Panel) priced as a package. GIN index on test_ids.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants',nw:1},
+          {n:'panel_name',t:'varchar · CBC|LFT|Diabetes Panel'},
+          {n:'test_ids',t:'uuid[]'},
+          {n:'package_price',t:'decimal'},
+          {n:'is_active',t:'boolean'},
+        ]},
+      { n:'lab_orders', feature:'orders', desc:'Test order header — patient, doctor, priority, payment gate, lifecycle status. Awaits payment if billing policy says so.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants',nw:1},
+          {n:'order_number',t:'varchar · LAB-2026-12345',uk:1,nw:1},
+          {n:'patient_id',t:'uuid',fk:'patients'},
+          {n:'op_visit_id',t:'uuid',fk:'op_visits',nl:1},
+          {n:'ip_admission_id',t:'uuid · phase 2',nl:1},
+          {n:'consultation_id',t:'uuid',fk:'consultations',nl:1,nw:1},
+          {n:'doctor_id',t:'uuid',fk:'users'},
+          {n:'priority',t:"varchar · 'routine'|'urgent'|'stat'"},
+          {n:'invoice_id',t:'uuid',fk:'invoices',nl:1},
+          {n:'payment_required_before_service',t:'boolean DEFAULT true · stat overrides'},
+          {n:'status',t:"varchar · 'ordered'|'awaiting_payment'|'paid'|'sample_collection'|'sample_collected'|'in_progress'|'partially_reported'|'reported'|'released'|'cancelled'"},
+          {n:'ordered_at',t:'timestamptz'},
+          {n:'completed_at',t:'timestamptz',nl:1},
+        ]},
+      { n:'lab_order_items', feature:'orders', desc:'One test per row inside an order. Each links to its sample and result.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'lab_order_id',t:'uuid',fk:'lab_orders'},
+          {n:'lab_test_id',t:'uuid',fk:'lab_tests'},
+          {n:'sample_id',t:'uuid',fk:'lab_samples',nl:1},
+          {n:'result_id',t:'uuid',fk:'lab_results',nl:1,nw:1},
+          {n:'status',t:"varchar · 'pending'|'sample_collected'|'rejected'|'recollection_pending'|'in_progress'|'reported'|'verified'|'released'|'cancelled'"},
+        ]},
+      { n:'lab_samples', feature:'samples', desc:'Physical sample tracking — barcode, type, status (collected→received→processed). Recollection chain via replaces_sample_id.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'sample_barcode',t:'varchar · globally unique',uk:1},
+          {n:'patient_id',t:'uuid',fk:'patients'},
+          {n:'lab_order_id',t:'uuid',fk:'lab_orders'},
+          {n:'sample_type',t:'varchar'},
+          {n:'status',t:"varchar · 'collected'|'received'|'rejected'|'processing'|'processed'|'disposed'"},
+          {n:'collected_by',t:'uuid',fk:'users'},
+          {n:'collected_at',t:'timestamptz'},
+          {n:'received_by',t:'uuid',fk:'users',nl:1,nw:1},
+          {n:'received_at',t:'timestamptz',nl:1},
+          {n:'rejected_at',t:'timestamptz',nl:1},
+          {n:'rejected_by',t:'uuid',fk:'users',nl:1},
+          {n:'rejection_reason',t:"text · 'hemolyzed'|'clotted'|'insufficient'|'wrong_tube'|'mislabeled'|'contaminated'",nl:1},
+          {n:'replaces_sample_id',t:'uuid · self-ref for re-collection',fk:'lab_samples',nl:1},
+          {n:'disposed_at',t:'timestamptz',nl:1,nw:1},
+        ]},
+      { n:'lab_results', feature:'results', desc:'Per-test result — value, unit, flag (auto-set), method, verifier. Layer 2 maker-checker — verified before release; override release for senior decision on critical.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'lab_order_item_id',t:'uuid',fk:'lab_order_items'},
+          {n:'value',t:'varchar · raw display value'},
+          {n:'value_numeric',t:'decimal · parsed for trending',nl:1},
+          {n:'value_text',t:"varchar · for 'Positive'|'Reactive' etc",nl:1},
+          {n:'unit',t:'varchar',nl:1},
+          {n:'flag',t:"varchar · 'normal'|'high'|'low'|'critical_high'|'critical_low'",nw:1},
+          {n:'method',t:'varchar',nl:1},
+          {n:'comments',t:'text',nl:1},
+          {n:'report_pdf_url',t:'text',nl:1},
+          {n:'release_status',t:"varchar · 'pending_verification'|'verified'|'override_released'|'amended'|'rejected'",nw:1},
+          {n:'is_override_release',t:'boolean DEFAULT FALSE',nw:1},
+          {n:'override_release_reason',t:'text · required when override',nl:1,nw:1},
+          {n:'amended_from_result_id',t:'uuid · self-ref for correction chain',fk:'lab_results',nl:1,nw:1},
+          {n:'approval_status',t:"varchar · 'pending'|'approved'|'rejected'",nw:1},
+          {n:'approved_by',t:'uuid',fk:'users',nl:1,nw:1},
+          {n:'approved_at',t:'timestamptz',nl:1,nw:1},
+          {n:'rejection_reason',t:'text',nl:1,nw:1},
+          {n:'performed_by',t:'uuid',fk:'users'},
+          {n:'verified_by',t:'uuid',fk:'users',nl:1},
+          {n:'verified_at',t:'timestamptz',nl:1,nw:1},
+          {n:'reported_at',t:'timestamptz'},
+        ]},
+    ]
+  };
+  renderModule(MODULE);
+  </script>
+</body>
+</html>

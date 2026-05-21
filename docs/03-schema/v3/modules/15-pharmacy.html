@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>15 · Pharmacy — HMS Schema v3</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <style>
+    code { color: #d63384; font-size: 0.92em; }
+    .table th { white-space: nowrap; }
+    h2 .badge { font-size: 0.55em; vertical-align: middle; }
+    pre { background: #f8f9fa; padding: 1rem; border-radius: 0.375rem; font-size: 0.85em; }
+    .toc-card { background: #fff; }
+    .sample-data td, .sample-data th { white-space: nowrap; font-size: 0.78em; }
+  </style>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark sticky-top">
+  <div class="container">
+    <a href="../index.html" class="navbar-brand">
+      <i class="bi bi-arrow-left"></i> v3 Schema
+    </a>
+    <span class="navbar-text">Module <strong>15</strong> · Pharmacy</span>
+  </div>
+</nav>
+
+<main class="container py-4">
+
+  <h1>Pharmacy</h1>
+  <p class="lead">Point-of-sale dispensing — sale header, sale lines with FEFO stock decrement, customer returns with restock logic, and return line write-offs.</p>
+
+  <div class="alert alert-info small mb-4">
+    <strong>Stock flow:</strong> <code>pharmacy_sale_items</code> INSERT → trigger <code>fn_decrement_stock</code> atomically decrements <code>drug_stock.quantity_available</code> → trigger <code>fn_log_stock_movement</code> appends a <code>drug_stock_ledger</code> row → if narcotic, trigger checks for a paired <code>narcotic_register</code> row in the same transaction.<br>
+    <strong>Return flow:</strong> <code>pharmacy_return_items</code> INSERT → trigger appends <code>drug_stock_ledger</code> rows: <code>return_in</code> for restockable quantity, <code>return_writeoff</code> for non-restockable quantity.<br>
+    <strong>Forward FKs:</strong> <code>invoice_id → invoices</code> (Module 17) and <code>cash_session_id → cash_sessions</code> (Module 18) are forward references — NULL until billing/payment modules are live.
+  </div>
+
+  <div class="card toc-card mb-4">
+    <div class="card-body">
+      <h6 class="card-subtitle text-muted mb-2">Module 15 contents</h6>
+      <ol class="mb-0 small">
+        <li><a href="#pharmacy_sales">pharmacy_sales</a> — sale header; Rx-bound or OTC; idempotency key; discount approval &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#pharmacy_sale_items">pharmacy_sale_items</a> — sale lines; batch + qty + price; FEFO decrement trigger &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#pharmacy_returns">pharmacy_returns</a> — customer return header; claim amount; cash session link &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#pharmacy_return_items">pharmacy_return_items</a> — return lines; quantity accepted at counter goes back to stock &nbsp;<span class="badge bg-success">signed off</span></li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- 1. pharmacy_sales                                                 -->
+  <!-- ================================================================ -->
+  <section id="pharmacy_sales" class="mb-5">
+    <h2>1. pharmacy_sales
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Sale header — one row per dispensing event. Rx-bound (linked to a <code>prescriptions</code> row from Module 11) or OTC (over-the-counter, no prescription required). Carries an <code>idempotency_key</code> to prevent double-charge on network retry. Whole-bill discounts above a configurable threshold require a second approver (<code>bill_discount_approved_by</code>).</p>
+    <p class="small text-muted"><strong>v3 delta from TSD-10:</strong> <code>tenant_id</code> dropped. <code>sale_date</code> dropped — use <code>created_at</code> from L1 audit. All other columns kept. <code>invoice_id</code> and <code>cash_session_id</code> are forward FKs (Modules 17 and 18).</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>sale_number</code></td><td>text</td><td>NO</td><td>UNIQUE, CHECK length 5–30</td><td>—</td><td>Human-readable reference (e.g. <code>PHX-2026-29812</code>). Printed on the dispensing receipt.</td></tr>
+        <tr><td><code>patient_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>patients(id)</code> RESTRICT</td><td>—</td><td>NULL for <code>walkin_otc</code> sales where the customer is not registered</td></tr>
+        <tr><td><code>sale_type</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td><code>op_patient</code> | <code>ip_patient</code> | <code>walkin_prescription</code> | <code>walkin_otc</code> | <code>staff_self</code>. <code>department_use</code> dropped — ward/ICU stock consumption goes via <code>drug_stock_ledger.movement_type = 'ward_use'</code> directly; it is not a billable sale.</td></tr>
+        <tr><td><code>prescription_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>prescriptions(id)</code> RESTRICT</td><td>—</td><td>Set for Rx-bound sales. NULL for OTC and walk-in with external prescription.</td></tr>
+        <tr><td><code>external_prescription_ref</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Reference number or description when the prescription is from an external doctor (walk-in with paper Rx)</td></tr>
+        <tr><td><code>customer_name</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>For walk-in OTC sales — name of the customer (not a registered patient)</td></tr>
+        <tr><td><code>customer_mobile</code></td><td>text</td><td>YES</td><td>CHECK length 10–15 when not NULL</td><td>—</td><td>For walk-in OTC — mobile for follow-up or loyalty program</td></tr>
+        <tr><td><code>customer_age</code></td><td>int</td><td>YES</td><td>CHECK &gt; 0 when not NULL</td><td>—</td><td>For walk-in OTC — approximate age helps pharmacist with dosing advice</td></tr>
+        <tr><td><code>invoice_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>invoices(id)</code> RESTRICT</td><td>—</td><td>Linked billing invoice (Module 17 forward FK). NULL until invoice is generated.</td></tr>
+        <tr><td><code>cash_session_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>cash_sessions(id)</code> RESTRICT</td><td>—</td><td>Cashier shift at the pharmacy counter (Module 18 forward FK)</td></tr>
+        <tr><td><code>subtotal</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Sum of all line totals before discount and tax. Recomputed by app on each line item change.</td></tr>
+        <tr><td><code>total_tax</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Sum of all line GST amounts</td></tr>
+        <tr><td><code>bill_discount_pct</code></td><td>numeric(4,2)</td><td>YES</td><td>CHECK &gt; 0 AND &lt;= 100 when not NULL</td><td>—</td><td>Percentage discount on the whole bill (e.g. <code>10.00</code> = 10%). NULL = flat or no discount. Same pattern as <code>pharmacy_sale_items.line_discount_pct</code>.</td></tr>
+        <tr><td><code>bill_discount_amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Rupee deduction — computed from <code>bill_discount_pct</code> when percentage, or entered directly when flat. 0 = no discount. <code>net_amount = subtotal + total_tax − bill_discount_amount</code>.</td></tr>
+        <tr><td><code>bill_discount_approved_by</code></td><td>uuid</td><td>YES</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>Required when discount exceeds the threshold in <code>system_config.billing.discount_max_pct</code>. The approver must differ from the pharmacist.</td></tr>
+        <tr><td><code>bill_discount_reason</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Required whenever a discount is applied — mandatory reason for audit trail</td></tr>
+        <tr><td><code>net_amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Final amount payable: <code>subtotal + total_tax − bill_discount_amount</code></td></tr>
+        <tr><td><code>status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'draft'</code></td><td><code>draft</code> → <code>billed</code> → <code>dispensed</code> | <code>partially_dispensed</code> | <code>cancelled</code> | <code>returned</code></td></tr>
+        <tr><td><code>idempotency_key</code></td><td>uuid</td><td>YES</td><td>UNIQUE (partial)</td><td>—</td><td>Client-generated UUID sent with the bill-create request. Prevents double-charge on network retry — second request with the same key returns the existing sale.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_pharmacy_sales</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_pharmacy_sales_number</code> — UNIQUE (sale_number)</li>
+      <li><code>uq_pharmacy_sales_idempotency</code> — UNIQUE INDEX (idempotency_key) WHERE <code>idempotency_key IS NOT NULL</code></li>
+      <li><code>chk_pharmacy_sales_number_len</code> — CHECK <code>char_length(sale_number) BETWEEN 5 AND 30</code></li>
+      <li><code>chk_pharmacy_sales_type</code> — CHECK <code>sale_type IN ('op_patient','ip_patient','walkin_prescription','walkin_otc','staff_self')</code></li>
+      <li><code>chk_pharmacy_sales_status</code> — CHECK <code>status IN ('draft','billed','dispensed','partially_dispensed','cancelled','returned')</code></li>
+      <li><code>chk_pharmacy_sales_discount_pct</code> — CHECK <code>bill_discount_pct IS NULL OR (bill_discount_pct &gt; 0 AND bill_discount_pct &lt;= 100)</code></li>
+      <li><code>chk_pharmacy_sales_amounts</code> — CHECK <code>subtotal &gt;= 0 AND total_tax &gt;= 0 AND bill_discount_amount &gt;= 0 AND net_amount &gt;= 0</code></li>
+      <li><code>chk_pharmacy_sales_customer_mobile</code> — CHECK <code>customer_mobile IS NULL OR char_length(customer_mobile) BETWEEN 10 AND 15</code></li>
+      <li><code>ix_pharmacy_sales_patient</code> — INDEX (patient_id, created_at DESC) WHERE <code>patient_id IS NOT NULL</code> &nbsp;<span class="text-muted">— patient pharmacy history</span></li>
+      <li><code>ix_pharmacy_sales_status</code> — INDEX (status, created_at DESC) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— pharmacy worklist</span></li>
+      <li><code>ix_pharmacy_sales_prescription</code> — INDEX (prescription_id) WHERE <code>prescription_id IS NOT NULL</code> &nbsp;<span class="text-muted">— Rx fulfilment lookup</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_pharmacy_sales_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_pharmacy_sales_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>sale_number</th><th>patient_id</th><th>sale_type</th><th>prescription_id</th><th>external_prescription_ref</th><th>customer_name</th><th>customer_mobile</th><th>customer_age</th><th>invoice_id</th><th>cash_session_id</th><th>subtotal</th><th>total_tax</th><th>bill_discount_pct</th><th>bill_discount_amount</th><th>bill_discount_approved_by</th><th>bill_discount_reason</th><th>net_amount</th><th>status</th><th>idempotency_key</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…ps001</code></td><td>PHX-2026-00001</td>
+          <td><code>…pt001 (Ravi Kumar)</code></td><td>op_patient</td>
+          <td><code>…pr001</code></td><td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td>
+          <td><code>…inv001</code></td><td><code>…cs001</code></td>
+          <td>25.00</td><td>3.00</td>
+          <td>NULL</td><td>0</td><td>NULL</td><td>NULL</td>
+          <td>28.00</td><td>dispensed</td>
+          <td><code>…idem001</code></td>
+          <td><code>…usr10</code></td><td>2026-03-10 16:50</td>
+          <td><code>…usr10</code></td><td>2026-03-10 16:55</td><td>2</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…ps002</code></td><td>PHX-2026-00002</td>
+          <td>NULL</td><td>walkin_otc</td>
+          <td>NULL</td><td>NULL</td><td>Priya Sharma</td><td>9444000099</td><td>32</td>
+          <td>NULL</td><td><code>…cs001</code></td>
+          <td>50.00</td><td>6.00</td>
+          <td>10.00</td><td>5.00</td>
+          <td><code>…usr01</code></td><td>Senior citizen discount approved by pharmacist-in-charge</td>
+          <td>51.00</td><td>billed</td>
+          <td>NULL</td>
+          <td><code>…usr10</code></td><td>2026-03-10 17:05</td>
+          <td><code>…usr10</code></td><td>2026-03-10 17:05</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — Rx-bound OPD sale for Ravi Kumar; no discount; dispensed and invoiced. Row 2 — walk-in OTC sale for unregistered customer; 10% discount approved by pharmacist-in-charge; status <code>billed</code> (payment pending).</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 2. pharmacy_sale_items                                            -->
+  <!-- ================================================================ -->
+  <section id="pharmacy_sale_items" class="mb-5">
+    <h2>2. pharmacy_sale_items
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+    </h2>
+    <p>Sale lines — one row per drug per dispense. INSERT triggers FEFO stock decrement on <code>drug_stock</code>, appends a <code>drug_stock_ledger</code> row, and for narcotic drugs checks for a paired <code>narcotic_register</code> row in the same transaction. Immutable once parent sale status is <code>dispensed</code>.</p>
+    <p class="small text-muted"><strong>v3 delta from TSD-10:</strong> <code>tenant_id</code> dropped. CASCADE from parent <code>pharmacy_sales</code> — if a draft sale is hard-deleted, its lines go with it. GST split kept (CGST/SGST for intra-state, IGST for inter-state — mutually exclusive).</p>
+
+    <h5>Columns (table-specific; L1 audit block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>pharmacy_sale_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>pharmacy_sales(id)</code> CASCADE</td><td>—</td><td>Parent sale</td></tr>
+        <tr><td><code>drug_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>drug_catalogue(id)</code> RESTRICT</td><td>—</td><td>The drug being dispensed</td></tr>
+        <tr><td><code>drug_stock_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>drug_stock(id)</code> RESTRICT</td><td>—</td><td>The specific batch chosen by FEFO. Determines the actual expiry and price.</td></tr>
+        <tr><td><code>prescription_item_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>prescription_items(id)</code> RESTRICT</td><td>—</td><td>Linked prescription line for Rx-bound sales. NULL for OTC.</td></tr>
+        <tr><td><code>quantity</code></td><td>int</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>Units dispensed. Triggers FEFO decrement of this many units from <code>drug_stock.quantity_available</code>.</td></tr>
+        <tr><td><code>unit_price</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>Snapshotted from <code>drug_stock.selling_price</code> at dispense time — immutable after insert</td></tr>
+        <tr><td><code>line_discount_pct</code></td><td>numeric(4,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Per-line discount percentage (e.g. for specific drug schemes)</td></tr>
+        <tr><td><code>line_discount_amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Computed line discount in rupees</td></tr>
+        <tr><td><code>cgst_pct</code></td><td>numeric(4,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Central GST % — intra-state</td></tr>
+        <tr><td><code>cgst_amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>CGST amount for this line</td></tr>
+        <tr><td><code>sgst_pct</code></td><td>numeric(4,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>State GST % — intra-state; equals <code>cgst_pct</code> by definition</td></tr>
+        <tr><td><code>sgst_amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>SGST amount for this line</td></tr>
+        <tr><td><code>igst_pct</code></td><td>numeric(4,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>IGST % — inter-state; mutually exclusive with CGST/SGST</td></tr>
+        <tr><td><code>igst_amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>IGST amount for this line</td></tr>
+        <tr><td><code>total_price</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td>—</td><td>Line total: <code>(quantity × unit_price) − line_discount_amount + cgst_amount + sgst_amount + igst_amount</code></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ L1 audit columns. No soft-delete — lines are immutable once dispensed; returns are handled via <code>pharmacy_return_items</code>.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_pharmacy_sale_items</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_pharmacy_sale_items_batch</code> — UNIQUE (pharmacy_sale_id, drug_id, drug_stock_id) &nbsp;<span class="text-muted">— same batch listed twice on one sale is a UX error; combine quantities instead</span></li>
+      <li><code>chk_pharmacy_sale_items_qty</code> — CHECK <code>quantity &gt; 0</code></li>
+      <li><code>chk_pharmacy_sale_items_price</code> — CHECK <code>unit_price &gt; 0 AND total_price &gt;= 0</code></li>
+      <li><code>chk_pharmacy_sale_items_gst_exclusive</code> — CHECK <code>(igst_pct = 0) OR (cgst_pct = 0 AND sgst_pct = 0)</code></li>
+      <li><code>ix_pharmacy_sale_items_sale</code> — INDEX (pharmacy_sale_id) &nbsp;<span class="text-muted">— all lines for a sale</span></li>
+      <li><code>ix_pharmacy_sale_items_prescription_item</code> — INDEX (prescription_item_id) WHERE <code>prescription_item_id IS NOT NULL</code> &nbsp;<span class="text-muted">— Rx fulfilment join</span></li>
+      <li><code>ix_pharmacy_sale_items_batch</code> — INDEX (drug_stock_id) &nbsp;<span class="text-muted">— reverse lookup: all sales from a batch</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_pharmacy_sale_items_bi_check_batch</code> — BEFORE INSERT: raises EXCEPTION if chosen batch has <code>is_blocked = true</code> or <code>expiry_date &lt; current_date</code></li>
+      <li><code>tr_pharmacy_sale_items_ai_decrement_stock</code> — AFTER INSERT → <code>fn_decrement_stock()</code>: atomically decrements <code>drug_stock.quantity_available</code> by <code>quantity</code>; raises EXCEPTION if insufficient stock</li>
+      <li><code>tr_pharmacy_sale_items_ai_log_movement</code> — AFTER INSERT → <code>fn_log_stock_movement()</code>: inserts <code>drug_stock_ledger</code> row (<code>movement_type='sale_out'</code>, signed quantity = −<code>quantity</code>)</li>
+      <li><code>tr_pharmacy_sale_items_ai_narcotic_check</code> — AFTER INSERT WHERE medicine is narcotic: raises EXCEPTION if no paired <code>narcotic_register</code> row was inserted in the same transaction</li>
+      <li><code>tr_pharmacy_sale_items_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>pharmacy_sale_id</th><th>drug_id</th><th>drug_stock_id</th><th>prescription_item_id</th><th>quantity</th><th>unit_price</th><th>line_discount_pct</th><th>line_discount_amount</th><th>cgst_pct</th><th>cgst_amount</th><th>sgst_pct</th><th>sgst_amount</th><th>igst_pct</th><th>igst_amount</th><th>total_price</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…psi001</code></td>
+          <td><code>…ps001 (PHX-2026-00001)</code></td>
+          <td><code>…md001 (PARA500)</code></td>
+          <td><code>…mb001 (BN2025A001)</code></td>
+          <td><code>…pri001</code></td>
+          <td>10</td><td>2.50</td><td>0</td><td>0</td>
+          <td>6.00</td><td>1.50</td><td>6.00</td><td>1.50</td><td>0</td><td>0</td>
+          <td>28.00</td>
+          <td><code>…usr10</code></td><td>2026-03-10 16:52</td><td>NULL</td><td>2026-03-10 16:52</td><td>0</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">10 Paracetamol 500mg tablets dispensed from batch BN2025A001 at ₹2.50/tablet; CGST 6% (₹1.50) + SGST 6% (₹1.50); total ₹28. INSERT triggered: (1) <code>drug_stock.quantity_available</code> decremented by 10 (5000 → 4990); (2) <code>drug_stock_ledger</code> row appended (<code>sale_out</code>, <code>quantity_before=5000</code>, <code>quantity_after=4990</code>).</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 3. pharmacy_returns                                               -->
+  <!-- ================================================================ -->
+  <section id="pharmacy_returns" class="mb-5">
+    <h2>3. pharmacy_returns
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Customer return header — one row per return event. Always references an original sale. Refund mode determines how the customer is reimbursed: cash, UPI/card, store credit note, or via the original payment method. For OTC walk-ins, customer name and mobile are captured here (no patient record).</p>
+    <p class="small text-muted"><strong>v3 delta from TSD-10:</strong> <code>tenant_id</code> dropped. <code>refund_mode</code>, <code>refund_amount</code>, <code>credit_note_id</code> all dropped — pharmacy return refunds are traced via <code>non_sale_cash_movements.pharmacy_return_id</code> in Module 18, giving full traceability from the cash session directly to the pharmacy return row. <code>total_return_amount</code> stays as the claim amount. <code>cash_session_id</code> stays as operational context.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>return_number</code></td><td>text</td><td>NO</td><td>UNIQUE, CHECK length 5–30</td><td>—</td><td>Human-readable reference (e.g. <code>PHR-2026-04231</code>). Printed on the return receipt.</td></tr>
+        <tr><td><code>original_sale_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>pharmacy_sales(id)</code> RESTRICT</td><td>—</td><td>The sale being returned against. RESTRICT — cannot delete a sale that has returns.</td></tr>
+        <tr><td><code>patient_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>patients(id)</code> RESTRICT</td><td>—</td><td>NULL for OTC walk-in returns where no patient record exists</td></tr>
+        <tr><td><code>customer_name</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>For OTC returns — customer name for the return receipt</td></tr>
+        <tr><td><code>customer_mobile</code></td><td>text</td><td>YES</td><td>CHECK length 10–15 when not NULL</td><td>—</td><td>For OTC returns — mobile for refund confirmation SMS</td></tr>
+        <tr><td><code>return_type</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td><code>full</code> — all items returned | <code>partial</code> — some items returned</td></tr>
+        <tr><td><code>return_reason</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Mandatory reason for the return — required by BRD §8 for audit trail (e.g. "Wrong medicine dispensed", "Patient hospitalised")</td></tr>
+        <tr><td><code>total_return_amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td>—</td><td>Claim amount — what the customer is owed. Sum of all return item amounts.</td></tr>
+        <tr><td><code>cash_session_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>cash_sessions(id)</code> RESTRICT</td><td>—</td><td>Cashier shift at the counter that processed this return — operational context for counter-wise return reporting (Module 18 forward FK)</td></tr>
+        <tr><td><code>processed_by</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>Pharmacist who processed the return</td></tr>
+        <tr><td><code>processed_at</code></td><td>timestamptz</td><td>NO</td><td>—</td><td><code>now()</code></td><td>When the return was finalised and stock/refund actions were triggered</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_pharmacy_returns</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_pharmacy_returns_number</code> — UNIQUE (return_number)</li>
+      <li><code>chk_pharmacy_returns_number_len</code> — CHECK <code>char_length(return_number) BETWEEN 5 AND 30</code></li>
+      <li><code>chk_pharmacy_returns_type</code> — CHECK <code>return_type IN ('full','partial')</code></li>
+      <li><code>chk_pharmacy_returns_amounts</code> — CHECK <code>total_return_amount &gt;= 0</code></li>
+      <li><code>ix_pharmacy_returns_sale</code> — INDEX (original_sale_id) &nbsp;<span class="text-muted">— returns for a sale</span></li>
+      <li><code>ix_pharmacy_returns_date</code> — INDEX (processed_at DESC) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— daily returns report</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_pharmacy_returns_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_pharmacy_returns_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>return_number</th><th>original_sale_id</th><th>patient_id</th><th>customer_name</th><th>customer_mobile</th><th>return_type</th><th>return_reason</th><th>total_return_amount</th><th>cash_session_id</th><th>processed_by</th><th>processed_at</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…prt001</code></td><td>PHR-2026-00001</td>
+          <td><code>…ps001 (PHX-2026-00001)</code></td>
+          <td><code>…pt001 (Ravi Kumar)</code></td>
+          <td>NULL</td><td>NULL</td><td>partial</td>
+          <td>Patient admitted — remaining tablets not needed</td>
+          <td>15.00</td><td><code>…cs001</code></td>
+          <td><code>…usr10</code></td><td>2026-03-11 09:30</td>
+          <td><code>…usr10</code></td><td>2026-03-11 09:28</td>
+          <td>NULL</td><td>2026-03-11 09:30</td><td>1</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Partial return of the Paracetamol sale — patient was admitted and doesn't need the remaining tablets. <code>total_return_amount = ₹15</code> (6 tablets × ₹2.50) is the claim; how the ₹15 was actually paid back (cash, UPI, credit note) is recorded in Module 18. Return items in <code>pharmacy_return_items</code> below.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 4. pharmacy_return_items                                          -->
+  <!-- ================================================================ -->
+  <section id="pharmacy_return_items" class="mb-5">
+    <h2>4. pharmacy_return_items
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+    </h2>
+    <p>Return lines — one row per drug per return. The pharmacist inspects items at the counter and only accepts what can go back to stock — damaged, opened, or expired items are rejected on the spot before the return is recorded. <code>quantity_returned</code> is therefore always the restockable quantity. Trigger appends one <code>drug_stock_ledger</code> row (<code>return_in</code>) restoring the quantity to the original batch.</p>
+    <p class="small text-muted"><strong>v3 delta from TSD-10:</strong> <code>tenant_id</code> dropped. <code>condition</code>, <code>restock_quantity</code>, <code>writeoff_quantity</code> dropped — counter inspection happens before the return is recorded, so all accepted quantity is always restockable. Trigger simplified to one <code>return_in</code> row only.</p>
+
+    <h5>Columns (table-specific; L1 audit block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>pharmacy_return_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>pharmacy_returns(id)</code> CASCADE</td><td>—</td><td>Parent return. CASCADE — lines deleted when a return is hard-deleted.</td></tr>
+        <tr><td><code>pharmacy_sale_item_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>pharmacy_sale_items(id)</code> RESTRICT</td><td>—</td><td>The original sale line being returned. RESTRICT — cannot delete a sale item that has been returned.</td></tr>
+        <tr><td><code>drug_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>drug_catalogue(id)</code> RESTRICT</td><td>—</td><td>Snapshot from the original sale item — stored explicitly so the return record is self-contained even if the catalogue changes</td></tr>
+        <tr><td><code>drug_stock_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>drug_stock(id)</code> RESTRICT</td><td>—</td><td>Snapshot of the original batch. Restocked quantity goes back to this batch.</td></tr>
+        <tr><td><code>quantity_returned</code></td><td>int</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>Total units returned by the customer</td></tr>
+        <tr><td><code>unit_price</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>Snapshotted from original sale item — used to compute the refund amount</td></tr>
+        <tr><td><code>return_amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td>—</td><td>Refund value for this line: <code>quantity_returned × unit_price</code> (minus any restocking fee, if applicable)</td></tr>
+        <tr><td><code>notes</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Free-form notes (e.g. "broken seal", "found in patient's drawer")</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ L1 audit columns. No soft-delete — return lines are immutable once processed.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_pharmacy_return_items</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_pharmacy_return_items</code> — UNIQUE (pharmacy_return_id, pharmacy_sale_item_id) &nbsp;<span class="text-muted">— same sale item can only appear once per return</span></li>
+      <li><code>chk_pharmacy_return_items_qty</code> — CHECK <code>quantity_returned &gt; 0</code></li>
+      <li><code>chk_pharmacy_return_items_prices</code> — CHECK <code>unit_price &gt; 0 AND return_amount &gt;= 0</code></li>
+      <li><code>ix_pharmacy_return_items_return</code> — INDEX (pharmacy_return_id) &nbsp;<span class="text-muted">— all lines for a return</span></li>
+      <li><code>ix_pharmacy_return_items_sale_item</code> — INDEX (pharmacy_sale_item_id) &nbsp;<span class="text-muted">— has this sale item been returned?</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_pharmacy_return_items_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+      <li><code>tr_pharmacy_return_items_ai_stock_movement</code> — AFTER INSERT → <code>fn_log_stock_movement_return()</code>: appends one <code>drug_stock_ledger</code> row (<code>return_in</code>, <code>quantity_before → quantity_after</code>) — increments <code>drug_stock.quantity_available</code> by <code>quantity_returned</code> on the original batch.</li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>pharmacy_return_id</th><th>pharmacy_sale_item_id</th><th>drug_id</th><th>drug_stock_id</th><th>quantity_returned</th><th>unit_price</th><th>return_amount</th><th>notes</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…pri001</code></td>
+          <td><code>…prt001 (PHR-2026-00001)</code></td>
+          <td><code>…psi001</code></td>
+          <td><code>…md001 (PARA500)</code></td>
+          <td><code>…mb001 (BN2025A001)</code></td>
+          <td>6</td>
+          <td>2.50</td><td>15.00</td>
+          <td>Pharmacist verified sealed strips within expiry before accepting</td>
+          <td><code>…usr10</code></td><td>2026-03-11 09:30</td>
+          <td>NULL</td><td>2026-03-11 09:30</td><td>0</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">6 Paracetamol tablets accepted at the counter after inspection. INSERT triggered: one <code>drug_stock_ledger</code> row (<code>return_in</code>, <code>quantity_before=4990</code>, <code>quantity_after=4996</code>). The ₹15 refund payment is handled in Module 18.</p>
+  </section>
+
+</main>
+</body>
+</html>

@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>18 · Payments &amp; Cash — HMS Schema v3</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <style>
+    code { color: #d63384; font-size: 0.92em; }
+    .table th { white-space: nowrap; }
+    h2 .badge { font-size: 0.55em; vertical-align: middle; }
+    pre { background: #f8f9fa; padding: 1rem; border-radius: 0.375rem; font-size: 0.85em; }
+    .toc-card { background: #fff; }
+    .sample-data td, .sample-data th { white-space: nowrap; font-size: 0.78em; }
+  </style>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark sticky-top">
+  <div class="container">
+    <a href="../index.html" class="navbar-brand">
+      <i class="bi bi-arrow-left"></i> v3 Schema
+    </a>
+    <span class="navbar-text">Module <strong>18</strong> · Payments &amp; Cash</span>
+  </div>
+</nav>
+
+<main class="container py-4">
+
+  <h1>Payments &amp; Cash</h1>
+  <p class="lead">Money movement — collection, allocation across invoices, per-source revenue breakdown, cash counter registry, cashier shift lifecycle, and non-sale cash movements.</p>
+
+  <div class="alert alert-info small mb-4">
+    <strong>Design overview:</strong>
+    <ul class="mb-0 mt-1">
+      <li><strong>Two-phase payment model:</strong> <code>payment_attempts</code> tracks every attempt (initiated → success/failed/expired) with the gateway idempotency key. <code>payments</code> (the financial ledger) only gets a row on confirmed success. Failed attempts leave no trace in <code>payments</code> or <code>invoices</code>.</li>
+      <li><code>payment_attempts</code> is generic across all service types — one row covers appointments, lab orders, radiology orders, and pharmacy sales via separate-column FKs (exactly one non-null, enforced by CHECK). This replaces the per-table <code>payment_attempt_key</code> approach.</li>
+      <li><code>payments</code> records every confirmed money movement (in = collection, out = refund/payout). <code>payment_allocations</code> splits one payment across multiple invoices or pharmacy sales.</li>
+      <li><strong>Revenue-by-source (consultation, lab, pharmacy, radiology) is derived from <code>invoice_items.item_type</code> — no separate bridge tables.</strong> This keeps Module 18 focused on money movement only.</li>
+      <li><strong>Pharmacy return refund traceability:</strong> <code>payments.pharmacy_return_id → pharmacy_returns</code> — when a cashier refunds cash/UPI for a pharmacy return, the <code>payments</code> row (<code>payment_direction = 'out'</code>) carries <code>pharmacy_return_id</code> directly.</li>
+      <li><strong>payees table deferred:</strong> For Phase 1, <code>payments</code> carries <code>patient_id</code> + <code>walk_in_name</code> + <code>walk_in_mobile</code> directly. The <code>payees</code> table will be added when vendor refunds, employee advances, or insurance settlements become active requirements.</li>
+    </ul>
+  </div>
+
+  <div class="card toc-card mb-4">
+    <div class="card-body">
+      <h6 class="card-subtitle text-muted mb-2">Module 18 contents — one table at a time</h6>
+      <ol class="mb-0 small">
+        <li><s>payees</s> — <em>Deferred</em> — <code>payments</code> carries <code>patient_id</code> + <code>walk_in_name</code> + <code>walk_in_mobile</code> directly for Phase 1. Add <code>payees</code> when vendor refunds, employee advances, or insurance settlements become active requirements.</li>
+        <li><a href="#payment_attempts">payment_attempts</a> — one row per payment attempt; carries gateway idempotency key for all service types; only success rows link to <code>payments</code> &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#payments">payments</a> — one row per confirmed money movement in or out &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#payment_allocations">payment_allocations</a> — splits one payment across multiple invoices &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li class="text-muted"><s>payment_item_types</s> — dropped: registry not needed without the bridge tables.</li>
+        <li class="text-muted"><s>payment_items</s> — dropped: bridge table not needed; revenue-by-source from <code>invoice_items.item_type</code>.</li>
+        <li class="text-muted"><s>payment_consultation</s> — dropped: revenue by consultation derived from <code>invoice_items</code> WHERE <code>item_type='consultation'</code>.</li>
+        <li class="text-muted"><s>payment_lab</s> — dropped: revenue by lab derived from <code>invoice_items</code> WHERE <code>item_type IN ('lab_test','lab_panel')</code>.</li>
+        <li class="text-muted"><s>payment_pharmacy</s> — dropped: revenue by pharmacy derived from <code>invoice_items</code> WHERE <code>item_type='drug'</code>.</li>
+        <li class="text-muted"><s>payment_radiology</s> — dropped: revenue by radiology derived from <code>invoice_items</code> WHERE <code>item_type='radiology'</code>.</li>
+        <li class="text-muted"><s>payment_cafeteria</s> — dropped: revenue by cafeteria derived from <code>invoice_items</code> WHERE <code>item_type='other'</code> (cafeteria).</li>
+        <li><a href="#cash_counters">cash_counters</a> — physical cash counter registry &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#cash_sessions">cash_sessions</a> — cashier shift open/close cycle with variance tracking; one open session per counter enforced; previous-session custody chain &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#cash_counter_handovers">cash_counter_handovers</a> — <em>table retained in DB; handover API endpoint dropped — use open + close workflow instead</em> &nbsp;<span class="badge bg-warning text-dark">API dropped</span></li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- DEFERRED: payees                                                  -->
+  <!-- ================================================================ -->
+  <div style="display:none" id="payees-deferred-note">
+    <p>The <code>payees</code> table is deferred for Phase 1. The <code>payments</code> table covers all current use cases by carrying <code>patient_id</code> (for registered patients) and <code>walk_in_name</code> + <code>walk_in_mobile</code> (for walk-in OTC customers) directly. A separate <code>payees</code> normalisation table should be introduced when any of the following become active requirements: vendor refunds (e.g. return to supplier), employee salary advances, insurance settlement payouts, or other non-patient money movements. At that point, <code>payments.payee_id → payees(id)</code> replaces the inline walk-in fields, and a migration populates historical rows.</p>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- 2. payment_attempts                                               -->
+  <!-- ================================================================ -->
+  <section id="payment_attempts" class="mb-5">
+    <h2>2. payment_attempts
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+    </h2>
+    <p>One row per payment attempt, across every service type that requires upfront payment — OPD appointments, lab orders, radiology orders, and pharmacy sales. Exactly one source FK column must be non-null, enforced by a CHECK constraint. The <code>gateway_idempotency_key</code> is generated by the app before calling the payment gateway and stored here so that any retry (after a timeout) sends the exact same key, preventing double-charge at the bank level.</p>
+    <p>Only <code>status = 'success'</code> rows ever link to a <code>payments</code> row. Failed and expired attempts carry no financial weight — they exist solely for the idempotency and retry mechanism, and as an operational audit trail ("why did this patient's card fail?").</p>
+    <p class="small text-muted"><strong>Lifecycle:</strong> <code>initiated</code> (INSERT on payment start) → <code>success</code> (UPDATE when gateway confirms; <code>payment_id</code> set in the same transaction that creates the <code>payments</code> row) | <code>failed</code> (UPDATE when gateway definitively declines) | <code>expired</code> (UPDATE by a cleanup job when an <code>initiated</code> row is never resolved). A new attempt after failure = new INSERT with a new <code>gateway_idempotency_key</code>.</p>
+    <p class="small text-muted"><strong>No soft-delete:</strong> payment attempt rows are never removed. No <code>deleted_at</code> / <code>deleted_by</code> columns. L1 audit block is reduced: <code>created_by, created_at, updated_by, updated_at, version</code> only.</p>
+    <p class="small text-muted"><strong>Cash payments:</strong> no real gateway is involved. The app still INSERTs a <code>payment_attempts</code> row with <code>status = 'initiated'</code> and immediately UPDATEs to <code>success</code> in the same backend transaction after the cashier confirms. <code>gateway_ref</code> and <code>gateway_response</code> are NULL. This keeps the path uniform and gives idempotency on backend retries.</p>
+    <p class="small text-muted"><strong>Supersedes <code>payments.idempotency_key</code> and <code>invoices.idempotency_key</code>:</strong> backend retry protection is now handled by checking <code>payment_attempts.payment_id IS NOT NULL</code> (already processed) instead of the per-table idempotency key columns. Those columns are candidates for removal in a follow-up migration.</p>
+
+    <h5>Columns (table-specific; reduced L1 audit block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr class="table-light"><td colspan="6" class="small fw-semibold text-muted">Source — exactly one must be non-null (<code>chk_payment_attempts_source</code>)</td></tr>
+        <tr><td><code>appointment_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>appointments(id)</code> RESTRICT</td><td>—</td><td>Set when this attempt is for an OPD consultation fee (walk-in or pre-booked patient paying at arrival). Non-null triggers the <code>op_visits</code> + <code>patient_states</code> + <code>tokens</code> chain on success.</td></tr>
+        <tr><td><code>lab_order_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>lab_orders(id)</code> RESTRICT</td><td>—</td><td>Set when this attempt is for a lab order fee. Sample collection is gated on <code>status = 'success'</code>.</td></tr>
+        <tr><td><code>radiology_order_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>radiology_orders(id)</code> RESTRICT</td><td>—</td><td>Set when this attempt is for a radiology procedure fee. Scan scheduling is gated on <code>status = 'success'</code>.</td></tr>
+        <tr><td><code>pharmacy_sale_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>pharmacy_sales(id)</code> RESTRICT</td><td>—</td><td>Set when this attempt is for a pharmacy sale. Dispensing is gated on <code>status = 'success'</code>.</td></tr>
+        <tr class="table-light"><td colspan="6" class="small fw-semibold text-muted">Payment intent</td></tr>
+        <tr><td><code>gateway_idempotency_key</code></td><td>uuid</td><td>NO</td><td>UNIQUE</td><td>—</td><td>App-generated UUID sent to the payment gateway with every attempt. On a network timeout, the app reads this value from <code>payment_attempts</code> and re-sends it — the gateway deduplicates and returns the original result without charging again. A new attempt (after a definitive failure) generates a new UUID.</td></tr>
+        <tr><td><code>amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>Amount attempted. Always positive. Copied from the source entity's fee at the time of initiation.</td></tr>
+        <tr><td><code>payment_mode</code></td><td>text</td><td>NO</td><td>CHECK IN (<code>'cash'</code>, <code>'card'</code>, <code>'upi'</code>, <code>'cheque'</code>, <code>'net_banking'</code>, <code>'other'</code>)</td><td>—</td><td>Payment instrument chosen for this attempt. Matches the values in <code>payments.payment_mode</code>.</td></tr>
+        <tr class="table-light"><td colspan="6" class="small fw-semibold text-muted">Outcome</td></tr>
+        <tr><td><code>status</code></td><td>text</td><td>NO</td><td>CHECK IN (<code>'initiated'</code>, <code>'success'</code>, <code>'failed'</code>, <code>'expired'</code>)</td><td><code>'initiated'</code></td><td><code>initiated</code> = gateway call in progress. <code>success</code> = gateway confirmed; <code>payment_id</code> is set. <code>failed</code> = gateway definitively declined; no <code>payments</code> row created. <code>expired</code> = set by a cleanup job when an <code>initiated</code> row is never resolved.</td></tr>
+        <tr><td><code>payment_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>payments(id)</code> RESTRICT</td><td>—</td><td>Set in the same atomic transaction that creates the <code>payments</code> row, only when <code>status = 'success'</code>. NULL for all other statuses. Backend retry check: if this is non-null, the payment was already processed — return existing data without re-inserting.</td></tr>
+        <tr><td><code>gateway_ref</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>External reference from the gateway on success — UPI transaction ID, card RRN, NEFT UTR, etc. Copied to <code>payments.transaction_ref</code> when the <code>payments</code> row is created. NULL for cash and for failed/initiated attempts.</td></tr>
+        <tr><td><code>gateway_response</code></td><td>jsonb</td><td>YES</td><td>—</td><td>—</td><td>Full gateway response payload stored as-is for dispute resolution and reconciliation. NULL for cash payments. Kept even on failure — the failure response from the gateway is useful evidence for charge-back investigations.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ reduced L1 audit columns: <code>created_by</code>, <code>created_at</code>, <code>updated_by</code>, <code>updated_at</code>, <code>version</code>. No <code>deleted_at</code> / <code>deleted_by</code> — payment attempt rows are immutable records and are never removed.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_payment_attempts</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_payment_attempts_source</code> — CHECK <code>num_nonnulls(appointment_id, lab_order_id, radiology_order_id, pharmacy_sale_id) = 1</code> &nbsp;<span class="text-muted">— exactly one source</span></li>
+      <li><code>chk_payment_attempts_mode</code> — CHECK <code>payment_mode IN ('cash','card','upi','cheque','net_banking','other')</code></li>
+      <li><code>chk_payment_attempts_status</code> — CHECK <code>status IN ('initiated','success','failed','expired')</code></li>
+      <li><code>chk_payment_attempts_amount</code> — CHECK <code>amount &gt; 0</code></li>
+      <li><code>chk_payment_attempts_payment_id</code> — CHECK <code>(payment_id IS NULL) OR (status = 'success')</code> &nbsp;<span class="text-muted">— payment_id only valid on success</span></li>
+      <li><code>uq_payment_attempts_gateway_key</code> — UNIQUE (gateway_idempotency_key)</li>
+      <li><code>uq_payment_attempts_appt_active</code> — UNIQUE INDEX (appointment_id) WHERE <code>appointment_id IS NOT NULL AND status = 'initiated'</code> &nbsp;<span class="text-muted">— one in-flight attempt per appointment</span></li>
+      <li><code>uq_payment_attempts_lab_active</code> — UNIQUE INDEX (lab_order_id) WHERE <code>lab_order_id IS NOT NULL AND status = 'initiated'</code> &nbsp;<span class="text-muted">— one in-flight attempt per lab order</span></li>
+      <li><code>uq_payment_attempts_radiology_active</code> — UNIQUE INDEX (radiology_order_id) WHERE <code>radiology_order_id IS NOT NULL AND status = 'initiated'</code> &nbsp;<span class="text-muted">— one in-flight attempt per radiology order</span></li>
+      <li><code>uq_payment_attempts_pharmacy_active</code> — UNIQUE INDEX (pharmacy_sale_id) WHERE <code>pharmacy_sale_id IS NOT NULL AND status = 'initiated'</code> &nbsp;<span class="text-muted">— one in-flight attempt per pharmacy sale</span></li>
+      <li><code>ix_payment_attempts_appointment</code> — INDEX (appointment_id) WHERE <code>appointment_id IS NOT NULL</code> &nbsp;<span class="text-muted">— all attempts for an appointment</span></li>
+      <li><code>ix_payment_attempts_lab</code> — INDEX (lab_order_id) WHERE <code>lab_order_id IS NOT NULL</code> &nbsp;<span class="text-muted">— all attempts for a lab order</span></li>
+      <li><code>ix_payment_attempts_radiology</code> — INDEX (radiology_order_id) WHERE <code>radiology_order_id IS NOT NULL</code> &nbsp;<span class="text-muted">— all attempts for a radiology order</span></li>
+      <li><code>ix_payment_attempts_pharmacy</code> — INDEX (pharmacy_sale_id) WHERE <code>pharmacy_sale_id IS NOT NULL</code> &nbsp;<span class="text-muted">— all attempts for a pharmacy sale</span></li>
+      <li><code>ix_payment_attempts_status_date</code> — INDEX (status, created_at DESC) &nbsp;<span class="text-muted">— support dashboard: in-flight and expired attempts</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_payment_attempts_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_payment_attempts_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>appointment_id</th><th>lab_order_id</th><th>radiology_order_id</th><th>pharmacy_sale_id</th><th>gateway_idempotency_key</th><th>amount</th><th>payment_mode</th><th>status</th><th>payment_id</th><th>gateway_ref</th><th>gateway_response</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th></tr>
+      </thead>
+      <tbody>
+        <tr class="table-success">
+          <td><code>…pa001</code></td>
+          <td><code>…apt001 (Ravi Kumar)</code></td>
+          <td>NULL</td><td>NULL</td><td>NULL</td>
+          <td><code>…ikey001</code></td>
+          <td>300.00</td><td>upi</td><td>success</td>
+          <td><code>…pmt001</code></td>
+          <td>UPI20260510143212345</td>
+          <td><code>{"status":"SUCCESS","txnId":"…","responseCode":"00"}</code></td>
+          <td><code>…usr05 (Cashier Meena)</code></td><td>2026-05-10 10:30</td>
+          <td><code>…sys (gateway webhook)</code></td><td>2026-05-10 10:30</td><td>1</td>
+        </tr>
+        <tr class="table-danger">
+          <td><code>…pa002</code></td>
+          <td>NULL</td>
+          <td><code>…lab001 (Meenakshi CBC order)</code></td>
+          <td>NULL</td><td>NULL</td>
+          <td><code>…ikey002</code></td>
+          <td>180.00</td><td>card</td><td>failed</td>
+          <td>NULL</td>
+          <td>NULL</td>
+          <td><code>{"status":"FAILURE","responseCode":"51","description":"Insufficient funds"}</code></td>
+          <td><code>…usr05 (Cashier Meena)</code></td><td>2026-05-10 11:05</td>
+          <td><code>…sys (gateway webhook)</code></td><td>2026-05-10 11:07</td><td>1</td>
+        </tr>
+        <tr class="table-success">
+          <td><code>…pa003</code></td>
+          <td>NULL</td><td>NULL</td><td>NULL</td>
+          <td><code>…phx001 (OTC Paracetamol sale)</code></td>
+          <td><code>…ikey003</code></td>
+          <td>51.00</td><td>cash</td><td>success</td>
+          <td><code>…pmt002</code></td>
+          <td>NULL</td>
+          <td>NULL</td>
+          <td><code>…usr06 (Cashier Anbu)</code></td><td>2026-05-10 11:05</td>
+          <td><code>…usr06</code></td><td>2026-05-10 11:05</td><td>1</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 (green) — Ravi Kumar's OPD consultation fee paid via UPI; gateway confirmed success; <code>payment_id</code> set; op_visit + token created atomically. Row 2 (red) — Meenakshi's lab order card declined (insufficient funds); <code>payment_id</code> NULL; no invoice or payments row created; <code>lab_order</code> stays unpaid; patient can retry with a different card or cash — new attempt = new <code>gateway_idempotency_key</code>. Row 3 (green) — OTC pharmacy sale paid in cash; <code>gateway_ref</code> and <code>gateway_response</code> are NULL for cash; <code>initiated → success</code> in a single backend transaction.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 3. payments                                                       -->
+  <!-- ================================================================ -->
+  <section id="payments" class="mb-5">
+    <h2>3. payments
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>One row per money movement — either a collection from a patient or walk-in customer (<code>payment_direction = 'in'</code>) or a refund or payout (<code>payment_direction = 'out'</code>). Amount is always positive; direction is captured in <code>payment_direction</code>. Every payment belongs to a cash session. For registered patients <code>patient_id</code> is set; for walk-in OTC customers <code>walk_in_name</code> is set instead — exactly one must be non-NULL (enforced by CHECK constraints).</p>
+    <p class="small text-muted"><strong>v3 delta from TSD:</strong> <code>tenant_id</code> dropped. <code>payee_id</code> dropped (payees table deferred) — replaced by <code>patient_id</code> + <code>walk_in_name</code> + <code>walk_in_mobile</code> directly on this table. <code>paid_at</code> dropped — use <code>created_at</code> from L1 audit block. <code>pharmacy_return_id</code> added for pharmacy return refund traceability.</p>
+    <p class="small text-muted"><strong>idempotency_key status:</strong> <code>payments.idempotency_key</code> is a candidate for removal in a follow-up migration. Backend retry protection is now handled by <code>payment_attempts.payment_id IS NOT NULL</code> — if that FK is already set, the payment was already processed and the existing data is returned without re-inserting. The column is kept for now to avoid a breaking migration during active development.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>patient_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>patients(id)</code> RESTRICT</td><td>—</td><td>Set for registered patients (UHID holders). NULL for walk-in OTC customers. Exactly one of <code>patient_id</code> or <code>walk_in_name</code> must be non-NULL.</td></tr>
+        <tr><td><code>walk_in_name</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Name of the walk-in OTC customer when <code>patient_id</code> is NULL. Used for receipt printing and daily collections report.</td></tr>
+        <tr><td><code>walk_in_mobile</code></td><td>text</td><td>YES</td><td>CHECK <code>char_length BETWEEN 10 AND 15</code> when not NULL</td><td>—</td><td>Mobile number for walk-in OTC customer. Optional — collected for loyalty or follow-up. Must be between 10 and 15 characters when present.</td></tr>
+        <tr><td><code>payment_direction</code></td><td>text</td><td>NO</td><td>CHECK IN (<code>'in'</code>, <code>'out'</code>)</td><td>—</td><td><code>in</code> = money received from patient/walk-in (collection). <code>out</code> = money paid out (refund, payout). Amount is always positive; direction encodes the sign.</td></tr>
+        <tr><td><code>payment_mode</code></td><td>text</td><td>NO</td><td>CHECK IN (<code>'cash'</code>, <code>'card'</code>, <code>'upi'</code>, <code>'cheque'</code>, <code>'net_banking'</code>, <code>'other'</code>)</td><td>—</td><td>Instrument used. Determines which downstream reconciliation flow applies (cash counted in session, card/UPI matched to gateway settlement).</td></tr>
+        <tr><td><code>amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>Always positive — never negative. The sign of this movement is captured in <code>payment_direction</code>. Supports amounts up to ₹99,999,999,999.99.</td></tr>
+        <tr><td><code>transaction_ref</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>External reference from the payment instrument — UPI transaction ID, card RRN (Retrieval Reference Number), cheque number, or NEFT/RTGS UTR. NULL for cash payments.</td></tr>
+        <tr><td><code>received_by</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>The cashier who accepted or processed this payment. Must be a valid system user. Used for cashier-wise collections report.</td></tr>
+        <tr><td><code>cash_session_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>cash_sessions(id)</code> RESTRICT</td><td>—</td><td>The open cash session at the counter where this payment was taken. Every payment must belong to a session — the session is the unit of daily reconciliation.</td></tr>
+        <tr><td><code>idempotency_key</code></td><td>uuid</td><td>YES</td><td>UNIQUE INDEX (partial, WHERE NOT NULL)</td><td>—</td><td>Client-generated UUID sent with the payment-create request. Prevents double-charge on network retry — a second request with the same key returns the existing payment row without creating a duplicate.</td></tr>
+        <tr><td><code>pharmacy_return_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>pharmacy_returns(id)</code> RESTRICT</td><td>—</td><td>Set when <code>payment_direction = 'out'</code> and this payment is a cash/UPI refund for a pharmacy return. Provides direct traceability: refund payment → pharmacy return → return items → original sale. NULL for all other payments.</td></tr>
+        <tr><td><code>notes</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Free-text notes for the payment — discount reason, partial payment explanation, or cashier remarks. Printed on the receipt if present.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform L1 audit + soft-delete columns. Soft-delete preserves the payment row and all allocation/item child rows for audit even when a payment is voided.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_payments</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_payments_idempotency</code> — UNIQUE INDEX (idempotency_key) WHERE <code>idempotency_key IS NOT NULL</code></li>
+      <li><code>chk_payments_direction</code> — CHECK <code>payment_direction IN ('in','out')</code></li>
+      <li><code>chk_payments_mode</code> — CHECK <code>payment_mode IN ('cash','card','upi','cheque','net_banking','other')</code></li>
+      <li><code>chk_payments_amount</code> — CHECK <code>amount &gt; 0</code></li>
+      <li><code>chk_payments_walk_in_mobile_len</code> — CHECK <code>walk_in_mobile IS NULL OR char_length(walk_in_mobile) BETWEEN 10 AND 15</code></li>
+      <li><code>chk_payments_has_identity</code> — CHECK <code>(patient_id IS NOT NULL OR walk_in_name IS NOT NULL)</code> — at least one identity must be present</li>
+      <li><code>chk_payments_not_both_identity</code> — CHECK <code>(patient_id IS NULL OR walk_in_name IS NULL)</code> — cannot be both a registered patient and a walk-in simultaneously</li>
+      <li><code>ix_payments_patient</code> — INDEX (patient_id, created_at DESC) WHERE <code>patient_id IS NOT NULL AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— patient payment history</span></li>
+      <li><code>ix_payments_session</code> — INDEX (cash_session_id, created_at DESC) &nbsp;<span class="text-muted">— session collections listing</span></li>
+      <li><code>ix_payments_direction_date</code> — INDEX (payment_direction, created_at DESC) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— daily in/out totals</span></li>
+      <li><code>ix_payments_mode</code> — INDEX (payment_mode, created_at DESC) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— mode-wise settlement reconciliation</span></li>
+      <li><code>chk_payments_pharmacy_return</code> — CHECK <code>(pharmacy_return_id IS NULL) OR (payment_direction = 'out')</code> &nbsp;<span class="text-muted">— pharmacy return FK only on refund payments</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_payments_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_payments_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>patient_id</th><th>walk_in_name</th><th>walk_in_mobile</th><th>payment_direction</th><th>payment_mode</th><th>amount</th><th>transaction_ref</th><th>pharmacy_return_id</th><th>received_by</th><th>cash_session_id</th><th>idempotency_key</th><th>notes</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…pmt001</code></td>
+          <td><code>…pat001 (Ravi Kumar)</code></td>
+          <td>NULL</td><td>NULL</td>
+          <td>in</td><td>upi</td><td>560.00</td>
+          <td>UPI20260510123456789</td>
+          <td>NULL</td>
+          <td><code>…usr05 (Cashier Meena)</code></td>
+          <td><code>…cs001 (KH-FD-2026-05-10-M)</code></td>
+          <td><code>…idem001</code></td>
+          <td>OPD consultation + lab test payment</td>
+          <td><code>…usr05</code></td><td>2026-05-10 10:35</td>
+          <td>NULL</td><td>2026-05-10 10:35</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…pmt002</code></td>
+          <td>NULL</td>
+          <td>Priya Sharma</td><td>9876543210</td>
+          <td>in</td><td>cash</td><td>51.00</td>
+          <td>NULL</td>
+          <td>NULL</td>
+          <td><code>…usr06 (Cashier Anbu)</code></td>
+          <td><code>…cs002 (KH-PHX-2026-05-10-M)</code></td>
+          <td><code>…idem002</code></td>
+          <td>OTC Paracetamol strips — walk-in customer</td>
+          <td><code>…usr06</code></td><td>2026-05-10 11:05</td>
+          <td>NULL</td><td>2026-05-10 11:05</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…pmt003</code></td>
+          <td><code>…pat001 (Ravi Kumar)</code></td>
+          <td>NULL</td><td>NULL</td>
+          <td>out</td><td>cash</td><td>15.00</td>
+          <td>NULL</td>
+          <td><code>…prt001 (PHR-2026-00001)</code></td>
+          <td><code>…usr06 (Cashier Anbu)</code></td>
+          <td><code>…cs002 (KH-PHX-2026-05-10-M)</code></td>
+          <td>NULL</td>
+          <td>Pharmacy return refund — 6 Paracetamol tabs (PHR-2026-00001)</td>
+          <td><code>…usr06</code></td><td>2026-05-10 11:30</td>
+          <td>NULL</td><td>2026-05-10 11:30</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — Ravi Kumar (registered patient) pays ₹560 via UPI for consultation + lab; allocated across two invoices in <code>payment_allocations</code>. Row 2 — Walk-in customer Priya Sharma pays ₹51 cash OTC; no patient_id. Row 3 — refund payout: <code>payment_direction = 'out'</code>, <code>pharmacy_return_id</code> set for traceability — replaces the earlier <code>non_sale_cash_movements</code> approach.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 4. payment_allocations                                            -->
+  <!-- ================================================================ -->
+  <section id="payment_allocations" class="mb-5">
+    <h2>4. payment_allocations
+      <span class="badge bg-secondary">append-only</span>
+      <span class="badge bg-info">L1 audit</span>
+    </h2>
+    <p>Splits one payment across multiple invoices, pharmacy sales, or IP admissions. For example, a single ₹560 UPI payment for an OPD visit might allocate ₹300 to the consultation invoice and ₹260 to the lab invoice — two rows here, one row in <code>payments</code>. The <code>allocation_type</code> column controls which FK column must be set, enforced by CHECK constraints. Corrections are made by inserting a reverse allocation row — UPDATE and DELETE are blocked by trigger.</p>
+    <p class="small text-muted"><strong>Append-only:</strong> a BEFORE UPDATE OR DELETE trigger raises an exception on any attempt to modify or remove an allocation row. Corrections must be applied via a reversal allocation row (same amount, opposite payment with <code>payment_direction = 'out'</code>).</p>
+    <p class="small text-muted"><strong>Note:</strong> <code>credit_note_id</code> and a <code>'credit_note_application'</code> allocation type are pending the Module 17 credit_notes decision — not included here yet.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>payment_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>payments(id)</code> RESTRICT</td><td>—</td><td>The payment being allocated. One payment can have many allocation rows — their amounts must sum to the payment amount (enforced at application level).</td></tr>
+        <tr><td><code>allocation_type</code></td><td>text</td><td>NO</td><td>CHECK IN (<code>'invoice'</code>, <code>'pharmacy_sale'</code>, <code>'ip_advance'</code>, <code>'refund'</code>, <code>'on_account'</code>)</td><td>—</td><td>Drives which FK column must be populated. <code>on_account</code> = unallocated credit held on the patient account (all three FK columns NULL).</td></tr>
+        <tr><td><code>invoice_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>invoices(id)</code> RESTRICT</td><td>—</td><td>Set when <code>allocation_type = 'invoice'</code>. References a billing invoice from Module 17.</td></tr>
+        <tr><td><code>pharmacy_sale_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>pharmacy_sales(id)</code> RESTRICT</td><td>—</td><td>Set when <code>allocation_type = 'pharmacy_sale'</code>. References a pharmacy sale from Module 15.</td></tr>
+        <tr><td><code>ip_admission_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>ip_admissions(id)</code> RESTRICT</td><td>—</td><td>Set when <code>allocation_type = 'ip_advance'</code>. Phase 2 — NULL until IP module is live.</td></tr>
+        <tr><td><code>amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>Amount allocated to this invoice/sale/admission. Always positive. The sum of all allocation rows for a payment should equal <code>payments.amount</code>.</td></tr>
+        <tr><td><code>notes</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Optional notes — e.g. "partial payment, balance pending" or "advance adjusted against OPD invoice".</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ L1 audit columns. No soft-delete — append-only; corrections via reverse allocation rows.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_payment_allocations</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_payment_allocations_type</code> — CHECK <code>allocation_type IN ('invoice','pharmacy_sale','ip_advance','refund','on_account')</code></li>
+      <li><code>chk_payment_allocations_amount</code> — CHECK <code>amount &gt; 0</code></li>
+      <li><code>chk_payment_allocations_max_one_fk</code> — CHECK <code>num_nonnulls(invoice_id, pharmacy_sale_id, ip_admission_id) &lt;= 1</code></li>
+      <li><code>chk_payment_allocations_invoice_fk</code> — CHECK <code>(allocation_type = 'invoice') = (invoice_id IS NOT NULL)</code></li>
+      <li><code>chk_payment_allocations_pharmacy_fk</code> — CHECK <code>(allocation_type = 'pharmacy_sale') = (pharmacy_sale_id IS NOT NULL)</code></li>
+      <li><code>chk_payment_allocations_on_account</code> — CHECK <code>(allocation_type = 'on_account') = (num_nonnulls(invoice_id, pharmacy_sale_id, ip_admission_id) = 0)</code></li>
+      <li><code>ix_payment_allocations_payment</code> — INDEX (payment_id) &nbsp;<span class="text-muted">— all allocations for a payment</span></li>
+      <li><code>ix_payment_allocations_invoice</code> — INDEX (invoice_id) WHERE <code>invoice_id IS NOT NULL</code> &nbsp;<span class="text-muted">— payments against an invoice</span></li>
+      <li><code>ix_payment_allocations_pharmacy_sale</code> — INDEX (pharmacy_sale_id) WHERE <code>pharmacy_sale_id IS NOT NULL</code> &nbsp;<span class="text-muted">— payments against a pharmacy sale</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_payment_allocations_bu_block</code> — BEFORE UPDATE OR DELETE → raises exception: <code>'payment_allocations rows are immutable — insert a reversal row instead'</code></li>
+      <li><code>tr_payment_allocations_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+      <li><code>tr_payment_allocations_ai_invoice_paid</code> — AFTER INSERT → <code>fn_update_invoice_paid_amount()</code></li>
+    </ul>
+
+    <h5>Trigger function — <code>fn_update_invoice_paid_amount()</code></h5>
+    <p class="small text-muted">Fires on every <code>payment_allocations</code> INSERT where <code>invoice_id IS NOT NULL</code>. Keeps <code>invoices.amount_paid</code> and <code>invoices.payment_status</code> consistent without any application-layer UPDATE. Same principle as <code>fn_recompute_invoice_totals()</code> on <code>invoice_items</code>.</p>
+    <pre>AFTER INSERT ON payment_allocations
+IF NEW.invoice_id IS NULL → skip (pharmacy_sale or on_account allocation)
+
+v_paid := SELECT COALESCE(SUM(amount), 0)
+          FROM payment_allocations
+          WHERE invoice_id = NEW.invoice_id
+            AND deleted_at IS NULL
+
+UPDATE invoices
+SET amount_paid    = v_paid,
+    payment_status = CASE
+        WHEN v_paid = 0            THEN 'draft'
+        WHEN v_paid &lt; total_amount THEN 'partially_paid'
+        WHEN v_paid &gt;= total_amount THEN 'paid'
+    END
+WHERE id = NEW.invoice_id</pre>
+    <p class="small text-muted">
+      <strong>Why SUM instead of amount_paid + NEW.amount?</strong> A SUM recompute from all allocations is idempotency-safe — if a retry causes a duplicate allocation that the DB catches with a constraint, there is no phantom increment. It also correctly handles soft-deleted allocations (<code>deleted_at IS NOT NULL</code> excluded from the SUM) when a reversal is processed.
+    </p>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>payment_id</th><th>allocation_type</th><th>invoice_id</th><th>pharmacy_sale_id</th><th>ip_admission_id</th><th>amount</th><th>notes</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…pa001</code></td>
+          <td><code>…pmt001</code></td>
+          <td>invoice</td>
+          <td><code>…inv001 (OPD consultation invoice)</code></td>
+          <td>NULL</td><td>NULL</td>
+          <td>300.00</td>
+          <td>Consultation fee allocation</td>
+          <td><code>…usr05</code></td><td>2026-05-10 10:35</td>
+          <td>NULL</td><td>2026-05-10 10:35</td><td>0</td>
+        </tr>
+        <tr>
+          <td><code>…pa002</code></td>
+          <td><code>…pmt001</code></td>
+          <td>invoice</td>
+          <td><code>…inv002 (Lab order invoice)</code></td>
+          <td>NULL</td><td>NULL</td>
+          <td>260.00</td>
+          <td>Lab test allocation</td>
+          <td><code>…usr05</code></td><td>2026-05-10 10:35</td>
+          <td>NULL</td><td>2026-05-10 10:35</td><td>0</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Ravi Kumar's ₹560 UPI payment (pmt001) split: ₹300 to the consultation invoice and ₹260 to the lab invoice. Total allocations equal <code>payments.amount</code>.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 4. payment_item_types — DROPPED                                   -->
+  <!-- ================================================================ -->
+  <div id="payment_item_types" class="alert alert-secondary small mb-3"><s>payment_item_types</s> — dropped. Registry not needed without the bridge tables. Revenue-by-source is derived from <code>invoice_items.item_type</code> — no separate lookup table needed.</div>
+
+  <!-- ================================================================ -->
+  <!-- 5. payment_items — DROPPED                                        -->
+  <!-- ================================================================ -->
+  <div id="payment_items" class="alert alert-secondary small mb-3"><s>payment_items</s> — dropped. Bridge table not needed; revenue-by-source is derived from <code>invoice_items.item_type</code> via a single query — no separate bridge table needed.</div>
+
+  <!-- ================================================================ -->
+  <!-- 6. payment_consultation — DROPPED                                 -->
+  <!-- ================================================================ -->
+  <div id="payment_consultation" class="alert alert-secondary small mb-3"><s>payment_consultation</s> — dropped. Revenue by consultation is derived from <code>invoice_items</code> WHERE <code>item_type='consultation'</code> — no bridge table needed.</div>
+
+  <!-- ================================================================ -->
+  <!-- 7. payment_lab — DROPPED                                          -->
+  <!-- ================================================================ -->
+  <div id="payment_lab" class="alert alert-secondary small mb-3"><s>payment_lab</s> — dropped. Revenue by lab is derived from <code>invoice_items</code> WHERE <code>item_type IN ('lab_test','lab_panel')</code> — no bridge table needed.</div>
+
+  <!-- ================================================================ -->
+  <!-- 8. payment_pharmacy — DROPPED                                     -->
+  <!-- ================================================================ -->
+  <div id="payment_pharmacy" class="alert alert-secondary small mb-3"><s>payment_pharmacy</s> — dropped. Revenue by pharmacy is derived from <code>invoice_items</code> WHERE <code>item_type='drug'</code> — no bridge table needed.</div>
+
+  <!-- ================================================================ -->
+  <!-- 9. payment_radiology — DROPPED                                    -->
+  <!-- ================================================================ -->
+  <div id="payment_radiology" class="alert alert-secondary small mb-3"><s>payment_radiology</s> — dropped. Revenue by radiology is derived from <code>invoice_items</code> WHERE <code>item_type='radiology'</code> — no bridge table needed.</div>
+
+  <!-- ================================================================ -->
+  <!-- 10. payment_cafeteria — DROPPED                                   -->
+  <!-- ================================================================ -->
+  <div id="payment_cafeteria" class="alert alert-secondary small mb-3"><s>payment_cafeteria</s> — dropped. Revenue by cafeteria is derived from <code>invoice_items</code> WHERE <code>item_type='other'</code> (cafeteria) — no bridge table needed.</div>
+
+  <!-- ================================================================ -->
+  <!-- 11. cash_counters                                                 -->
+  <!-- ================================================================ -->
+  <section id="cash_counters" class="mb-5">
+    <h2>11. cash_counters
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Physical cash counter registry — front desk, pharmacy counter, IP billing, and any other collection point. Each counter can run one or more sessions. Soft-delete preserves historical session references when a counter is decommissioned.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>counter_code</code></td><td>text</td><td>NO</td><td>UNIQUE (partial WHERE deleted_at IS NULL), CHECK <code>char_length BETWEEN 2 AND 10</code></td><td>—</td><td>Short machine code for the counter (e.g. <code>FD</code> = Front Desk, <code>PHX</code> = Pharmacy, <code>IP_BILL</code> = IP Billing). Used in session number generation.</td></tr>
+        <tr><td><code>counter_name</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Human-readable name shown on session reports (e.g. <code>Front Desk Counter</code>, <code>Pharmacy Counter</code>).</td></tr>
+        <tr><td><code>location</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Floor or room identifier — helps identify the physical location of the counter (e.g. <code>Ground Floor, Reception</code>, <code>First Floor, Pharmacy Wing</code>).</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform L1 audit + soft-delete columns. <code>deleted_at</code> replaces any <code>is_active</code> boolean.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_cash_counters</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_cash_counters_code</code> — UNIQUE INDEX (counter_code) WHERE <code>deleted_at IS NULL</code></li>
+      <li><code>chk_cash_counters_code_len</code> — CHECK <code>char_length(counter_code) BETWEEN 2 AND 10</code></li>
+      <li><code>ix_cash_counters_active</code> — INDEX (counter_name) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— counter picklist</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_cash_counters_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_cash_counters_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>counter_code</th><th>counter_name</th><th>location</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…cc001</code></td><td>FD</td><td>Front Desk Counter</td><td>Ground Floor, Reception</td>
+          <td><code>…usr01 (Admin)</code></td><td>2026-01-01 08:00</td>
+          <td>NULL</td><td>2026-01-01 08:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…cc002</code></td><td>PHX</td><td>Pharmacy Counter</td><td>Ground Floor, Pharmacy Wing</td>
+          <td><code>…usr01 (Admin)</code></td><td>2026-01-01 08:00</td>
+          <td>NULL</td><td>2026-01-01 08:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…cc003</code></td><td>IP_BILL</td><td>IP Billing Counter</td><td>First Floor, Inpatient Wing</td>
+          <td><code>…usr01 (Admin)</code></td><td>2026-01-01 08:00</td>
+          <td>NULL</td><td>2026-01-01 08:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Three counters: Front Desk (FD) for OPD collections, Pharmacy Counter (PHX) for drug sales and OTC, IP Billing (IP_BILL) for inpatient advance and final billing (Phase 2).</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 12. cash_sessions                                                 -->
+  <!-- ================================================================ -->
+  <section id="cash_sessions" class="mb-5">
+    <h2>12. cash_sessions
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Cashier shift open/close cycle — the unit of daily cash reconciliation. One session per cashier per shift per counter. A cashier opens a session with a float, collects payments, then closes it with a physical count. The system computes <code>expected_cash</code> from all cash-mode payments in the session; the cashier enters <code>counted_cash</code>; <code>variance</code> is generated. Any non-zero variance requires a <code>variance_reason</code>. Once locked by the nightly job, the session is immutable.</p>
+    <p class="small text-muted"><strong>One open session per counter:</strong> the partial unique index <code>uq_cash_sessions_counter_active</code> (counter_id WHERE status = 'open') ensures at most one cashier holds an open session at any counter at a time. A second cashier cannot open the same counter until the first session is closed. Combined with <code>uq_cash_sessions_cashier_active</code> (opened_by WHERE status = 'open'), the pair enforces: one counter, one cashier, one session at a time in both directions.</p>
+    <p class="small text-muted"><strong>Session lifecycle is decoupled from login:</strong> a cashier may log out for a break and back in — their session stays <code>open</code> at the counter because sessions are tied to the cashier UUID (<code>opened_by</code>), not to the JWT. There is no handover endpoint — shift changes use independent open + close: A closes their session, B opens a new session later and enters the cash they physically count in the drawer.</p>
+    <p class="small text-muted"><strong>Custody gap visibility:</strong> when B opens a counter, the system looks up the last closed session at that counter and stores it in <code>previous_session_id</code>. If B's <code>opening_float</code> differs from the previous session's <code>counted_cash</code>, B must provide an <code>opening_variance_reason</code>. This makes any unattended cash gap formally documented and attributable — A is clean (their close record), B is clean (they counted and explained), management has the discrepancy on record.</p>
+    <p class="small text-muted"><strong>State machine:</strong> <code>open</code> → <code>closed</code> → <code>reopened</code> → <code>closed</code> → <code>locked</code>. The <code>locked</code> state is set by the daily-close batch job and is irreversible. Only supervisor roles may reopen a closed session.</p>
+    <p class="small text-muted"><strong>v3 delta:</strong> <code>tenant_id</code> dropped. <code>status</code> values and <code>session_label</code> values lowercased. <code>variance</code> is a generated column. <code>previous_session_id</code> and <code>opening_variance_reason</code> added for custody chain visibility. <code>uq_cash_sessions_counter_active</code> index added. Handover API dropped — open + close only.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>counter_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>cash_counters(id)</code> RESTRICT</td><td>—</td><td>The physical counter this session belongs to.</td></tr>
+        <tr><td><code>session_number</code></td><td>text</td><td>NO</td><td>UNIQUE, CHECK <code>char_length BETWEEN 5 AND 30</code></td><td>—</td><td>Human-readable session identifier (e.g. <code>KH-FD-2026-05-10-M</code> for Front Desk morning session on 10 May 2026). Printed on the session summary report.</td></tr>
+        <tr><td><code>session_label</code></td><td>text</td><td>NO</td><td>CHECK IN (<code>'morning'</code>, <code>'evening'</code>, <code>'night'</code>, <code>'full_day'</code>, <code>'custom'</code>)</td><td>—</td><td>Shift label — descriptive. <code>full_day</code> for single-shift hospitals. <code>custom</code> when shift boundaries do not align to standard labels. Lowercased in v3.</td></tr>
+        <tr><td><code>business_date</code></td><td>date</td><td>NO</td><td>—</td><td>—</td><td>The calendar date this session belongs to for reconciliation purposes. A night shift session starting at 22:00 on 10 May and ending at 06:00 on 11 May has <code>business_date = '2026-05-10'</code>.</td></tr>
+        <tr><td><code>opened_by</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>The cashier who opened this session and is responsible for the float and collections.</td></tr>
+        <tr><td><code>opened_at</code></td><td>timestamptz</td><td>NO</td><td>—</td><td><code>now()</code></td><td>Exact timestamp when the session was opened.</td></tr>
+        <tr><td><code>closed_by</code></td><td>uuid</td><td>YES</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>The user who closed the session. NULL while status is <code>open</code>. May differ from <code>opened_by</code> when a supervisor closes.</td></tr>
+        <tr><td><code>closed_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>Exact timestamp when the session was closed. NULL while <code>status = 'open'</code>. Set by CHECK: <code>(status IN ('closed','locked')) = (closed_at IS NOT NULL)</code>.</td></tr>
+        <tr><td><code>status</code></td><td>text</td><td>NO</td><td>CHECK IN (<code>'open'</code>, <code>'closed'</code>, <code>'reopened'</code>, <code>'locked'</code>)</td><td><code>'open'</code></td><td>Current state of the session. <code>locked</code> is set by the nightly batch job after daily reconciliation is complete — no further changes permitted.</td></tr>
+        <tr><td><code>opening_float</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Cash placed in the drawer at session open — starting float. Included in <code>expected_cash</code> computation.</td></tr>
+        <tr><td><code>expected_cash</code></td><td>numeric(14,2)</td><td>YES</td><td>—</td><td>—</td><td>System-computed at close: <code>opening_float + SUM(cash-mode in payments) - SUM(cash-mode out payments)</code>. NULL until the session is closed.</td></tr>
+        <tr><td><code>counted_cash</code></td><td>numeric(14,2)</td><td>YES</td><td>—</td><td>—</td><td>Physical count entered by the cashier at close. NULL until the session is closed. This is the actual amount in the drawer at end of shift.</td></tr>
+        <tr><td><code>variance</code></td><td>numeric(14,2)</td><td>YES</td><td>GENERATED ALWAYS AS (<code>counted_cash - expected_cash</code>) STORED</td><td>—</td><td>Difference between physical count and system expectation. Positive = surplus (overage), negative = deficit (shortage). NULL while session is open (generated column is NULL when either input is NULL).</td></tr>
+        <tr><td><code>variance_reason</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Mandatory when <code>variance IS NOT NULL AND variance &lt;&gt; 0</code>. The cashier must explain the discrepancy before the session can be locked.</td></tr>
+        <tr><td><code>denomination_breakdown</code></td><td>jsonb</td><td>YES</td><td>—</td><td>—</td><td>Physical count broken down by denomination: <code>{"2000": 5, "500": 20, "100": 50, "50": 10, "20": 5, "10": 10, "5": 20, "1": 5}</code>. Keys are denomination values in rupees, values are note/coin counts. NULL if not captured.</td></tr>
+        <tr><td><code>closure_notes</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>General notes at close — e.g. equipment issues, handover remarks, or supervisor sign-off notes.</td></tr>
+        <tr class="table-light"><td colspan="6" class="small fw-semibold text-muted">Custody chain — previous session link</td></tr>
+        <tr><td><code>previous_session_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>cash_sessions(id)</code> RESTRICT</td><td>—</td><td>The last closed session at this counter immediately before this one opened. Set by the service layer at <code>openSession()</code> by looking up <code>MAX(closed_at)</code> at the same counter. NULL for the very first session ever opened at a counter. Enables custody chain reconstruction: follow <code>previous_session_id</code> links to see the full session history at a counter.</td></tr>
+        <tr><td><code>opening_variance_reason</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Mandatory when this session's <code>opening_float</code> differs from the previous session's <code>counted_cash</code>. The incoming cashier must explain any gap — e.g. "₹100 missing; reported to supervisor" or "Previous session counted ₹498; I verified ₹498 in drawer." Enforced at the application layer; NULL is allowed when there is no previous session or when the amounts match exactly.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform L1 audit + soft-delete columns.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_cash_sessions</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_cash_sessions_number</code> — UNIQUE (session_number)</li>
+      <li><code>chk_cash_sessions_number_len</code> — CHECK <code>char_length(session_number) BETWEEN 5 AND 30</code></li>
+      <li><code>chk_cash_sessions_label</code> — CHECK <code>session_label IN ('morning','evening','night','full_day','custom')</code></li>
+      <li><code>chk_cash_sessions_status</code> — CHECK <code>status IN ('open','closed','reopened','locked')</code></li>
+      <li><code>chk_cash_sessions_float</code> — CHECK <code>opening_float &gt;= 0</code></li>
+      <li><code>chk_cash_sessions_closed_at_consistency</code> — CHECK <code>(status IN ('closed','locked')) = (closed_at IS NOT NULL)</code></li>
+      <li><code>chk_cash_sessions_variance_reason</code> — CHECK <code>(variance IS NULL OR variance = 0) OR (variance_reason IS NOT NULL)</code></li>
+      <li><code>ix_cash_sessions_counter_date</code> — INDEX (counter_id, business_date DESC) &nbsp;<span class="text-muted">— sessions for a counter on a date</span></li>
+      <li><code>ix_cash_sessions_opened_by</code> — INDEX (opened_by, business_date DESC) &nbsp;<span class="text-muted">— cashier session history</span></li>
+      <li><code>ix_cash_sessions_status</code> — INDEX (status, business_date DESC) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— open sessions dashboard</span></li>
+      <li><code>uq_cash_sessions_cashier_active</code> — UNIQUE INDEX (opened_by) WHERE <code>status = 'open'</code> &nbsp;<span class="text-muted">— one open session per cashier at a time</span></li>
+      <li><code>uq_cash_sessions_counter_active</code> — UNIQUE INDEX (counter_id) WHERE <code>status = 'open'</code> &nbsp;<span class="text-muted">— one open session per counter at a time; a second cashier cannot open the same counter until the first session is closed</span></li>
+      <li><code>ix_cash_sessions_previous</code> — INDEX (previous_session_id) WHERE <code>previous_session_id IS NOT NULL</code> &nbsp;<span class="text-muted">— find the session that followed a given closed session (custody chain traversal)</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_cash_sessions_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_cash_sessions_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>counter_id</th><th>session_number</th><th>session_label</th><th>business_date</th><th>opened_by</th><th>opened_at</th><th>closed_by</th><th>closed_at</th><th>status</th><th>opening_float</th><th>expected_cash</th><th>counted_cash</th><th>variance</th><th>variance_reason</th><th>denomination_breakdown</th><th>closure_notes</th><th>previous_session_id</th><th>opening_variance_reason</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…cs001</code></td>
+          <td><code>…cc001 (FD)</code></td>
+          <td>KH-FD-2026-05-10-M</td><td>morning</td><td>2026-05-10</td>
+          <td><code>…usr05 (Meena)</code></td><td>2026-05-10 08:00</td>
+          <td>NULL</td><td>NULL</td>
+          <td>open</td>
+          <td>500.00</td><td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td>
+          <td><code>…cs001-prev (prior FD session, closed)</code></td>
+          <td>NULL <span class="text-muted small">(opening_float matches previous counted_cash)</span></td>
+          <td><code>…usr05</code></td><td>2026-05-10 08:00</td>
+          <td>NULL</td><td>2026-05-10 08:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr class="table-warning">
+          <td><code>…cs002</code></td>
+          <td><code>…cc002 (PHX)</code></td>
+          <td>KH-PHX-2026-05-09-E</td><td>evening</td><td>2026-05-09</td>
+          <td><code>…usr06 (Anbu)</code></td><td>2026-05-09 14:00</td>
+          <td><code>…usr07 (Supervisor Kala)</code></td><td>2026-05-09 22:05</td>
+          <td>closed</td>
+          <td>980.00</td><td>4250.00</td><td>4230.00</td><td>-20.00</td>
+          <td>₹20 short — likely change error during busy evening hour; Anbu confirmed</td>
+          <td><code>{"500":8,"100":2,"50":1,"20":1,"10":3}</code></td>
+          <td>End of evening shift. ₹4230 in drawer counted by supervisor.</td>
+          <td><code>…cs_phx_prev (prior PHX session)</code></td>
+          <td>₹20 missing from prior session counted_cash=1000; Anbu counted ₹980 in drawer at open; reported to supervisor</td>
+          <td><code>…usr06</code></td><td>2026-05-09 14:00</td>
+          <td><code>…usr07</code></td><td>2026-05-09 22:05</td><td>1</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — Front Desk morning session still open. <code>previous_session_id</code> is set (prior FD session); <code>opening_variance_reason</code> is NULL because Meena's opening float matched the prior session's counted cash exactly. Row 2 (highlighted) — Pharmacy evening session: Anbu opened with ₹980 but the previous session closed with ₹1000 — the ₹20 gap is formally documented in <code>opening_variance_reason</code> and linked via <code>previous_session_id</code>. Session closed with a further ₹20 shortage; both variances (opening gap + close shortage) are recorded against Anbu's shift. The <code>table-warning</code> highlight marks sessions with non-zero variance requiring management review.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- cash_counter_handovers                                            -->
+  <!-- ================================================================ -->
+  <section id="cash_counter_handovers" class="mb-5">
+    <h2>cash_counter_handovers
+      <span class="badge bg-secondary">append-only</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-warning text-dark">API endpoint dropped</span>
+    </h2>
+
+    <div class="alert alert-warning small">
+      <strong>API endpoint dropped — table retained in DB only.</strong>
+      The <code>POST /api/cash-sessions/handover</code> endpoint has been removed. Shift changes now use independent open + close:
+      <ol class="mb-0 mt-1">
+        <li>Cashier A closes their session (<code>POST /api/cash-sessions/close</code>) — enters counted cash; any variance is recorded against A.</li>
+        <li>Some time later, Cashier B opens a new session (<code>POST /api/cash-sessions/open</code>) — enters the cash they physically count in the drawer; any gap from A's counted amount is documented via <code>opening_variance_reason</code> on the new session and linked via <code>previous_session_id</code>.</li>
+      </ol>
+      The <code>cash_counter_handovers</code> table and its Java entity/repository remain in the codebase for historical rows and potential future reporting. No new rows are written by the application.
+    </div>
+
+    <p>Originally designed to atomically link an outgoing cashier's closing session to an incoming cashier's opening session in one transaction. Replaced by the simpler open + close model with <code>cash_sessions.previous_session_id</code> for custody chain traceability.</p>
+
+    <h5>Columns (table-specific; L1 audit block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>outgoing_session_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>cash_sessions(id)</code> RESTRICT</td><td>—</td><td>The session being closed — outgoing cashier's shift. <code>cash_sessions.status</code> must be <code>closed</code> at the time of INSERT.</td></tr>
+        <tr><td><code>incoming_session_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>cash_sessions(id)</code> RESTRICT</td><td>—</td><td>The new session opened by the incoming cashier in the same transaction. <code>opening_float</code> on that session equals this row's <code>amount</code>.</td></tr>
+        <tr><td><code>amount</code></td><td>numeric(14,2)</td><td>NO</td><td>CHECK &gt;= 0</td><td>—</td><td>Cash physically transferred from outgoing to incoming cashier. Must equal <code>cash_sessions.counted_cash</code> of the outgoing session.</td></tr>
+        <tr><td><code>handed_over_by</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>The outgoing cashier who counted and handed over the cash.</td></tr>
+        <tr><td><code>received_by</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>The incoming cashier who received and verified the cash. Must differ from <code>handed_over_by</code>.</td></tr>
+        <tr><td><code>notes</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Optional handover notes — discrepancy explanation, supervisor present, denomination remarks.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ L1 audit columns. Append-only — handover rows are immutable. No soft-delete.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_cash_counter_handovers</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_cash_counter_handovers_amount</code> — CHECK <code>amount &gt;= 0</code></li>
+      <li><code>chk_cash_counter_handovers_sod</code> — CHECK <code>handed_over_by &lt;&gt; received_by</code> &nbsp;<span class="text-muted">— outgoing and incoming cashier must be different people</span></li>
+      <li><code>chk_cash_counter_handovers_diff_sessions</code> — CHECK <code>outgoing_session_id &lt;&gt; incoming_session_id</code> &nbsp;<span class="text-muted">— cannot link a session to itself</span></li>
+      <li><code>ix_cash_counter_handovers_outgoing</code> — INDEX (outgoing_session_id) &nbsp;<span class="text-muted">— find handover for a closing session</span></li>
+      <li><code>ix_cash_counter_handovers_incoming</code> — INDEX (incoming_session_id) &nbsp;<span class="text-muted">— find handover that funded an opening session</span></li>
+      <li><code>ix_cash_counter_handovers_handed_over_by</code> — INDEX (handed_over_by, created_at DESC) &nbsp;<span class="text-muted">— outgoing cashier shift history</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_cash_counter_handovers_bu_block</code> — BEFORE UPDATE OR DELETE → raises exception: <em>"cash_counter_handovers rows are immutable"</em></li>
+      <li><code>tr_cash_counter_handovers_au_audit</code> — AFTER INSERT → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — shift change with two cashiers already at the counter</h5>
+    <p class="small text-muted">
+      Scenario: Cashier 1 (Meena) and Cashier 2 (Anbu) are both at the Front Desk counter. Cashier 3 (Ravi) arrives at 14:00. Meena hands over to Ravi and leaves. Anbu continues unaffected.
+    </p>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>outgoing_session_id</th><th>incoming_session_id</th><th>amount</th><th>handed_over_by</th><th>received_by</th><th>notes</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…ch001</code></td>
+          <td><code>…cs001 (Meena morning, closed)</code></td>
+          <td><code>…cs003 (Ravi afternoon, opened)</code></td>
+          <td>12500.00</td>
+          <td><code>…usr05 (Meena)</code></td>
+          <td><code>…usr07 (Ravi)</code></td>
+          <td>NULL</td>
+          <td><code>…usr05</code></td><td>2026-05-10 14:00</td><td>NULL</td><td>2026-05-10 14:00</td><td>0</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">
+      One handover row links Meena's closing session (cs001, <code>counted_cash = 12500</code>) to Ravi's new session (cs003, <code>opening_float = 12500</code>). Anbu's session (cs002) has no entry here — Anbu is still open at the same counter and is unaffected. The chain is complete: cs001 → ch001 → cs003.
+    </p>
+  </section>
+
+</main>
+</body>
+</html>

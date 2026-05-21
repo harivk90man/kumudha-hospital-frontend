@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Consultation — HMS Schema v8</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script src="../shared/manifest.js"></script>
+  <script src="../shared/catalog.js"></script>
+  <script src="../shared/renderer.js"></script>
+  <script>
+  // ─── EDIT BELOW ONLY. Do not touch HTML/script tags. ────────────────────
+  const MODULE = {
+    id: 'consultation',
+    name: 'Consultation',
+    color: '#1D9E75',
+    bg: '#142820',
+    lbg: '#E1F5EE',
+    features: ['vitals', 'consult', 'drafts', 'templates', 'rx', 'recommendations'],
+    tables: [
+      { n:'vitals', feature:'vitals', desc:'Vitals readings — temp, BP, SpO2, pulse, RR, sugar, BMI generated. OP visit, IP, or standalone.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'patient_id',t:'uuid',fk:'patients'},
+          {n:'op_visit_id',t:'uuid',fk:'op_visits',nl:1},
+          {n:'ip_admission_id',t:'uuid · phase 2',nl:1},
+          {n:'temperature_f',t:'decimal',nl:1},
+          {n:'weight_kg',t:'decimal',nl:1},
+          {n:'height_cm',t:'decimal',nl:1},
+          {n:'bmi',t:'decimal GENERATED · weight/(height/100)^2',nl:1,nw:1},
+          {n:'bp_systolic',t:'int',nl:1},
+          {n:'bp_diastolic',t:'int',nl:1},
+          {n:'spo2',t:'int',nl:1},
+          {n:'pulse_rate',t:'int',nl:1},
+          {n:'respiratory_rate',t:'int',nl:1},
+          {n:'blood_sugar_random',t:'decimal',nl:1},
+          {n:'blood_sugar_fasting',t:'decimal',nl:1},
+          {n:'pain_score',t:'int · 0..10',nl:1,nw:1},
+          {n:'notes',t:'text',nl:1},
+          {n:'recorded_by',t:'uuid',fk:'users'},
+          {n:'recorded_at',t:'timestamptz'},
+        ]},
+      { n:'consultations', feature:'consult', desc:'One doctor encounter — complaint, exam, diagnoses (jsonb[] GIN-indexed), advice, next action. Locked after sign-off.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'op_visit_id',t:'uuid',fk:'op_visits'},
+          {n:'patient_id',t:'uuid',fk:'patients'},
+          {n:'doctor_id',t:'uuid',fk:'users'},
+          {n:'chief_complaint',t:'text',nl:1},
+          {n:'history_of_present_illness',t:'text',nl:1},
+          {n:'past_history',t:'text',nl:1},
+          {n:'examination_findings',t:'jsonb',nl:1},
+          {n:'diagnoses',t:"jsonb[] · {icd10, desc, type:provisional|final|working}"},
+          {n:'symptoms',t:'text',nl:1},
+          {n:'clinical_notes',t:'text',nl:1},
+          {n:'advice',t:'text',nl:1},
+          {n:'vitals_snapshot',t:'jsonb',nl:1},
+          {n:'next_action',t:"varchar · 'prescription_only'|'lab_ordered'|'radiology_ordered'|'admit_ip'|'surgery_referral'|'follow_up'|'referred_external'|'no_action'"},
+          {n:'follow_up_required',t:'boolean'},
+          {n:'follow_up_date',t:'date',nl:1},
+          {n:'admission_required',t:'boolean'},
+          {n:'surgery_required',t:'boolean'},
+          {n:'physio_required',t:'boolean'},
+          {n:'locked_at',t:'timestamptz · read-only after lock',nl:1,nw:1},
+          {n:'created_by',t:'uuid',fk:'users',nw:1},
+          {n:'created_at',t:'timestamptz'},
+          {n:'updated_by',t:'uuid',fk:'users',nl:1,nw:1},
+          {n:'updated_at',t:'timestamptz'},
+          {n:'version',t:'int DEFAULT 0',nw:1},
+        ]},
+      { n:'diagnosis_templates', feature:'templates', desc:'Pre-built diagnosis bundles — exam, common meds, common tests. Speeds up frequent presentations.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants',nw:1},
+          {n:'template_name',t:'varchar'},
+          {n:'department_id',t:'uuid',fk:'departments',nl:1},
+          {n:'specialty',t:'varchar',nl:1},
+          {n:'icd10_code',t:'varchar',nl:1},
+          {n:'diagnosis_text',t:'text'},
+          {n:'template_json',t:"jsonb · default exam, common meds, common tests"},
+          {n:'default_advice',t:'text',nl:1},
+          {n:'default_followup_days',t:'int',nl:1},
+          {n:'created_by',t:'uuid',fk:'users',nl:1},
+          {n:'is_active',t:'boolean'},
+        ]},
+      { n:'prescriptions', feature:'rx', desc:'Prescription header per consultation. Tracks dispensing status across pharmacy.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'consultation_id',t:'uuid',fk:'consultations',uk:1,nw:1},
+          {n:'patient_id',t:'uuid',fk:'patients'},
+          {n:'doctor_id',t:'uuid',fk:'users'},
+          {n:'status',t:"varchar · 'draft'|'active'|'dispensed'|'partially_dispensed'|'cancelled'"},
+          {n:'locked_at',t:'timestamptz · immutable after lock',nl:1,nw:1},
+          {n:'created_by',t:'uuid',fk:'users',nw:1},
+          {n:'created_at',t:'timestamptz'},
+          {n:'updated_by',t:'uuid',fk:'users',nl:1,nw:1},
+          {n:'updated_at',t:'timestamptz',nw:1},
+          {n:'version',t:'int DEFAULT 0',nw:1},
+        ]},
+      { n:'prescription_items', feature:'rx', desc:'One drug per row — dosage, frequency, duration, qty prescribed vs dispensed. Stable display order via sequence_no.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'prescription_id',t:'uuid',fk:'prescriptions'},
+          {n:'medicine_id',t:'uuid',fk:'medicines'},
+          {n:'medicine_name_snapshot',t:'varchar · frozen at prescribe time',nw:1},
+          {n:'dosage',t:'varchar'},
+          {n:'frequency',t:"varchar · '1-0-1'"},
+          {n:'duration_days',t:'int'},
+          {n:'instructions',t:'text',nl:1},
+          {n:'quantity_prescribed',t:'int'},
+          {n:'dispensed_qty',t:'int DEFAULT 0'},
+          {n:'sequence_no',t:'int · per Rx, UNIQUE',nw:1},
+          {n:'created_at',t:'timestamptz',nw:1},
+        ]},
+      { n:'doctor_recommendations', feature:'recommendations', desc:'Non-Rx outputs — physio, surgery, admission, follow-up, lab, radiology, specialist referral. Separate-column FKs + at-most-one-non-null check.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants',nw:1},
+          {n:'consultation_id',t:'uuid',fk:'consultations'},
+          {n:'patient_id',t:'uuid',fk:'patients'},
+          {n:'recommendation_type',t:"varchar · 'physio'|'surgery'|'admission'|'follow_up'|'lab'|'radiology'|'specialist_referral'"},
+          {n:'physio_session_id',t:'uuid · phase 2',nl:1,nw:1},
+          {n:'surgery_schedule_id',t:'uuid · phase 2',nl:1,nw:1},
+          {n:'ip_admission_id',t:'uuid · phase 2',nl:1,nw:1},
+          {n:'follow_up_appointment_id',t:'uuid',fk:'appointments',nl:1,nw:1},
+          {n:'lab_order_id',t:'uuid',fk:'lab_orders',nl:1,nw:1},
+          {n:'radiology_order_id',t:'uuid',fk:'radiology_orders',nl:1,nw:1},
+          {n:'external_referral_id',t:'uuid · external referral',nl:1,nw:1},
+          {n:'notes',t:'text',nl:1},
+          {n:'priority',t:"varchar · 'routine'|'urgent'|'stat'"},
+          {n:'status',t:"varchar · 'open'|'scheduled'|'completed'|'cancelled'|'declined'"},
+          {n:'_check',t:'CHECK (num_nonnulls(physio_session_id, surgery_schedule_id, ip_admission_id, follow_up_appointment_id, lab_order_id, radiology_order_id, external_referral_id) <= 1)',nw:1},
+          {n:'created_by',t:'uuid',fk:'users'},
+          {n:'created_at',t:'timestamptz'},
+        ]},
+      { n:'consultation_drafts', feature:'drafts', desc:'Auto-saved in-progress consultation data. Restores work if browser/session is lost. 7-day TTL.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants'},
+          {n:'doctor_id',t:'uuid',fk:'users'},
+          {n:'patient_id',t:'uuid',fk:'patients'},
+          {n:'op_visit_id',t:'uuid',fk:'op_visits',nl:1},
+          {n:'ip_admission_id',t:'uuid · phase 2',nl:1},
+          {n:'draft_data',t:'jsonb · all consultation fields snapshot'},
+          {n:'autosave_count',t:'int DEFAULT 0'},
+          {n:'last_saved_at',t:'timestamptz'},
+          {n:'expires_at',t:'timestamptz · auto-cleanup after 7 days'},
+          {n:'restored_at',t:'timestamptz',nl:1},
+        ]},
+    ]
+  };
+  renderModule(MODULE);
+  </script>
+</body>
+</html>

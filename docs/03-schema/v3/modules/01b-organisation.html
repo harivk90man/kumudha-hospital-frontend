@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>01B · Organisation — HMS Schema v3</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <style>
+    code { color: #d63384; font-size: 0.92em; }
+    .table th { white-space: nowrap; }
+    h2 .badge { font-size: 0.55em; vertical-align: middle; }
+    pre { background: #f8f9fa; padding: 1rem; border-radius: 0.375rem; font-size: 0.85em; }
+    .toc-card { background: #fff; }
+    .sample-data td, .sample-data th { white-space: nowrap; font-size: 0.78em; }
+    .sample-data .json { color: #6c757d; max-width: 60ch; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
+  </style>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark sticky-top">
+  <div class="container">
+    <a href="../index.html" class="navbar-brand">
+      <i class="bi bi-arrow-left"></i> v3 Schema
+    </a>
+    <span class="navbar-text">Module 01 · Slice <strong>1B</strong> of 4 · Organisation</span>
+  </div>
+</nav>
+
+<main class="container py-4">
+
+  <h1>Organisation</h1>
+  <p class="lead">The hospital's org chart — functional units (departments) and the doctor-specific extension that hangs off <code>users</code>.</p>
+
+  <div class="card toc-card mb-4">
+    <div class="card-body">
+      <h6 class="card-subtitle text-muted mb-2">Slice 1B contents</h6>
+      <ol class="mb-0 small">
+        <li><a href="#departments">departments</a> — functional units (Ortho, Cardio, Lab, Pharmacy, …)</li>
+        <li><a href="#doctor_profiles">doctor_profiles</a> — clinical extension of <code>users</code>; <strong>source of truth for consultation fees</strong></li>
+        <li><a href="#doctor_leaves">doctor_leaves</a> — individual doctor leave / unavailability days; appointment slot generator checks this before creating slots</li>
+        <li><a href="#doctor_registrations">doctor_registrations</a> — N:1 child of <code>users</code>; one row per (doctor × medical council). Supports state council + NMC + historical state regs.</li>
+        <li><a href="#department_heads">department_heads</a> — formal department roles (head / co_head / senior / junior / registrar / intern), with history</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- 1. departments                                                   -->
+  <!-- ================================================================ -->
+  <section id="departments" class="mb-5">
+    <h2>1. departments
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Functional units of the hospital (Orthopaedics, Cardiology, Lab, Pharmacy, …). Drives staff routing, dept-wise revenue rollups, approval scoping, and the doctor picker in the appointment booking UI. Each user belongs to a primary department (nullable for cross-cutting roles like the platform-admin role). Department leadership (head / co-head / acting-head) and formal ranks (senior / junior / registrar / intern) live in the separate <a href="#department_heads"><code>department_heads</code></a> table — not on this table.</p>
+
+    <h5>Columns (table-specific)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>dept_name</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Display name</td></tr>
+        <tr><td><code>dept_code</code></td><td>text</td><td>NO</td><td>UNIQUE, CHECK length 2–16</td><td>—</td><td>Short code (e.g. <code>ORTHO</code>, <code>CARDIO</code>)</td></tr>
+        <tr><td><code>segment</code></td><td>text</td><td>NO</td><td>CHECK IN ('clinical','lab','pharma','radiology','support','er','inpatient')</td><td>—</td><td>Functional segment — drives revenue analytics + workflow routing</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_departments</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_departments_dept_code</code> — UNIQUE (dept_code)</li>
+      <li><code>chk_departments_dept_code_len</code> — CHECK <code>char_length(dept_code) BETWEEN 2 AND 16</code></li>
+      <li><code>chk_departments_segment</code> — CHECK <code>segment IN ('clinical','lab','pharma','radiology','support','er','inpatient')</code></li>
+      <li><code>ix_departments_segment_active</code> — INDEX (segment) WHERE <code>deleted_at IS NULL</code></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_departments_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_departments_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns (split into 2 sub-tables for readability)</h5>
+
+    <h6 class="text-muted mt-3">1.1 Identity</h6>
+    <p class="small text-muted">Department leadership (head, co-head, acting-head) is queried via <code>JOIN department_heads ON department_id = id WHERE role_type = 'head' AND ended_at IS NULL</code> — see <a href="#department_heads">§3</a>. Not stored on this table.</p>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>dept_name</th><th>dept_code</th><th>segment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>…d001</code></td><td>Orthopaedics</td><td>ORTHO</td><td>clinical</td></tr>
+        <tr><td><code>…d002</code></td><td>Dermatology</td><td>DERMA</td><td>clinical</td></tr>
+        <tr><td><code>…d003</code></td><td>General Medicine</td><td>GENMED</td><td>clinical</td></tr>
+        <tr><td><code>…d004</code></td><td>Cardiology</td><td>CARDIO</td><td>clinical</td></tr>
+        <tr><td><code>…d005</code></td><td>Paediatrics</td><td>PAED</td><td>clinical</td></tr>
+        <tr><td><code>…d006</code></td><td>Ophthalmology</td><td>OPHTH</td><td>clinical</td></tr>
+        <tr><td><code>…d007</code></td><td>General Surgery</td><td>SURG</td><td>clinical</td></tr>
+        <tr><td><code>…d008</code></td><td>Laboratory</td><td>LAB</td><td>lab</td></tr>
+        <tr><td><code>…d009</code></td><td>Pharmacy</td><td>PHARMA</td><td>pharma</td></tr>
+        <tr><td><code>…d010</code></td><td>Radiology</td><td>RADIO</td><td>radiology</td></tr>
+        <tr><td><code>…d011</code></td><td>Front Desk</td><td>FRONT</td><td>support</td></tr>
+        <tr><td><code>…d012</code></td><td>Nursing</td><td>NURSE</td><td>support</td></tr>
+        <tr class="table-danger"><td><code>…d013</code></td><td>Telemedicine (pilot)</td><td>TELE</td><td>clinical</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h6 class="text-muted mt-3">1.2 Audit + soft-delete (uniform block)</h6>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>dept_code</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>ORTHO</td><td><code>…0001 (admin)</code></td><td>2024-01-01 09:30:00+05:30</td><td><code>…0001 (admin)</code></td><td>2024-01-15 10:30:00+05:30</td><td>1</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>DERMA</td><td><code>…0001 (admin)</code></td><td>2024-01-01 09:30:00+05:30</td><td>NULL</td><td>2024-01-01 09:30:00+05:30</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>GENMED</td><td><code>…0001 (admin)</code></td><td>2024-01-01 09:30:00+05:30</td><td><code>…0001 (admin)</code></td><td>2024-03-01 10:15:00+05:30</td><td>1</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>CARDIO</td><td><code>…0001 (admin)</code></td><td>2024-04-08 10:00:00+05:30</td><td><code>…0001 (admin)</code></td><td>2024-04-10 11:00:00+05:30</td><td>1</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>PAED</td><td><code>…0001 (admin)</code></td><td>2024-03-25 10:00:00+05:30</td><td><code>…0001 (admin)</code></td><td>2024-03-25 10:15:00+05:30</td><td>1</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>OPHTH</td><td><code>…0001 (admin)</code></td><td>2024-04-05 10:00:00+05:30</td><td><code>…0001 (admin)</code></td><td>2024-04-05 10:15:00+05:30</td><td>1</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>SURG</td><td><code>…0001 (admin)</code></td><td>2024-04-05 10:00:00+05:30</td><td><code>…0001 (admin)</code></td><td>2024-04-05 10:15:00+05:30</td><td>1</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>LAB</td><td><code>…0001 (admin)</code></td><td>2024-01-01 09:30:00+05:30</td><td>NULL</td><td>2024-01-01 09:30:00+05:30</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>PHARMA</td><td><code>…0001 (admin)</code></td><td>2024-01-01 09:30:00+05:30</td><td>NULL</td><td>2024-01-01 09:30:00+05:30</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>RADIO</td><td><code>…0001 (admin)</code></td><td>2024-01-01 09:30:00+05:30</td><td>NULL</td><td>2024-01-01 09:30:00+05:30</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>FRONT</td><td><code>…0001 (admin)</code></td><td>2024-01-01 09:30:00+05:30</td><td>NULL</td><td>2024-01-01 09:30:00+05:30</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>NURSE</td><td><code>…0001 (admin)</code></td><td>2024-01-01 09:30:00+05:30</td><td>NULL</td><td>2024-01-01 09:30:00+05:30</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr class="table-danger"><td>TELE</td><td><code>…0001 (admin)</code></td><td>2025-02-01 10:00:00+05:30</td><td><code>…0001 (admin)</code></td><td>2025-08-15 16:00:00+05:30</td><td>2</td><td>2025-08-15 16:00:00+05:30</td><td><code>…0001 (admin)</code></td></tr>
+      </tbody>
+    </table>
+    </div>
+
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 2. doctor_profiles                                               -->
+  <!-- ================================================================ -->
+  <section id="doctor_profiles" class="mb-5">
+    <h2>2. doctor_profiles
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Doctor-specific extension of <code>users</code> (1:1, mandatory <code>UNIQUE user_id</code>). Drives consultation pricing (<strong>source of truth</strong> per v3 Resolution 1 — see "Pricing" callout below), appointment slot length, follow-up free-window logic, the doctor's weekly availability template, and the digital-signature image embedded on prescriptions.</p>
+
+    <div class="alert alert-warning small">
+      <strong>Pricing model — Resolution 1 locked.</strong> Consultation fees live HERE in <code>doctor_profiles</code>. The future <code>services</code> table (Module 16) will hold generic per-category rows (<code>CONSULT_NEW</code>, <code>CONSULT_FU</code>, <code>ECG</code>, <code>ROOM_PVT</code>, …) with <code>default_price = NULL</code> for the two consultation service types. At billing time, the invoice-line service-layer code looks up the doctor's <code>consultation_fee</code> / <code>follow_up_fee</code> here and snapshots it into <code>invoice_items.unit_price</code>. The <code>services</code> table has no <code>doctor_id</code> column (dropped from v2).
+    </div>
+
+    <h5>Columns (table-specific)</h5>
+    <p class="small text-muted"><strong>Shared-PK pattern:</strong> <code>user_id</code> is BOTH the primary key AND the foreign key to <code>users(id)</code>. No separate surrogate <code>id</code> column. This enforces strict 1:1 at the schema level (a user has at most one <code>doctor_profiles</code> row by virtue of the PK), saves one index, and the FK constraint guarantees no orphan rows. Same pattern will be applied to <code>user_preferences</code> in Slice 1D. See <a href="../CONVENTIONS.md">CONVENTIONS.md §2a</a> for full rationale.</p>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>user_id</code></td><td>uuid</td><td>NO</td><td><strong>PK</strong>, FK → <code>users(id)</code> CASCADE</td><td>— (set from <code>users.id</code>)</td><td>Primary key + FK in one column. Strict 1:1 with <code>users</code>. CASCADE: if a user is hard-deleted, their doctor profile goes with it. Doctor's specialty derives via <code>JOIN users.department_id → departments.dept_name</code>.</td></tr>
+        <tr><td colspan="6" class="text-info-emphasis"><strong>Clinical credentials</strong></td></tr>
+        <tr><td><code>qualification</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>MBBS, MD, MS, DM, DCH, … — also carries sub-specialty (e.g. "MD, DM (Cardio)"). Medical-council registrations live in the <a href="#doctor_registrations"><code>doctor_registrations</code></a> child table.</td></tr>
+        <tr><td colspan="6" class="text-info-emphasis"><strong>Pricing (source of truth)</strong></td></tr>
+        <tr><td><code>consultation_fee</code></td><td>numeric(14,2)</td><td>YES</td><td>CHECK &gt;= 0</td><td>—</td><td>New-patient consultation fee — read at invoice line creation</td></tr>
+        <tr><td><code>follow_up_fee</code></td><td>numeric(14,2)</td><td>YES</td><td>CHECK &gt;= 0</td><td>—</td><td>Reduced fee for follow-ups within <code>follow_up_window_days</code></td></tr>
+        <tr><td><code>follow_up_window_days</code></td><td>int</td><td>NO</td><td>CHECK BETWEEN 1 AND 365</td><td><code>7</code></td><td>Days within which a return visit qualifies as follow-up</td></tr>
+        <tr><td colspan="6" class="text-info-emphasis"><strong>Scheduling</strong></td></tr>
+        <tr><td><code>available_days</code></td><td>jsonb</td><td>YES</td><td>CHECK <code>available_days IS NULL OR fn_validate_available_days(available_days)</code></td><td>—</td><td>Weekly availability template — JSON shape below</td></tr>
+        <tr><td><code>slot_duration_mins</code></td><td>int</td><td>NO</td><td>CHECK BETWEEN 5 AND 120</td><td><code>15</code></td><td>Default slot length for appointment generation</td></tr>
+        <tr><td colspan="6" class="text-info-emphasis"><strong>Other</strong></td></tr>
+        <tr><td><code>signature_path</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Storage URL for digital signature image (used on prescriptions)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>JSON shape — <code>available_days</code> column</h5>
+    <p class="small text-muted">Resolution 4 (TSD-01) locked. Validated by the DB-side <code>fn_validate_available_days(jsonb)</code> CHECK — see below.</p>
+
+    <table class="table table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Key</th><th>Type</th><th>Required</th><th>Rule</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>mon</code> &hellip; <code>sun</code></td><td>array of window objects</td><td>No</td><td>Lowercase 3-letter weekday code. Missing key = doctor unavailable that day.</td></tr>
+        <tr><td>window.<code>from</code></td><td>string</td><td>Yes (inside each window)</td><td><code>HH:MM</code> 24-hour clock; must be strictly before <code>to</code></td></tr>
+        <tr><td>window.<code>to</code></td><td>string</td><td>Yes (inside each window)</td><td><code>HH:MM</code> 24-hour clock</td></tr>
+      </tbody>
+    </table>
+
+    <p class="small text-muted mb-1">Multiple windows per day allowed (typical: morning + evening clinic).</p>
+
+<pre>{
+  "mon": [{"from": "09:00", "to": "13:00"}, {"from": "17:00", "to": "20:00"}],
+  "tue": [{"from": "09:00", "to": "13:00"}],
+  "wed": [{"from": "09:00", "to": "13:00"}, {"from": "17:00", "to": "20:00"}],
+  "thu": [{"from": "09:00", "to": "13:00"}],
+  "fri": [{"from": "09:00", "to": "13:00"}, {"from": "17:00", "to": "20:00"}],
+  "sat": [{"from": "09:00", "to": "12:00"}]
+}</pre>
+
+    <h5>DB-side validator — <code>fn_validate_available_days(jsonb)</code></h5>
+<pre>CREATE OR REPLACE FUNCTION fn_validate_available_days(p jsonb)
+RETURNS boolean LANGUAGE plpgsql IMMUTABLE AS $$
+DECLARE
+  k        text;
+  window   jsonb;
+  hh_mm    text := '^([01][0-9]|2[0-3]):[0-5][0-9]$';
+  allowed  text[] := ARRAY['mon','tue','wed','thu','fri','sat','sun'];
+BEGIN
+  IF jsonb_typeof(p) &lt;&gt; 'object' THEN RETURN false; END IF;
+
+  FOR k IN SELECT jsonb_object_keys(p) LOOP
+    IF NOT k = ANY(allowed)                                              THEN RETURN false; END IF;
+    IF jsonb_typeof(p-&gt;k) &lt;&gt; 'array'                                     THEN RETURN false; END IF;
+
+    FOR window IN SELECT jsonb_array_elements(p-&gt;k) LOOP
+      IF jsonb_typeof(window) &lt;&gt; 'object'                                THEN RETURN false; END IF;
+      IF NOT (window ? 'from' AND window ? 'to')                         THEN RETURN false; END IF;
+      IF NOT ((window-&gt;&gt;'from') ~ hh_mm AND (window-&gt;&gt;'to') ~ hh_mm)      THEN RETURN false; END IF;
+      IF (window-&gt;&gt;'from')::time &gt;= (window-&gt;&gt;'to')::time                THEN RETURN false; END IF;
+    END LOOP;
+  END LOOP;
+
+  RETURN true;
+END $$;</pre>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_doctor_profiles</code> — PRIMARY KEY (user_id) &nbsp;<span class="text-muted">— also serves as the FK uniqueness guarantee; no separate UNIQUE index needed</span></li>
+      <li><code>chk_doctor_profiles_consultation_fee</code> — CHECK <code>consultation_fee IS NULL OR consultation_fee &gt;= 0</code></li>
+      <li><code>chk_doctor_profiles_follow_up_fee</code> — CHECK <code>follow_up_fee IS NULL OR follow_up_fee &gt;= 0</code></li>
+      <li><code>chk_doctor_profiles_window</code> — CHECK <code>follow_up_window_days BETWEEN 1 AND 365</code></li>
+      <li><code>chk_doctor_profiles_slot</code> — CHECK <code>slot_duration_mins BETWEEN 5 AND 120</code></li>
+      <li><code>chk_doctor_profiles_available_days</code> — CHECK <code>available_days IS NULL OR fn_validate_available_days(available_days)</code></li>
+      <li><span class="text-muted">"by specialty" lookup uses <code>users.department_id</code> + <code>ix_users_department</code>; no per-doctor_profiles index needed.</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_doctor_profiles_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_doctor_profiles_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns (split into 3 sub-tables for readability)</h5>
+
+    <h6 class="text-muted mt-3">2.1 Identity + clinical credentials + pricing</h6>
+    <p class="small text-muted">Specialty column derived via <code>JOIN users.department_id → departments.dept_name</code>; shown here for context but not stored on <code>doctor_profiles</code>. <code>user_id</code> column is the PK + FK — same UUID as the doctor's <code>users.id</code>.</p>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>user_id (PK + FK)</th><th>specialty (derived)</th><th>qualification</th><th>consultation_fee</th><th>follow_up_fee</th><th>follow_up_window_days</th><th>slot_duration_mins</th><th>signature_path</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>…0002 (Dr Priya)</code></td><td><em>Orthopaedics</em></td><td>MBBS, MS (Ortho)</td><td>500.00</td><td>300.00</td><td>7</td><td>15</td><td>/sig/priya.png</td></tr>
+        <tr class="table-success"><td><code>…0015 (Dr Aarthi)</code></td><td><em>Orthopaedics</em></td><td>MBBS, DNB (Ortho)</td><td>350.00</td><td>200.00</td><td>7</td><td>15</td><td>/sig/aarthi.png</td></tr>
+        <tr><td><code>…0010 (Dr Anand)</code></td><td><em>General Medicine</em></td><td>MBBS, MD (Gen. Med)</td><td>400.00</td><td>250.00</td><td>7</td><td>15</td><td>/sig/anand.png</td></tr>
+        <tr><td><code>…0011 (Dr Saritha)</code></td><td><em>Paediatrics</em></td><td>MBBS, DCH, MD (Paed)</td><td>450.00</td><td>300.00</td><td>14</td><td>15</td><td>/sig/saritha.png</td></tr>
+        <tr><td><code>…0012 (Dr Vinod)</code></td><td><em>Cardiology</em></td><td>MBBS, MD, DM (Cardio)</td><td>800.00</td><td>500.00</td><td>30</td><td>20</td><td>/sig/vinod.png</td></tr>
+        <tr><td><code>…0013 (Dr Lakshmi)</code></td><td><em>Ophthalmology</em></td><td>MBBS, MS (Ophth)</td><td>500.00</td><td>300.00</td><td>14</td><td>15</td><td>/sig/lakshmi.png</td></tr>
+        <tr><td><code>…0014 (Dr Ravi)</code></td><td><em>General Surgery</em></td><td>MBBS, MS (Gen. Surg)</td><td>600.00</td><td>400.00</td><td>14</td><td>20</td><td>/sig/ravi.png</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h6 class="text-muted mt-3">2.2 Available days (JSONB content)</h6>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>doctor</th><th>available_days (jsonb)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Dr Priya (Ortho)</td><td><span class="json"><code>{"mon":[{"from":"09:00","to":"13:00"},{"from":"17:00","to":"20:00"}],"tue":[{"from":"09:00","to":"13:00"}],"wed":[{"from":"09:00","to":"13:00"},{"from":"17:00","to":"20:00"}],"thu":[{"from":"09:00","to":"13:00"}],"fri":[{"from":"09:00","to":"13:00"},{"from":"17:00","to":"20:00"}],"sat":[{"from":"09:00","to":"12:00"}]}</code></span></td></tr>
+        <tr class="table-success"><td>Dr Aarthi (Ortho, junior)</td><td><span class="json"><code>{"tue":[{"from":"14:00","to":"18:00"}],"thu":[{"from":"14:00","to":"18:00"}],"sun":[{"from":"09:00","to":"13:00"}]}</code></span></td></tr>
+        <tr><td>Dr Anand (GenMed)</td><td><span class="json"><code>{"mon":[{"from":"09:00","to":"13:00"}],"tue":[{"from":"09:00","to":"13:00"},{"from":"17:00","to":"20:00"}],"wed":[{"from":"09:00","to":"13:00"}],"thu":[{"from":"17:00","to":"20:00"}],"fri":[{"from":"09:00","to":"13:00"}],"sat":[{"from":"09:00","to":"12:00"}]}</code></span></td></tr>
+        <tr><td>Dr Saritha (Paed)</td><td><span class="json"><code>{"mon":[{"from":"10:00","to":"13:00"}],"tue":[{"from":"10:00","to":"13:00"}],"wed":[{"from":"10:00","to":"13:00"},{"from":"17:00","to":"20:00"}],"thu":[{"from":"10:00","to":"13:00"}],"fri":[{"from":"10:00","to":"13:00"}],"sat":[{"from":"10:00","to":"12:00"}]}</code></span></td></tr>
+        <tr><td>Dr Vinod (Cardio)</td><td><span class="json"><code>{"mon":[{"from":"09:00","to":"12:00"}],"wed":[{"from":"09:00","to":"12:00"}],"fri":[{"from":"09:00","to":"12:00"}]}</code></span></td></tr>
+        <tr><td>Dr Lakshmi (Ophth)</td><td><span class="json"><code>{"tue":[{"from":"09:00","to":"13:00"}],"thu":[{"from":"09:00","to":"13:00"}],"sat":[{"from":"09:00","to":"13:00"}]}</code></span></td></tr>
+        <tr><td>Dr Ravi (Surg)</td><td><span class="json"><code>{"mon":[{"from":"14:00","to":"18:00"}],"wed":[{"from":"14:00","to":"18:00"}],"fri":[{"from":"14:00","to":"18:00"}]}</code></span></td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h6 class="text-muted mt-3">2.3 Audit + soft-delete (uniform block)</h6>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>doctor</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Dr Priya</td><td><code>…0001 (admin)</code></td><td>2024-01-15 10:30:00+05:30</td><td><code>…0001 (admin)</code></td><td>2025-12-15 14:30:00+05:30</td><td>2</td><td>NULL</td><td>NULL</td></tr>
+        <tr class="table-success"><td>Dr Aarthi</td><td><code>…0001 (admin)</code></td><td>2025-09-01 10:30:00+05:30</td><td>NULL</td><td>2025-09-01 10:30:00+05:30</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>Dr Anand</td><td><code>…0001 (admin)</code></td><td>2024-03-01 10:30:00+05:30</td><td>NULL</td><td>2024-03-01 10:30:00+05:30</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>Dr Saritha</td><td><code>…0001 (admin)</code></td><td>2024-03-25 10:30:00+05:30</td><td>NULL</td><td>2024-03-25 10:30:00+05:30</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>Dr Vinod</td><td><code>…0001 (admin)</code></td><td>2024-04-10 10:30:00+05:30</td><td><code>…0001 (admin)</code></td><td>2026-01-20 11:00:00+05:30</td><td>1</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>Dr Lakshmi</td><td><code>…0001 (admin)</code></td><td>2024-04-05 10:30:00+05:30</td><td>NULL</td><td>2024-04-05 10:30:00+05:30</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>Dr Ravi</td><td><code>…0001 (admin)</code></td><td>2024-04-05 10:30:00+05:30</td><td>NULL</td><td>2024-04-05 10:30:00+05:30</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 3. doctor_leaves                                                 -->
+  <!-- ================================================================ -->
+  <section id="doctor_leaves" class="mb-5">
+    <h2>3. doctor_leaves
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Individual doctor leave / unavailability days — distinct from hospital-wide <code>holidays</code> (Slice 1D). One row per (doctor × date) covers the specific days a doctor will not be seeing patients, regardless of their regular weekly schedule.</p>
+
+    <div class="alert alert-info small">
+      <strong>Slot generator availability check</strong> combines three layers:
+      <ol class="mb-0 mt-1">
+        <li><code>holidays</code> — hospital closed; no slots for anyone on that date.</li>
+        <li><code>doctor_profiles.available_days</code> — the doctor's regular weekly template (Mon–Sun windows).</li>
+        <li><code>doctor_leaves</code> — individual exceptions; a leave row for a given date suppresses all slots for that doctor on that date, even if the weekday template is normally open.</li>
+      </ol>
+    </div>
+
+    <h5>Columns (table-specific)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>doctor_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>The doctor on leave. RESTRICT: leave records cannot be orphaned — revoke / soft-delete before hard-deleting the user.</td></tr>
+        <tr><td><code>leave_date</code></td><td>date</td><td>NO</td><td>—</td><td>—</td><td>The calendar date on which the doctor is unavailable. Combined with <code>doctor_id</code> to form the unique key (see partial UNIQUE index below).</td></tr>
+        <tr><td><code>leave_type</code></td><td>text</td><td>NO</td><td>CHECK IN ('sick','vacation','conference','emergency','other')</td><td>—</td><td>Reason category. Drives reporting and any future policy rules (e.g. conference leave requires approval).</td></tr>
+        <tr><td><code>reason</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Free-form narrative — optional supplementary detail beyond <code>leave_type</code>.</td></tr>
+        <tr><td><code>approved_by</code></td><td>uuid</td><td>YES</td><td>FK → <code>users(id)</code> SET NULL</td><td>—</td><td>Admin or HOD who approved the leave. NULL = pending approval or self-reported sick leave. SET NULL: approver user deletion does not cascade.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns (§0).</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_doctor_leaves</code> — PRIMARY KEY (id)</li>
+      <li><code>fk_doctor_leaves_doctor</code> — FK → <code>users(id)</code> RESTRICT</li>
+      <li><code>fk_doctor_leaves_approver</code> — FK → <code>users(id)</code> SET NULL</li>
+      <li><code>chk_doctor_leaves_type</code> — CHECK <code>leave_type IN ('sick','vacation','conference','emergency','other')</code></li>
+      <li><code>uq_doctor_leaves_doctor_date</code> — UNIQUE INDEX (doctor_id, leave_date) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— one leave record per doctor per date (soft-deleting a row allows a replacement to be inserted)</span></li>
+      <li><code>ix_doctor_leaves_doctor_date</code> — INDEX (doctor_id, leave_date) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— slot generator availability check query</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_doctor_leaves_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_doctor_leaves_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr>
+          <th>id</th><th>doctor_id</th><th>leave_date</th><th>leave_type</th><th>reason</th><th>approved_by</th>
+          <th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th>
+          <th>deleted_at</th><th>deleted_by</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…dl01</code></td>
+          <td><code>…0010 (Dr Anand)</code></td>
+          <td>2026-05-19</td>
+          <td>sick</td>
+          <td>Fever and rest advised</td>
+          <td>NULL</td>
+          <td><code>…0010 (Dr Anand)</code></td><td>2026-05-16 07:30:00+05:30</td>
+          <td>NULL</td><td>2026-05-16 07:30:00+05:30</td><td>0</td>
+          <td>NULL</td><td>NULL</td>
+        </tr>
+        <tr class="table-success">
+          <td><code>…dl02</code></td>
+          <td><code>…0002 (Dr Priya)</code></td>
+          <td>2026-05-23</td>
+          <td>vacation</td>
+          <td>Annual family vacation — pre-approved</td>
+          <td><code>…0001 (admin)</code></td>
+          <td><code>…0001 (admin)</code></td><td>2026-05-10 11:00:00+05:30</td>
+          <td>NULL</td><td>2026-05-10 11:00:00+05:30</td><td>0</td>
+          <td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">
+      <strong>Row 1</strong> Dr Anand (GenMed) self-reported sick leave for 2026-05-19. <code>approved_by</code> is NULL — sick leave is self-reported and does not require prior approval; the slot generator will still suppress his slots for that date.<br>
+      <span class="badge bg-success">green row</span> <strong>Row 2</strong> Dr Priya's vacation day was pre-approved by the admin. <code>approved_by</code> is set.
+    </p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 4. doctor_registrations                                          -->
+  <!-- ================================================================ -->
+  <section id="doctor_registrations" class="mb-5">
+    <h2>4. doctor_registrations
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Medical-council registrations held by clinical staff. One row per (doctor × council). Replaces the single <code>doctor_profiles.registration_number</code> column from the earlier v3 draft. Supports the actual Indian regulatory reality:</p>
+    <ul class="small">
+      <li><strong>State Medical Council</strong> (TNMC / KMC / MMC / …) — mandatory to practise in that state.</li>
+      <li><strong>NMC (National Medical Commission)</strong> — federal registry, replaced MCI in 2019. Most doctors hold it alongside their SMC.</li>
+      <li><strong>Historical state registrations</strong> — a doctor who moved from Karnataka to Tamil Nadu keeps the KMC row as <code>status = 'historical'</code> and adds a fresh TNMC row.</li>
+      <li><strong>AFMS</strong> (Armed Forces Medical Services) — for ex-military doctors, in addition to civilian registrations.</li>
+    </ul>
+    <p>Non-clinical staff have <strong>no rows</strong> in this table. The <code>users</code> table holds no registration data — the registration concern is fully owned here.</p>
+
+    <h5>Columns (table-specific)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>user_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>The doctor. RESTRICT: a user holding live registrations cannot be hard-deleted; soft-delete first.</td></tr>
+        <tr><td><code>council</code></td><td>text</td><td>NO</td><td>CHECK length 2–10</td><td>—</td><td>Issuing body code — <code>TNMC</code>, <code>KMC</code>, <code>MMC</code>, <code>NMC</code>, <code>AFMS</code>, … (free-form short code; a future <code>medical_councils_lookup</code> in Module 06 may promote this to a FK)</td></tr>
+        <tr><td><code>registration_number</code></td><td>text</td><td>NO</td><td>CHECK length 3–32</td><td>—</td><td>The numeric / alphanumeric registration ID exactly as issued (no prefix needed — the <code>council</code> column qualifies it)</td></tr>
+        <tr><td><code>registered_at</code></td><td>date</td><td>NO</td><td>—</td><td>—</td><td>Date the council issued / activated this registration</td></tr>
+        <tr><td><code>valid_until</code></td><td>date</td><td>YES</td><td>CHECK <code>valid_until IS NULL OR valid_until &gt; registered_at</code></td><td>—</td><td>Renewal cutoff (many SMCs require renewal every 5 years). NULL = no expiry on file (typical for NMC).</td></tr>
+        <tr><td><code>is_primary</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>false</code></td><td>The registration shown on prescriptions / rosters by default. App-layer rule: usually the SMC for the state the hospital operates in.</td></tr>
+        <tr><td><code>status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'active'</code></td><td>Lifecycle: <code>active</code> | <code>lapsed</code> | <code>revoked</code> | <code>historical</code></td></tr>
+        <tr><td><code>notes</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Free-form (e.g. "Original KMC registration; held pending TNMC issuance")</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_doctor_registrations</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_doctor_registrations_council_len</code> — CHECK <code>char_length(council) BETWEEN 2 AND 10</code></li>
+      <li><code>chk_doctor_registrations_number_len</code> — CHECK <code>char_length(registration_number) BETWEEN 3 AND 32</code></li>
+      <li><code>chk_doctor_registrations_validity</code> — CHECK <code>valid_until IS NULL OR valid_until &gt; registered_at</code></li>
+      <li><code>chk_doctor_registrations_status</code> — CHECK <code>status IN ('active','lapsed','revoked','historical')</code></li>
+      <li><code>uq_doctor_registrations_pair</code> — UNIQUE INDEX (<code>council</code>, <code>registration_number</code>) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— same (council, number) pair cannot be claimed by two doctors</span></li>
+      <li><code>uq_doctor_registrations_primary</code> — UNIQUE INDEX (<code>user_id</code>) WHERE <code>is_primary = true AND status = 'active' AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— a doctor has at most one <em>active primary</em> registration at a time</span></li>
+      <li><code>ix_doctor_registrations_user</code> — INDEX (<code>user_id</code>, <code>status</code>) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— "all live registrations for this doctor"</span></li>
+      <li><code>ix_doctor_registrations_renewal</code> — INDEX (<code>valid_until</code>) WHERE <code>valid_until IS NOT NULL AND status = 'active' AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— renewal-due sweep job</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_doctor_registrations_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_doctor_registrations_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <p class="small text-muted">15 rows: each of 7 doctors has at least 2 registrations (state SMC + NMC). Dr Priya has 3 — her original Karnataka registration is preserved as <code>historical</code>, alongside her current TNMC + NMC. The <code>is_primary</code> flag picks which one appears on prescriptions and rosters by default.</p>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>user_id (doctor)</th><th>council</th><th>registration_number</th><th>registered_at</th><th>valid_until</th><th>is_primary</th><th>status</th><th>notes</th></tr>
+      </thead>
+      <tbody>
+        <tr class="table-warning"><td><code>…r001</code></td><td><code>…0002 (Dr Priya)</code></td><td>KMC</td><td>67821</td><td>2014-06-12</td><td>2024-06-11</td><td>false</td><td>historical</td><td>Original Karnataka registration; lapsed on relocation to Tamil Nadu</td></tr>
+        <tr><td><code>…r002</code></td><td><code>…0002 (Dr Priya)</code></td><td>TNMC</td><td>78921</td><td>2024-01-10</td><td>2029-01-09</td><td>true</td><td>active</td><td>State of practice — renewal due Jan 2029</td></tr>
+        <tr><td><code>…r003</code></td><td><code>…0002 (Dr Priya)</code></td><td>NMC</td><td>234567</td><td>2020-04-15</td><td>NULL</td><td>false</td><td>active</td><td>Federal NMC; no expiry on file</td></tr>
+        <tr class="table-success"><td><code>…r004</code></td><td><code>…0015 (Dr Aarthi)</code></td><td>TNMC</td><td>58102</td><td>2025-08-25</td><td>2030-08-24</td><td>true</td><td>active</td><td>NULL</td></tr>
+        <tr class="table-success"><td><code>…r005</code></td><td><code>…0015 (Dr Aarthi)</code></td><td>NMC</td><td>295103</td><td>2025-08-25</td><td>NULL</td><td>false</td><td>active</td><td>NULL</td></tr>
+        <tr><td><code>…r006</code></td><td><code>…0010 (Dr Anand)</code></td><td>TNMC</td><td>45128</td><td>2024-02-20</td><td>2029-02-19</td><td>true</td><td>active</td><td>NULL</td></tr>
+        <tr><td><code>…r007</code></td><td><code>…0010 (Dr Anand)</code></td><td>NMC</td><td>281045</td><td>2022-09-10</td><td>NULL</td><td>false</td><td>active</td><td>NULL</td></tr>
+        <tr><td><code>…r008</code></td><td><code>…0011 (Dr Saritha)</code></td><td>TNMC</td><td>52310</td><td>2024-03-20</td><td>2029-03-19</td><td>true</td><td>active</td><td>NULL</td></tr>
+        <tr><td><code>…r009</code></td><td><code>…0011 (Dr Saritha)</code></td><td>NMC</td><td>288932</td><td>2023-12-01</td><td>NULL</td><td>false</td><td>active</td><td>NULL</td></tr>
+        <tr><td><code>…r010</code></td><td><code>…0012 (Dr Vinod)</code></td><td>TNMC</td><td>31055</td><td>2018-07-10</td><td>2028-07-09</td><td>true</td><td>active</td><td>NULL</td></tr>
+        <tr><td><code>…r011</code></td><td><code>…0012 (Dr Vinod)</code></td><td>NMC</td><td>269807</td><td>2018-05-20</td><td>NULL</td><td>false</td><td>active</td><td>NULL</td></tr>
+        <tr><td><code>…r012</code></td><td><code>…0013 (Dr Lakshmi)</code></td><td>TNMC</td><td>48772</td><td>2024-04-01</td><td>2029-03-31</td><td>true</td><td>active</td><td>NULL</td></tr>
+        <tr><td><code>…r013</code></td><td><code>…0013 (Dr Lakshmi)</code></td><td>NMC</td><td>285601</td><td>2023-06-15</td><td>NULL</td><td>false</td><td>active</td><td>NULL</td></tr>
+        <tr><td><code>…r014</code></td><td><code>…0014 (Dr Ravi)</code></td><td>TNMC</td><td>39120</td><td>2024-04-01</td><td>2029-03-31</td><td>true</td><td>active</td><td>NULL</td></tr>
+        <tr><td><code>…r015</code></td><td><code>…0014 (Dr Ravi)</code></td><td>NMC</td><td>277124</td><td>2021-11-05</td><td>NULL</td><td>false</td><td>active</td><td>NULL</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 5. department_heads                                              -->
+  <!-- ================================================================ -->
+  <section id="department_heads" class="mb-5">
+    <h2>5. department_heads
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Formal department roles for clinical staff — <strong>head</strong>, <strong>co-head</strong>, <strong>acting-head</strong>, <strong>senior consultant</strong>, <strong>junior consultant</strong>, <strong>registrar</strong>, <strong>intern</strong>. Many-to-many between <code>users</code> and <code>departments</code> with <code>started_at</code> / <code>ended_at</code> for history.</p>
+    <p>Replaces v2's <code>departments.head_doctor_id</code> column. Supports:</p>
+    <ul class="small">
+      <li><strong>Multi-rank per dept</strong> — Ortho has 1 head (Priya) + 1 junior consultant (Aarthi); could have more senior/junior/registrar/intern rows.</li>
+      <li><strong>Multi-dept per doctor</strong> — a senior doctor could be head of two departments (HOD Ortho + HOD Sports Medicine), with two rows.</li>
+      <li><strong>History</strong> — when leadership changes, set <code>ended_at</code> on the outgoing row and INSERT a new row for the successor; both rows persist so "who was head of Cardio on 2025-06-01?" is a simple <code>WHERE</code> clause.</li>
+      <li><strong>Eliminates the cyclic FK</strong> — <code>departments</code> no longer points back at <code>users</code>; the only cross-table FK now flows users.department_id → departments(id).</li>
+    </ul>
+    <p>Non-clinical staff (administrator, receptionist, pharmacist, lab tech) have <strong>no rows</strong> in this table — their job titles live in <code>users.designation</code> (free text). This table is the structured catalogue of clinical ranks only.</p>
+
+    <h5>Columns (table-specific)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>department_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>departments(id)</code> CASCADE</td><td>—</td><td>Dept this role is for; if the dept is hard-deleted, the rank rows go with it</td></tr>
+        <tr><td><code>user_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>The staff member; cannot hard-delete a user while they hold an active rank — soft-delete first or close the rank with <code>ended_at</code></td></tr>
+        <tr><td><code>role_type</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td>Controlled vocabulary: <code>head</code>, <code>co_head</code>, <code>acting_head</code>, <code>senior_consultant</code>, <code>junior_consultant</code>, <code>registrar</code>, <code>intern</code></td></tr>
+        <tr><td><code>started_at</code></td><td>date</td><td>NO</td><td>—</td><td><code>current_date</code></td><td>When this person took on this role in this dept</td></tr>
+        <tr><td><code>ended_at</code></td><td>date</td><td>YES</td><td>CHECK <code>ended_at IS NULL OR ended_at &gt;= started_at</code></td><td>—</td><td>When they stepped down; NULL = currently active</td></tr>
+        <tr><td><code>notes</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Free-form (e.g. "Acting head while Dr X is on sabbatical")</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_department_heads</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_department_heads_role</code> — CHECK <code>role_type IN ('head','co_head','acting_head','senior_consultant','junior_consultant','registrar','intern')</code></li>
+      <li><code>chk_department_heads_period</code> — CHECK <code>ended_at IS NULL OR ended_at &gt;= started_at</code></li>
+      <li><code>uq_department_heads_one_head_per_dept</code> — UNIQUE INDEX (department_id) WHERE <code>role_type = 'head' AND ended_at IS NULL AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— at most one active head per dept</span></li>
+      <li><code>uq_department_heads_user_role</code> — UNIQUE INDEX (department_id, user_id, role_type) WHERE <code>ended_at IS NULL AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— a user can't simultaneously hold the same role twice in the same dept</span></li>
+      <li><code>ix_department_heads_current</code> — INDEX (department_id, role_type) WHERE <code>ended_at IS NULL AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— "who currently holds role X in dept Y?"</span></li>
+      <li><code>ix_department_heads_user_active</code> — INDEX (user_id) WHERE <code>ended_at IS NULL AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— "what roles does user Z currently hold?"</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_department_heads_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_department_heads_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>department_id</th><th>user_id</th><th>role_type</th><th>started_at</th><th>ended_at</th><th>notes</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>…dh01</code></td><td><code>…d001 (Ortho)</code></td><td><code>…0002 (Dr Priya)</code></td><td>head</td><td>2024-01-15</td><td>NULL</td><td>NULL</td><td><code>…0001 (admin)</code></td><td>2024-01-15 10:00</td><td>NULL</td><td>2024-01-15 10:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr class="table-success"><td><code>…dh02</code></td><td><code>…d001 (Ortho)</code></td><td><code>…0015 (Dr Aarthi)</code></td><td>junior_consultant</td><td>2025-09-01</td><td>NULL</td><td>NULL</td><td><code>…0001 (admin)</code></td><td>2025-09-01 10:00</td><td>NULL</td><td>2025-09-01 10:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…dh03</code></td><td><code>…d003 (GenMed)</code></td><td><code>…0010 (Dr Anand)</code></td><td>head</td><td>2024-03-01</td><td>NULL</td><td>NULL</td><td><code>…0001 (admin)</code></td><td>2024-03-01 10:00</td><td>NULL</td><td>2024-03-01 10:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…dh04</code></td><td><code>…d004 (Cardio)</code></td><td><code>…0012 (Dr Vinod)</code></td><td>head</td><td>2024-04-10</td><td>NULL</td><td>NULL</td><td><code>…0001 (admin)</code></td><td>2024-04-10 10:00</td><td>NULL</td><td>2024-04-10 10:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…dh05</code></td><td><code>…d005 (Paed)</code></td><td><code>…0011 (Dr Saritha)</code></td><td>head</td><td>2024-03-25</td><td>NULL</td><td>NULL</td><td><code>…0001 (admin)</code></td><td>2024-03-25 10:00</td><td>NULL</td><td>2024-03-25 10:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…dh06</code></td><td><code>…d006 (Ophth)</code></td><td><code>…0013 (Dr Lakshmi)</code></td><td>head</td><td>2024-04-05</td><td>NULL</td><td>NULL</td><td><code>…0001 (admin)</code></td><td>2024-04-05 10:00</td><td>NULL</td><td>2024-04-05 10:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td><code>…dh07</code></td><td><code>…d007 (Surg)</code></td><td><code>…0014 (Dr Ravi)</code></td><td>head</td><td>2024-04-05</td><td>NULL</td><td>NULL</td><td><code>…0001 (admin)</code></td><td>2024-04-05 10:00</td><td>NULL</td><td>2024-04-05 10:00</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+  </section>
+
+  <hr class="my-4">
+
+  <div class="row text-muted small">
+    <div class="col-md-6">
+      <strong>What this slice locks:</strong>
+      <ul>
+        <li><code>departments.tenant_id</code> column dropped (v2 → v3)</li>
+        <li><code>departments.head_doctor_id</code> column dropped — replaced by <code>department_heads</code> table</li>
+        <li><code>departments.segment</code> CHECK list locked: clinical / lab / pharma / radiology / support / er / inpatient</li>
+        <li><code>doctor_profiles</code> = source of truth for consultation fees (Resolution 1)</li>
+        <li><code>doctor_profiles.available_days</code> JSON shape + DB validator locked (Resolution 4)</li>
+        <li><code>doctor_profiles.specialization</code> dropped — derived via <code>users.department_id</code></li>
+        <li><code>doctor_profiles.registration_number</code> dropped — replaced by the new <code>doctor_registrations</code> N:1 child table (state council + NMC + historical regs all first-class rows)</li>
+        <li><strong>New table</strong> <code>doctor_registrations</code> — N:1 child of <code>users</code>; UNIQUE on (council, registration_number); partial UNIQUE for at-most-one-active-primary-per-doctor; status enum (active / lapsed / revoked / historical)</li>
+        <li><strong>New table</strong> <code>department_heads</code> — M:N between users + departments with role_type, history (started_at/ended_at), and partial UNIQUE for at-most-one-active-head-per-dept</li>
+        <li>Cyclic FK <strong>eliminated</strong> — only one direction now: <code>users.department_id → departments(id)</code></li>
+      </ul>
+    </div>
+    <div class="col-md-6">
+      <strong>Open for next slice (1C · RBAC):</strong>
+      <ul>
+        <li><code>roles</code>, <code>permissions</code>, <code>user_roles</code>, <code>role_permissions</code></li>
+        <li>Lock the permission-key regex pattern</li>
+        <li>Lock the "at most one default role per user" partial UNIQUE</li>
+      </ul>
+      <strong>Cross-refs:</strong>
+      <ul>
+        <li>TSD-01 — <a href="../../../05-tsd/01-platform-tenancy.md">docs/05-tsd/01-platform-tenancy.md</a></li>
+        <li>TSD-11 (pricing — pending) — <a href="../../../05-tsd/11-services-pricing.md">docs/05-tsd/11-services-pricing.md</a></li>
+        <li>Sample data — <a href="../../../../backend/db/sample_data.sql">backend/db/sample_data.sql</a></li>
+        <li>v3 Conventions — <a href="../CONVENTIONS.md">docs/03-schema/v3/CONVENTIONS.md</a></li>
+      </ul>
+    </div>
+  </div>
+
+</main>
+
+</body>
+</html>

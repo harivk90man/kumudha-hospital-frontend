@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Pricing — HMS Schema v8</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script src="../shared/manifest.js"></script>
+  <script src="../shared/catalog.js"></script>
+  <script src="../shared/renderer.js"></script>
+  <script>
+  // ─── EDIT BELOW ONLY. Do not touch HTML/script tags. ────────────────────
+  const MODULE = {
+    id: 'pricing',
+    name: 'Pricing',
+    color: '#BA7517',
+    bg: '#281c0c',
+    lbg: '#FAEEDA',
+    features: ['catalog', 'history', 'policy'],
+    tables: [
+      { n:'services', feature:'catalog', desc:'Service catalog — consultations, procedures, room charges, ambulance. Pricing source for invoice items.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants',nw:1},
+          {n:'service_code',t:'varchar',uk:1,nw:1},
+          {n:'service_name',t:'varchar'},
+          {n:'service_type',t:"varchar · 'op_consultation'|'op_followup'|'procedure'|'room_charge'|'nursing'|'consumable'|'ambulance'|'other'"},
+          {n:'segment',t:"varchar · 'opd'|'ipd'|'er'|'daycare'"},
+          {n:'department_id',t:'uuid',fk:'departments',nl:1},
+          {n:'doctor_id',t:'uuid · per-doctor consultation fees',fk:'users',nl:1,nw:1},
+          {n:'hsn_code',t:'varchar',nl:1},
+          {n:'sac_code',t:'varchar · 9993xx for healthcare',nl:1},
+          {n:'is_taxable',t:'boolean DEFAULT FALSE',nw:1},
+          {n:'default_gst_pct',t:'decimal DEFAULT 0',nw:1},
+          {n:'gst_pct',t:'decimal DEFAULT 0 · DEPRECATED v8'},
+          {n:'default_price',t:'decimal · history kept in service_price_history'},
+          {n:'is_active',t:'boolean'},
+        ]},
+      { n:'service_price_history', feature:'history', desc:'Effective-dated price audit for services. Closed-period: prior row UPDATE only to set effective_to. Powers re-billing at historical rates.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'service_id',t:'uuid',fk:'services'},
+          {n:'price',t:'decimal'},
+          {n:'effective_from',t:'date'},
+          {n:'effective_to',t:'date',nl:1},
+          {n:'changed_by',t:'uuid',fk:'users',nl:1},
+          {n:'changed_at',t:'timestamptz'},
+          {n:'reason',t:'text',nl:1},
+          {n:'_uk',t:'PARTIAL UNIQUE(service_id) WHERE effective_to IS NULL'},
+        ]},
+      { n:'service_billing_policies', feature:'policy', desc:'Per-service-type rules — pre-pay/post-pay, advance %, emergency override. Drives whether order awaits payment.',
+        f:[
+          {n:'service_type',t:"varchar PK · 'op_consultation'|'op_followup'|'lab_routine'|'lab_stat'|'radiology'|'pharmacy_rx'|'pharmacy_otc'|'ip_admission'|'surgery'|'ambulance'|'other'",pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants',pk:1},
+          {n:'department_id',t:'uuid · per-dept override',fk:'departments',nl:1,nw:1},
+          {n:'payment_timing',t:"varchar · 'before_service'|'after_service'|'on_discharge'|'split'"},
+          {n:'advance_required',t:'boolean DEFAULT false'},
+          {n:'advance_percentage',t:'decimal · % of estimate',nl:1},
+          {n:'min_advance_amount',t:'decimal',nl:1},
+          {n:'emergency_override',t:'boolean DEFAULT true · stat cases bypass'},
+          {n:'updated_by',t:'uuid',fk:'users'},
+          {n:'updated_at',t:'timestamptz'},
+        ]},
+    ]
+  };
+  renderModule(MODULE);
+  </script>
+</body>
+</html>

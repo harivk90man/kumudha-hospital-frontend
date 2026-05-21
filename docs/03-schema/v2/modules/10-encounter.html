@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Encounter — HMS Schema v8</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script src="../shared/manifest.js"></script>
+  <script src="../shared/catalog.js"></script>
+  <script src="../shared/renderer.js"></script>
+  <script>
+  // ─── EDIT BELOW ONLY. Do not touch HTML/script tags. ────────────────────
+  const MODULE = {
+    id: 'encounter',
+    name: 'Encounter',
+    color: '#2A8E9E',
+    bg: '#0E2226',
+    lbg: '#E0F2F4',
+    features: ['op-visit', 'queue'],
+    tables: [
+      { n:'op_visits', feature:'op-visit', desc:'One outpatient visit. OP number, doctor, chief complaint, current state — entry point for OP workflow. is_mlc flag for medico-legal cases.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants',nw:1},
+          {n:'op_number',t:'varchar · OP-2026-58821',uk:1},
+          {n:'patient_id',t:'uuid',fk:'patients'},
+          {n:'appointment_id',t:'uuid',fk:'appointments',nl:1},
+          {n:'doctor_id',t:'uuid',fk:'users'},
+          {n:'visit_date',t:'date'},
+          {n:'token_number',t:'varchar'},
+          {n:'chief_complaint',t:'text',nl:1},
+          {n:'is_emergency',t:'boolean DEFAULT false'},
+          {n:'emergency_triage',t:"varchar · 'red'|'yellow'|'green'",nl:1},
+          {n:'current_state_code',t:'int · denormalized · 100..602 · synced by trigger',fk:'patient_states',nl:1},
+          {n:'is_mlc',t:'boolean DEFAULT FALSE · medico-legal'},
+          {n:'mlc_number',t:'varchar · links to mlc_records (Phase 2)',nl:1},
+          {n:'created_by',t:'uuid',fk:'users'},
+          {n:'created_at',t:'timestamptz'},
+          {n:'updated_by',t:'uuid',fk:'users',nl:1,nw:1},
+          {n:'updated_at',t:'timestamptz',nw:1},
+          {n:'version',t:'int DEFAULT 0',nw:1},
+        ]},
+      { n:'patient_queue', feature:'queue', desc:'Live queue rows — where every active patient is right now. Side-trip support via parent_queue_id self-FK.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants',nw:1},
+          {n:'patient_id',t:'uuid',fk:'patients'},
+          {n:'op_visit_id',t:'uuid',fk:'op_visits',nl:1},
+          {n:'parent_queue_id',t:'uuid · self-ref for side trips',fk:'patient_queue',nl:1},
+          {n:'station_id',t:'int · stations table FK',fk:'stations'},
+          {n:'state_code',t:'int · current state',fk:'patient_states',nl:1},
+          {n:'status',t:"varchar · 'waiting'|'in_service'|'paused'|'completed'|'returned_for_review'|'left'"},
+          {n:'priority',t:"varchar · 'normal'|'urgent'|'emergency'"},
+          {n:'token_number',t:'varchar'},
+          {n:'queue_position',t:'int',nl:1},
+          {n:'referred_by_user_id',t:'uuid · who sent them here',fk:'users',nl:1},
+          {n:'referral_reason',t:'varchar',nl:1},
+          {n:'return_to_station_id',t:'int · station to return to after side trip',fk:'stations',nl:1},
+          {n:'return_to_provider_id',t:'uuid · doctor to return to (review queue 501)',fk:'users',nl:1},
+          {n:'metadata',t:'jsonb · {late_arrival:true, vip:true, ambulance_arrival_time}',nl:1,nw:1},
+          {n:'entered_at',t:'timestamptz'},
+          {n:'called_at',t:'timestamptz',nl:1},
+          {n:'completed_at',t:'timestamptz',nl:1},
+        ]},
+    ]
+  };
+  renderModule(MODULE);
+  </script>
+</body>
+</html>

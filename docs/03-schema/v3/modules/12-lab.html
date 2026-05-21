@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>12 · Lab — HMS Schema v3</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <style>
+    code { color: #d63384; font-size: 0.92em; }
+    .table th { white-space: nowrap; }
+    h2 .badge { font-size: 0.55em; vertical-align: middle; }
+    pre { background: #f8f9fa; padding: 1rem; border-radius: 0.375rem; font-size: 0.85em; }
+    .toc-card { background: #fff; }
+    .sample-data td, .sample-data th { white-space: nowrap; font-size: 0.78em; }
+  </style>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark sticky-top">
+  <div class="container">
+    <a href="../index.html" class="navbar-brand">
+      <i class="bi bi-arrow-left"></i> v3 Schema
+    </a>
+    <span class="navbar-text">Module <strong>12</strong> · Lab</span>
+  </div>
+</nav>
+
+<main class="container py-4">
+
+  <h1>Lab</h1>
+  <p class="lead">Full lifecycle from doctor ordering a test to result released to the doctor's inbox — test catalogue, panels, orders, samples, and results with maker-checker verification.</p>
+
+  <div class="card toc-card mb-4">
+    <div class="card-body">
+      <h6 class="card-subtitle text-muted mb-2">Module 12 contents — one table at a time</h6>
+      <ol class="mb-0 small">
+        <li><a href="#lab_tests">lab_tests</a> — test catalogue with reference ranges, critical thresholds, TAT target &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#lab_test_groups">lab_test_groups</a> — test group / package definitions (CBC, LFT, Diabetes Panel) &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#lab_test_group_items">lab_test_group_items</a> — constituent tests per group &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#lab_orders">lab_orders</a> — order header; priority, status, invoice link &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#lab_order_items">lab_order_items</a> — one row per test in the order &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#lab_samples">lab_samples</a> — physical sample tracking; barcode, rejection, recollection chain &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#lab_results">lab_results</a> — per-test result; auto-flagged; L2 maker-checker for verified release &nbsp;<span class="badge bg-success">signed off</span></li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- 1. lab_tests                                                     -->
+  <!-- ================================================================ -->
+  <section id="lab_tests" class="mb-5">
+    <h2>1. lab_tests
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Reference catalogue of every diagnostic test the lab can perform. Flyway-seeded with common tests; admin can add hospital-specific ones. Reference ranges (<code>ref_min/max_male/female</code>) and critical thresholds (<code>critical_low/high</code>) drive the auto-flag trigger on <code>lab_results</code> — a result outside critical thresholds raises an immediate alert to the senior reviewer.</p>
+    <p class="small text-muted"><strong>Paediatric ranges note:</strong> the current design uses adult M/F ranges only. Paediatric and pregnancy-specific ranges (e.g. TSH in pregnancy, HCG) are clinically significant. A child table <code>lab_test_reference_ranges</code> can be added later for age-stratified ranges without touching this table — flagged as a future enhancement.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>test_code</code></td><td>text</td><td>NO</td><td>UNIQUE, CHECK length 2–20</td><td>—</td><td>Short machine code in SCREAMING_SNAKE (e.g. <code>CBC</code>, <code>HBA1C</code>, <code>FBS</code>)</td></tr>
+        <tr><td><code>test_name</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Display name shown on order form and printed report (e.g. <code>Complete Blood Count</code>)</td></tr>
+        <tr><td><code>category</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td><code>hematology</code> | <code>biochemistry</code> | <code>microbiology</code> | <code>serology</code> | <code>pathology</code> | <code>endocrinology</code> | <code>immunology</code></td></tr>
+        <tr><td><code>sample_type</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Required sample (e.g. <code>EDTA blood</code>, <code>serum</code>, <code>urine</code>, <code>swab</code>)</td></tr>
+        <tr><td><code>sample_volume_ml</code></td><td>numeric(4,1)</td><td>YES</td><td>CHECK &gt; 0 when not NULL</td><td>—</td><td>Volume needed in mL — helps phlebotomist select the correct vial</td></tr>
+        <tr><td><code>department_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>departments(id)</code> RESTRICT</td><td>—</td><td>Owning lab department. NULL = general lab.</td></tr>
+        <tr><td><code>service_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>services(id)</code> RESTRICT</td><td>—</td><td>Pricing row in Module 16. Every lab test must have a <code>services</code> row before it can be created — ensures all tests are priced before ordering.</td></tr>
+        <tr><td><code>unit</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Measurement unit (e.g. <code>g/dL</code>, <code>mg/dL</code>, <code>cells/cumm</code>, <code>%</code>)</td></tr>
+        <tr><td><code>result_type</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'numeric'</code></td><td><code>numeric</code> | <code>positive_negative</code> | <code>reactive_nonreactive</code> | <code>grade</code> | <code>free_text</code> | <code>image</code> — drives the result entry UI</td></tr>
+        <tr><td><code>ref_min_male</code></td><td>numeric(12,4)</td><td>YES</td><td>—</td><td>—</td><td>Lower normal limit for males — drives auto-flag on result entry</td></tr>
+        <tr><td><code>ref_max_male</code></td><td>numeric(12,4)</td><td>YES</td><td>—</td><td>—</td><td>Upper normal limit for males</td></tr>
+        <tr><td><code>ref_min_female</code></td><td>numeric(12,4)</td><td>YES</td><td>—</td><td>—</td><td>Lower normal limit for females</td></tr>
+        <tr><td><code>ref_max_female</code></td><td>numeric(12,4)</td><td>YES</td><td>—</td><td>—</td><td>Upper normal limit for females</td></tr>
+        <tr><td><code>reference_description</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Human-readable reference for non-numeric tests only (e.g. <code>Negative</code>, <code>Non-reactive</code>, <code>Grade I–II</code>). For numeric tests the display range is derived in the app as <code>ref_min || '–' || ref_max || ' ' || unit</code> — no separate column needed and no sync risk.</td></tr>
+        <tr><td><code>critical_low</code></td><td>numeric(12,4)</td><td>YES</td><td>—</td><td>—</td><td>Below this → <code>flag = 'critical_low'</code> + immediate alert to senior reviewer</td></tr>
+        <tr><td><code>critical_high</code></td><td>numeric(12,4)</td><td>YES</td><td>—</td><td>—</td><td>Above this → <code>flag = 'critical_high'</code> + immediate alert</td></tr>
+        <tr><td><code>tat_hours</code></td><td>int</td><td>YES</td><td>CHECK &gt; 0 when not NULL</td><td>—</td><td>Target turnaround in hours from order to result release — SLA monitoring</td></tr>
+        <tr><td><code>requires_fasting</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>false</code></td><td>When true, reception instructs the patient to fast before sample collection</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. <code>deleted_at</code> replaces TSD's <code>is_active boolean</code>.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_lab_tests</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_lab_tests_code</code> — UNIQUE (test_code)</li>
+      <li><code>chk_lab_tests_code_len</code> — CHECK <code>char_length(test_code) BETWEEN 2 AND 20</code></li>
+      <li><code>chk_lab_tests_category</code> — CHECK <code>category IN ('hematology','biochemistry','microbiology','serology','pathology','endocrinology','immunology')</code></li>
+      <li><code>chk_lab_tests_result_type</code> — CHECK <code>result_type IN ('numeric','positive_negative','reactive_nonreactive','grade','free_text','image')</code></li>
+      <li><code>chk_lab_tests_volume</code> — CHECK <code>sample_volume_ml IS NULL OR sample_volume_ml &gt; 0</code></li>
+      <li><code>chk_lab_tests_price</code> — CHECK <code>default_price IS NULL OR default_price &gt;= 0</code></li>
+      <li><code>chk_lab_tests_tat</code> — CHECK <code>tat_hours IS NULL OR tat_hours &gt; 0</code></li>
+      <li><code>ix_lab_tests_category</code> — INDEX (category) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— order-form category filter</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_lab_tests_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_lab_tests_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>test_code</th><th>test_name</th><th>category</th><th>sample_type</th><th>sample_volume_ml</th><th>department_id</th><th>service_id</th><th>unit</th><th>result_type</th><th>ref_min_male</th><th>ref_max_male</th><th>ref_min_female</th><th>ref_max_female</th><th>reference_description</th><th>critical_low</th><th>critical_high</th><th>tat_hours</th><th>requires_fasting</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…lt001</code></td><td>HB</td><td>Haemoglobin</td><td>hematology</td><td>EDTA blood</td><td>2.0</td><td><code>…dept03 (Lab)</code></td><td><code>…sv001 (LAB_HB)</code></td><td>g/dL</td><td>numeric</td>
+          <td>13.5000</td><td>17.5000</td><td>12.0000</td><td>16.0000</td>
+          <td>NULL</td>
+          <td>7.0000</td><td>20.0000</td><td>4</td><td>false</td>
+          <td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…lt002</code></td><td>HIV_SCREEN</td><td>HIV Screening</td><td>serology</td><td>serum</td><td>3.0</td><td><code>…dept03 (Lab)</code></td><td><code>…sv003 (LAB_HIV_SCREEN)</code></td><td>NULL</td><td>reactive_nonreactive</td>
+          <td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td>
+          <td>Non-reactive</td>
+          <td>NULL</td><td>NULL</td><td>24</td><td>false</td>
+          <td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — Haemoglobin (numeric): <code>reference_description = NULL</code>; app derives display as <code>"13.5–17.5 g/dL"</code> (M) / <code>"12.0–16.0 g/dL"</code> (F) from numeric columns — stays in sync when admin adjusts thresholds. Row 2 — HIV Screening (reactive_nonreactive): no numeric range; <code>reference_description = "Non-reactive"</code> is printed on the report. Flyway-seeded rows have <code>created_by = NULL</code>.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 2. lab_test_groups                                              -->
+  <!-- ================================================================ -->
+  <section id="lab_test_groups" class="mb-5">
+    <h2>2. lab_test_groups
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Panel and package definitions — bundles of individual tests sold together at a package price (e.g. CBC = Hb + WBC + Platelets + PCV, Diabetes Panel = FBS + HbA1c + Urine Routine). The doctor orders the panel; the system fans out to individual <code>lab_order_items</code> automatically.</p>
+    <p>TSD's <code>test_ids UUID[]</code> is replaced by the child table <code>lab_test_panel_items</code> — one row per constituent test with a sequence number for report ordering. This avoids array columns on Hibernate-written tables and enables per-item sequencing.</p>
+    <p>Panel pricing is centralized in <code>services</code> via <code>service_id</code> — same pattern as individual tests.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>panel_code</code></td><td>text</td><td>NO</td><td>UNIQUE (partial), CHECK length 2–20</td><td>—</td><td>Short machine code (e.g. <code>CBC</code>, <code>LFT</code>, <code>DIABETES_PANEL</code>)</td></tr>
+        <tr><td><code>panel_name</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Display name shown on order form (e.g. <code>Complete Blood Count</code>, <code>Diabetes Panel</code>)</td></tr>
+        <tr><td><code>service_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>services(id)</code> RESTRICT</td><td>—</td><td>Panel pricing row in Module 16. Package price is usually less than the sum of individual test prices.</td></tr>
+        <tr><td><code>description</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>What this panel screens for / when to order (shown to doctor on the order form)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. <code>deleted_at</code> replaces TSD's <code>is_active boolean</code>.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_lab_test_groups</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_lab_test_groups_code</code> — UNIQUE INDEX (panel_code) WHERE <code>deleted_at IS NULL</code></li>
+      <li><code>chk_lab_test_groups_code_len</code> — CHECK <code>char_length(panel_code) BETWEEN 2 AND 20</code></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_lab_test_groups_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_lab_test_groups_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>panel_code</th><th>panel_name</th><th>service_id</th><th>description</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…lp001</code></td><td>CBC</td><td>Complete Blood Count</td>
+          <td><code>…sv010 (LAB_PANEL_CBC)</code></td>
+          <td>Full haematological profile — Hb, WBC, platelets, PCV, differential count</td>
+          <td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…lp002</code></td><td>DIABETES_PANEL</td><td>Diabetes Panel</td>
+          <td><code>…sv011 (LAB_PANEL_DIABETES)</code></td>
+          <td>FBS, HbA1c, urine routine — routine screening and monitoring for diabetes</td>
+          <td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 3. lab_test_group_items                                         -->
+  <!-- ================================================================ -->
+  <section id="lab_test_group_items" class="mb-5">
+    <h2>3. lab_test_group_items
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>One row per constituent test in a group. Maps each <code>lab_test_groups</code> row to its individual <code>lab_tests</code> — replaces the TSD's <code>test_ids UUID[]</code> array. <code>sequence_no</code> controls the display order of tests on the printed lab report.</p>
+    <p>CASCADE child of <code>lab_test_groups</code> — deleting a group removes its constituent mappings. RESTRICT on <code>lab_tests</code> — cannot delete a test that belongs to an active group.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>group_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>lab_test_groups(id)</code> CASCADE</td><td>—</td><td>Parent group. CASCADE: deleting a group removes all its item mappings.</td></tr>
+        <tr><td><code>lab_test_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>lab_tests(id)</code> RESTRICT</td><td>—</td><td>Constituent test. RESTRICT: cannot delete a test while it belongs to a group.</td></tr>
+        <tr><td><code>sequence_no</code></td><td>int</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>Display order of this test on the printed report (1-based within the group)</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_lab_test_group_items</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_lab_test_group_items_sequence</code> — CHECK <code>sequence_no &gt; 0</code></li>
+      <li><code>uq_lab_test_group_items_test</code> — UNIQUE (group_id, lab_test_id) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— same test cannot appear twice in one group</span></li>
+      <li><code>uq_lab_test_group_items_seq</code> — UNIQUE (group_id, sequence_no) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— stable display order</span></li>
+      <li><code>ix_lab_test_group_items_group</code> — INDEX (group_id) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— load all tests in a group</span></li>
+      <li><code>ix_lab_test_group_items_test</code> — INDEX (lab_test_id) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— "which groups contain this test?" reverse lookup</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_lab_test_group_items_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_lab_test_group_items_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns (CBC group)</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>group_id</th><th>lab_test_id</th><th>sequence_no</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…gi001</code></td><td><code>…lp001 (CBC)</code></td><td><code>…lt001 (HB)</code></td><td>1</td>
+          <td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…gi002</code></td><td><code>…lp001 (CBC)</code></td><td><code>…lt002 (WBC)</code></td><td>2</td>
+          <td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…gi003</code></td><td><code>…lp001 (CBC)</code></td><td><code>…lt003 (PLATELETS)</code></td><td>3</td>
+          <td>NULL</td><td>2024-01-01 09:00</td><td>NULL</td><td>2024-01-01 09:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Three rows defining the CBC group — HB printed first on the report, WBC second, Platelets third. Flyway-seeded (<code>created_by = NULL</code>). When doctor orders CBC, these 3 rows fan out to 3 <code>lab_order_items</code> rows, each with <code>group_id = lp001</code>.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 4. lab_orders                                                   -->
+  <!-- ================================================================ -->
+  <section id="lab_orders" class="mb-5">
+    <h2>4. lab_orders
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>One order header per ordering event. A single order can contain multiple tests (each as a <code>lab_order_items</code> row). Status tracks the order through the full lab workflow — from creation through payment, sample collection, processing, and result release.</p>
+    <p><code>payment_required_before_service</code> is dropped — all services require payment first per <code>system_config</code> key. <code>ordered_at</code> is dropped — <code>created_at</code> from the uniform block is the order timestamp. <code>invoice_id</code> is set once the billing counter raises the invoice (forward FK to Module 17).</p>
+    <p class="small text-muted"><strong>Forward FK note:</strong> <code>invoice_id</code> references <code>invoices(id)</code> defined in Module 17. FK constraint added in the Module 17 migration.</p>
+
+    <h5>Status lifecycle</h5>
+    <ul class="small">
+      <li><code>ordered</code> → patient sent to billing</li>
+      <li><code>ordered</code> → <code>paid</code> — invoice settled; lab notified to proceed</li>
+      <li><code>paid</code> → <code>sample_collection</code> — patient at lab counter</li>
+      <li><code>sample_collection</code> → <code>sample_collected</code> — phlebotomist collected sample</li>
+      <li><code>sample_collected</code> → <code>in_progress</code> — lab processing started</li>
+      <li><code>in_progress</code> → <code>partially_reported</code> — some tests done, others pending</li>
+      <li><code>partially_reported</code> → <code>reported</code> — all tests done, pending senior review</li>
+      <li><code>reported</code> → <code>released</code> — senior verified and released; doctor's inbox updated</li>
+      <li>Any → <code>cancelled</code></li>
+    </ul>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key — referenced by <code>lab_order_items</code>, <code>lab_samples</code>, <code>tokens</code>, <code>patient_state_transitions.metadata</code></td></tr>
+        <tr><td><code>order_number</code></td><td>text</td><td>NO</td><td>UNIQUE</td><td>—</td><td>Human-readable order ID (e.g. <code>LAB-2026-00101</code>). Printed on sample vial label and result report.</td></tr>
+        <tr><td><code>patient_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>patients(id)</code> RESTRICT</td><td>—</td><td>Subject patient</td></tr>
+        <tr><td><code>op_visit_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>op_visits(id)</code> RESTRICT</td><td>—</td><td>OP visit context. NULL only for future standalone lab orders.</td></tr>
+        <tr><td><code>consultation_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>consultations(id)</code> RESTRICT</td><td>—</td><td>Originating consultation. NULL for orders placed without a consultation (e.g. direct walk-in lab).</td></tr>
+        <tr><td><code>doctor_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>Ordering doctor</td></tr>
+        <tr><td><code>priority</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'routine'</code></td><td><code>routine</code> | <code>urgent</code> | <code>stat</code> — drives lab worklist ordering and TAT SLA thresholds</td></tr>
+        <tr><td><code>status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'ordered'</code></td><td><code>ordered</code> | <code>paid</code> | <code>sample_collection</code> | <code>sample_collected</code> | <code>in_progress</code> | <code>partially_reported</code> | <code>reported</code> | <code>released</code> | <code>cancelled</code></td></tr>
+        <tr><td><code>invoice_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>invoices(id)</code> RESTRICT <em>(Module 17)</em></td><td>—</td><td>Set when billing counter raises the invoice. NULL until then.</td></tr>
+        <tr><td><code>completed_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>Set when all items are released. Makes TAT calculation cheap without scanning order items.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. <code>created_at</code> = order timestamp.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_lab_orders</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_lab_orders_number</code> — UNIQUE (order_number)</li>
+      <li><code>chk_lab_orders_priority</code> — CHECK <code>priority IN ('routine','urgent','stat')</code></li>
+      <li><code>chk_lab_orders_status</code> — CHECK <code>status IN ('ordered','paid','sample_collection','sample_collected','in_progress','partially_reported','reported','released','cancelled')</code></li>
+      <li><code>ix_lab_orders_patient</code> — INDEX (patient_id, created_at DESC) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— patient lab history</span></li>
+      <li><code>ix_lab_orders_worklist</code> — INDEX (status, priority, created_at) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— lab worklist: pending orders by priority</span></li>
+      <li><code>ix_lab_orders_visit</code> — INDEX (op_visit_id) WHERE <code>op_visit_id IS NOT NULL AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— all orders for a visit</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_lab_orders_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_lab_orders_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>order_number</th><th>patient_id</th><th>op_visit_id</th><th>consultation_id</th><th>doctor_id</th><th>priority</th><th>status</th><th>invoice_id</th><th>completed_at</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…lo001</code></td><td>LAB-2026-00101</td>
+          <td><code>…pt002 (Rajan)</code></td><td><code>…ov002</code></td><td><code>…cn002</code></td>
+          <td><code>…0003 (Dr Arjun)</code></td>
+          <td>routine</td><td>paid</td>
+          <td><code>…inv002</code></td><td>NULL</td>
+          <td><code>…0003 (Dr Arjun)</code></td><td>2026-05-13 10:45:00</td><td><code>…0021 (cashier)</code></td><td>2026-05-13 11:00:00</td><td>1</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…lo002</code></td><td>LAB-2026-00102</td>
+          <td><code>…pt001 (Meena)</code></td><td><code>…ov001</code></td><td><code>…cn001</code></td>
+          <td><code>…0002 (Dr Priya)</code></td>
+          <td>routine</td><td>released</td>
+          <td><code>…inv003</code></td><td>2026-05-13 13:30:00</td>
+          <td><code>…0002 (Dr Priya)</code></td><td>2026-05-13 11:30:00</td><td><code>…0026 (lab tech)</code></td><td>2026-05-13 13:30:00</td><td>5</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — Rajan's order paid (₹ settled), waiting at lab counter for sample collection. Row 2 — Meena's order fully released (<code>completed_at</code> set, <code>version=5</code> — status updated 5 times through the workflow).</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 5. lab_order_items                                              -->
+  <!-- ================================================================ -->
+  <section id="lab_order_items" class="mb-5">
+    <h2>5. lab_order_items
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>One row per individual test within an order. When a doctor orders a group (CBC), the system creates one item row per constituent test — all sharing the same <code>group_id</code> linking back to the group. Each item independently tracks its own sample, status, and result, so a multi-test order can have some tests released while others are still in progress.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key — referenced by <code>lab_results</code></td></tr>
+        <tr><td><code>lab_order_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>lab_orders(id)</code> CASCADE</td><td>—</td><td>Parent order. CASCADE: hard-deleting an order removes its items.</td></tr>
+        <tr><td><code>lab_test_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>lab_tests(id)</code> RESTRICT</td><td>—</td><td>Which test this item represents</td></tr>
+        <tr><td><code>group_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>lab_test_groups(id)</code> RESTRICT</td><td>—</td><td>Set when this item was created by group fan-out. NULL for individually ordered tests. Used by billing to charge the group price rather than individual test price.</td></tr>
+        <tr><td><code>sample_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>lab_samples(id)</code> RESTRICT</td><td>—</td><td>Bound physical sample. NULL until sample is collected.</td></tr>
+        <tr><td><code>status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'pending'</code></td><td><code>pending</code> | <code>sample_collected</code> | <code>rejected</code> | <code>recollection_pending</code> | <code>in_progress</code> | <code>reported</code> | <code>verified</code> | <code>released</code> | <code>cancelled</code></td></tr>
+        <tr><td><code>sequence_no</code></td><td>int</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>Display order of this test on the printed report</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_lab_order_items</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_lab_order_items_status</code> — CHECK <code>status IN ('pending','sample_collected','rejected','recollection_pending','in_progress','reported','verified','released','cancelled')</code></li>
+      <li><code>chk_lab_order_items_sequence</code> — CHECK <code>sequence_no &gt; 0</code></li>
+      <li><code>uq_lab_order_items_test</code> — UNIQUE (lab_order_id, lab_test_id) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— same test cannot appear twice on one order</span></li>
+      <li><code>ix_lab_order_items_order</code> — INDEX (lab_order_id) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— load all items for an order</span></li>
+      <li><code>ix_lab_order_items_sample</code> — INDEX (sample_id) WHERE <code>sample_id IS NOT NULL</code> &nbsp;<span class="text-muted">— which items belong to this sample?</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_lab_order_items_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_lab_order_items_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>lab_order_id</th><th>lab_test_id</th><th>group_id</th><th>sample_id</th><th>status</th><th>sequence_no</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…oi001</code></td><td><code>…lo001 (Rajan/CBC)</code></td>
+          <td><code>…lt001 (HB)</code></td><td><code>…lp001 (CBC)</code></td>
+          <td><code>…sm001</code></td><td>in_progress</td><td>1</td>
+          <td><code>…0003 (Dr Arjun)</code></td><td>2026-05-13 10:45:00</td><td><code>…0026 (lab tech)</code></td><td>2026-05-13 11:15:00</td><td>2</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…oi002</code></td><td><code>…lo001 (Rajan/CBC)</code></td>
+          <td><code>…lt002 (WBC)</code></td><td><code>…lp001 (CBC)</code></td>
+          <td><code>…sm001</code></td><td>in_progress</td><td>2</td>
+          <td><code>…0003 (Dr Arjun)</code></td><td>2026-05-13 10:45:00</td><td><code>…0026 (lab tech)</code></td><td>2026-05-13 11:15:00</td><td>2</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…oi003</code></td><td><code>…lo002 (Meena/HB)</code></td>
+          <td><code>…lt001 (HB)</code></td><td>NULL</td>
+          <td><code>…sm002</code></td><td>released</td><td>1</td>
+          <td><code>…0002 (Dr Priya)</code></td><td>2026-05-13 11:30:00</td><td><code>…0026 (lab tech)</code></td><td>2026-05-13 13:30:00</td><td>4</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Rows 1–2 — Rajan's CBC group fan-out: both items share <code>group_id = lp001</code> and the same sample <code>sm001</code> (same EDTA blood tube). Row 3 — Meena's standalone HB order: <code>group_id = NULL</code> (individually ordered), status <code>released</code>.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 6. lab_samples                                                  -->
+  <!-- ================================================================ -->
+  <section id="lab_samples" class="mb-5">
+    <h2>6. lab_samples
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>One row per physical sample collected. A single sample (one vial of blood) can be used for multiple tests — reflected by multiple <code>lab_order_items</code> rows pointing to the same <code>sample_id</code>. Supports rejection and re-collection via the self-FK <code>replaces_sample_id</code> — a recollected sample chains back to the rejected original.</p>
+    <p><code>collected_at</code> is dropped — <code>created_at</code> from the uniform block is the collection timestamp. <code>collected_by</code> is kept as an explicit column because clinical accountability for sample collection is separate from who entered the record into the system.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key — referenced by <code>lab_order_items.sample_id</code></td></tr>
+        <tr><td><code>sample_barcode</code></td><td>text</td><td>NO</td><td>UNIQUE</td><td>—</td><td>Globally unique barcode printed on the vial label. Scanned by lab tech to identify the sample. Unique across all samples — never reused.</td></tr>
+        <tr><td><code>patient_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>patients(id)</code> RESTRICT</td><td>—</td><td>Subject patient — verified at collection time against the order before drawing blood</td></tr>
+        <tr><td><code>lab_order_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>lab_orders(id)</code> RESTRICT</td><td>—</td><td>Parent order this sample was collected for</td></tr>
+        <tr><td><code>sample_type</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Type of sample collected (e.g. <code>EDTA blood</code>, <code>serum</code>, <code>urine</code>). Snapshot from the constituent tests at collection time.</td></tr>
+        <tr><td><code>status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'collected'</code></td><td><code>collected</code> | <code>received</code> | <code>rejected</code> | <code>processing</code> | <code>processed</code> | <code>disposed</code></td></tr>
+        <tr><td><code>collected_by</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>Phlebotomist or nurse who drew the sample — explicit for clinical accountability</td></tr>
+        <tr><td><code>received_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>When the sample arrived at the lab processing area — used for TAT calculation</td></tr>
+        <tr><td><code>rejected_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>Set when sample is rejected (haemolysed, insufficient volume, wrong tube)</td></tr>
+        <tr><td><code>rejected_by</code></td><td>uuid</td><td>YES</td><td>FK → <code>users(id)</code> SET NULL</td><td>—</td><td>Lab tech who rejected the sample</td></tr>
+        <tr><td><code>rejection_reason</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Required when <code>status = 'rejected'</code> (e.g. <code>Haemolysed</code>, <code>Insufficient quantity</code>, <code>Wrong tube</code>)</td></tr>
+        <tr><td><code>disposed_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>Final disposal timestamp — for bio-waste compliance records</td></tr>
+        <tr><td><code>replaces_sample_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>lab_samples(id)</code> RESTRICT</td><td>—</td><td>Self-FK — set when this sample is a recollection of a previously rejected one. Chains rejected → recollected samples for audit.</td></tr>
+        <tr><td><code>notes</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Free-form lab tech notes</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. <code>created_at</code> = sample collection timestamp.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_lab_samples</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_lab_samples_barcode</code> — UNIQUE (sample_barcode)</li>
+      <li><code>chk_lab_samples_status</code> — CHECK <code>status IN ('collected','received','rejected','processing','processed','disposed')</code></li>
+      <li><code>chk_lab_samples_rejection</code> — CHECK <code>(status = 'rejected') = (rejection_reason IS NOT NULL)</code></li>
+      <li><code>ix_lab_samples_order</code> — INDEX (lab_order_id) &nbsp;<span class="text-muted">— all samples for an order</span></li>
+      <li><code>ix_lab_samples_replaces</code> — INDEX (replaces_sample_id) WHERE <code>replaces_sample_id IS NOT NULL</code> &nbsp;<span class="text-muted">— recollection chain lookup</span></li>
+      <li><code>ix_lab_samples_status</code> — INDEX (status, created_at) WHERE <code>status IN ('collected','received')</code> &nbsp;<span class="text-muted">— lab worklist: unprocessed samples</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_lab_samples_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_lab_samples_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>sample_barcode</th><th>patient_id</th><th>lab_order_id</th><th>sample_type</th><th>status</th><th>collected_by</th><th>received_at</th><th>rejected_at</th><th>rejected_by</th><th>rejection_reason</th><th>disposed_at</th><th>replaces_sample_id</th><th>notes</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…sm001</code></td><td>KH-2026-00891</td>
+          <td><code>…pt002 (Rajan)</code></td><td><code>…lo001</code></td>
+          <td>EDTA blood</td><td>processing</td>
+          <td><code>…0025 (Nurse Anitha)</code></td>
+          <td>2026-05-13 11:10:00</td>
+          <td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td>
+          <td><code>…0025</code></td><td>2026-05-13 11:05:00</td><td><code>…0026</code></td><td>2026-05-13 11:10:00</td><td>1</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…sm002</code></td><td>KH-2026-00892</td>
+          <td><code>…pt001 (Meena)</code></td><td><code>…lo002</code></td>
+          <td>EDTA blood</td><td>processed</td>
+          <td><code>…0025 (Nurse Anitha)</code></td>
+          <td>2026-05-13 11:45:00</td>
+          <td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td><td>NULL</td>
+          <td><code>…0025</code></td><td>2026-05-13 11:40:00</td><td><code>…0026</code></td><td>2026-05-13 13:00:00</td><td>2</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Both samples collected by Nurse Anitha, received by the lab tech. sm001 (Rajan's CBC) — still processing. sm002 (Meena's HB) — processed, result ready. <code>replaces_sample_id = NULL</code> on both — no rejection in this case.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 7. lab_results                                                  -->
+  <!-- ================================================================ -->
+  <section id="lab_results" class="mb-5">
+    <h2>7. lab_results
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-danger">L2 maker-checker</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>One row per test result. The lab tech enters the result; the auto-flag trigger compares <code>value_numeric</code> against the gender-aware reference ranges on <code>lab_tests</code> and sets <code>flag</code> automatically. Critical values trigger an immediate alert to the senior reviewer. Layer 2 maker-checker governs the verification workflow — the doctor's inbox only shows results with <code>release_status = 'verified'</code> or <code>'override_released'</code>.</p>
+    <p><code>performed_by</code> is kept explicit (clinically accountable actor). <code>created_at</code> from the uniform block serves as both the performed and reported timestamp — no separate <code>performed_at</code> / <code>reported_at</code> columns.</p>
+    <p>Result corrections use the self-FK <code>amended_from_result_id</code> — a corrected result chains to the original; both rows are preserved.</p>
+
+    <h5>Verification workflow (Layer 2)</h5>
+    <ul class="small">
+      <li><strong>Tech enters result</strong> → row created; <code>release_status = 'pending_verification'</code>, <code>approval_status = 'pending_approval'</code></li>
+      <li><strong>Critical flag</strong> → immediate alert fires to senior reviewer regardless of release status</li>
+      <li><strong>Senior verifies (normal)</strong> → <code>approval_status = 'approved'</code>, <code>release_status = 'verified'</code>, <code>verified_by</code> / <code>verified_at</code> set. Result visible to doctor.</li>
+      <li><strong>Senior requests correction</strong> → <code>approval_status = 'rejected'</code>, <code>rejection_reason</code> set. Tech re-enters → new row with <code>amended_from_result_id</code> pointing to original.</li>
+      <li><strong>Override release (critical value released as-is)</strong> → <code>release_status = 'override_released'</code>, <code>is_override_release = true</code>, <code>override_release_reason</code> mandatory. Flagged prominently in compliance reports.</li>
+      <li><strong>CHECK</strong>: <code>created_by &lt;&gt; verified_by</code> — tech who entered ≠ senior who released.</li>
+    </ul>
+
+    <h5>Columns (table-specific + L2 block; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>lab_order_item_id</code></td><td>uuid</td><td>NO</td><td>UNIQUE, FK → <code>lab_order_items(id)</code> RESTRICT</td><td>—</td><td>One result per order item. Re-tests are new items → new results.</td></tr>
+        <tr><td><code>value_raw</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>As entered by tech (e.g. <code>11.2</code>, <code>Positive</code>, <code>Grade II</code>)</td></tr>
+        <tr><td><code>value_numeric</code></td><td>numeric(12,4)</td><td>YES</td><td>—</td><td>—</td><td>Parsed numeric value — used by auto-flag trigger. NULL for non-numeric result types.</td></tr>
+        <tr><td><code>unit</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Snapshot from <code>lab_tests.unit</code> at result entry time</td></tr>
+        <tr><td><code>flag</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'normal'</code></td><td><code>normal</code> | <code>low</code> | <code>high</code> | <code>critical_low</code> | <code>critical_high</code> — auto-set by BEFORE INSERT trigger from <code>lab_tests</code> reference ranges (gender-aware via <code>patients.gender</code>)</td></tr>
+        <tr><td><code>method</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Analytical method used (e.g. <code>Cyanmethaemoglobin</code>, <code>ELISA</code>)</td></tr>
+        <tr><td><code>comments</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Tech or pathologist notes printed on the report</td></tr>
+        <tr><td><code>performed_by</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>Lab tech who ran the test — explicit for clinical accountability</td></tr>
+        <tr><td><code>report_data</code></td><td>bytea</td><td>YES</td><td>—</td><td>—</td><td>Rendered PDF report stored as binary. Postgres TOAST handles large values transparently. When migrating to S3 later: add <code>report_url text</code>, migrate, drop this column.</td></tr>
+        <tr><td colspan="6" class="table-info"><strong>Layer 2 — maker-checker (verification workflow)</strong></td></tr>
+        <tr><td><code>release_status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'pending_verification'</code></td><td><code>pending_verification</code> | <code>verified</code> | <code>override_released</code> | <code>amended</code> | <code>rejected</code></td></tr>
+        <tr><td><code>approval_status</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td><code>'pending_approval'</code></td><td>Standard L2 block: <code>pending_approval</code> | <code>approved</code> | <code>rejected</code></td></tr>
+        <tr><td><code>verified_by</code></td><td>uuid</td><td>YES</td><td>FK → <code>users(id)</code> SET NULL</td><td>—</td><td>Senior reviewer who verified or override-released. Must differ from <code>created_by</code>.</td></tr>
+        <tr><td><code>verified_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>Timestamp of verification or override release</td></tr>
+        <tr><td><code>rejection_reason</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Required when <code>approval_status = 'rejected'</code> (correction needed)</td></tr>
+        <tr><td><code>is_override_release</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>false</code></td><td>True when senior releases a critical value as-is with mandatory reason</td></tr>
+        <tr><td><code>override_release_reason</code></td><td>text</td><td>YES</td><td>CHECK length &gt; 10 when <code>is_override_release = true</code></td><td>—</td><td>Mandatory substantive reason for override release — flagged in compliance reports</td></tr>
+        <tr><td><code>amended_from_result_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>lab_results(id)</code> RESTRICT</td><td>—</td><td>Self-FK — set when this row is a correction of a previously released result. Original row stays with <code>release_status = 'amended'</code>.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_lab_results</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_lab_results_item</code> — UNIQUE (lab_order_item_id)</li>
+      <li><code>chk_lab_results_flag</code> — CHECK <code>flag IN ('normal','low','high','critical_low','critical_high')</code></li>
+      <li><code>chk_lab_results_release_status</code> — CHECK <code>release_status IN ('pending_verification','verified','override_released','amended','rejected')</code></li>
+      <li><code>chk_lab_results_approval_status</code> — CHECK <code>approval_status IN ('pending_approval','approved','rejected')</code></li>
+      <li><code>chk_lab_results_maker_checker</code> — CHECK <code>approval_status = 'pending_approval' OR (created_by IS NOT NULL AND verified_by IS NOT NULL AND created_by &lt;&gt; verified_by)</code></li>
+      <li><code>chk_lab_results_override</code> — CHECK <code>is_override_release = false OR (override_release_reason IS NOT NULL AND char_length(override_release_reason) &gt; 10)</code></li>
+      <li><code>ix_lab_results_pending</code> — INDEX (created_at DESC) WHERE <code>release_status = 'pending_verification'</code> &nbsp;<span class="text-muted">— senior reviewer inbox</span></li>
+      <li><code>ix_lab_results_critical</code> — INDEX (created_at DESC) WHERE <code>flag IN ('critical_low','critical_high')</code> &nbsp;<span class="text-muted">— critical value queue</span></li>
+      <li><code>ix_lab_results_amended</code> — INDEX (amended_from_result_id) WHERE <code>amended_from_result_id IS NOT NULL</code> &nbsp;<span class="text-muted">— correction chain lookup</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_lab_results_bi_autoflag</code> — BEFORE INSERT → sets <code>flag</code> by comparing <code>value_numeric</code> against <code>lab_tests</code> reference ranges (gender-aware via <code>patients.gender</code>)</li>
+      <li><code>tr_lab_results_ai_critical_alert</code> — AFTER INSERT → if <code>flag IN ('critical_low','critical_high')</code>, creates notification to senior reviewer with 30-minute ACK SLA</li>
+      <li><code>tr_lab_results_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_lab_results_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+
+    <h6 class="text-muted mt-3">Result values + flag + method</h6>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>lab_order_item_id</th><th>value_raw</th><th>value_numeric</th><th>unit</th><th>flag</th><th>method</th><th>comments</th><th>performed_by</th><th>report_data</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…lr001</code></td><td><code>…oi003 (Meena/HB)</code></td>
+          <td>11.2</td><td>11.2000</td><td>g/dL</td>
+          <td><strong class="text-warning">low</strong></td>
+          <td>Cyanmethaemoglobin</td><td>Mild anaemia — correlate clinically</td>
+          <td><code>…0026 (lab tech)</code></td><td><code>\x255044462d…</code> (PDF binary)</td>
+        </tr>
+        <tr>
+          <td><code>…lr002</code></td><td><code>…oi001 (Rajan/HB)</code></td>
+          <td>14.8</td><td>14.8000</td><td>g/dL</td>
+          <td>normal</td>
+          <td>Cyanmethaemoglobin</td><td>NULL</td>
+          <td><code>…0026 (lab tech)</code></td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h6 class="text-muted mt-3">Layer 2 verification + audit</h6>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>release_status</th><th>approval_status</th><th>verified_by</th><th>verified_at</th><th>rejection_reason</th><th>is_override_release</th><th>override_release_reason</th><th>amended_from_result_id</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…lr001</code></td><td>verified</td><td>approved</td>
+          <td><code>…0027 (Dr Senior)</code></td><td>2026-05-13 13:20:00</td>
+          <td>NULL</td><td>false</td><td>NULL</td><td>NULL</td>
+          <td><code>…0026 (lab tech)</code></td><td>2026-05-13 12:50:00</td><td><code>…0027</code></td><td>2026-05-13 13:20:00</td><td>1</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…lr002</code></td><td>pending_verification</td><td>pending_approval</td>
+          <td>NULL</td><td>NULL</td>
+          <td>NULL</td><td>false</td><td>NULL</td><td>NULL</td>
+          <td><code>…0026 (lab tech)</code></td><td>2026-05-13 13:00:00</td><td>NULL</td><td>2026-05-13 13:00:00</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Row 1 — Meena's HB result: 11.2 g/dL flagged <code>low</code> (female range 12–16); verified by senior pathologist and released — visible to Dr Priya's inbox. Row 2 — Rajan's HB from CBC: 14.8 g/dL (normal for male); still pending senior verification.</p>
+  </section>
+
+</main>
+
+</body>
+</html>

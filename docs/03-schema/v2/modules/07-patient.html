@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Patient — HMS Schema v8</title>
+  <link rel="stylesheet" href="../shared/styles.css">
+</head>
+<body>
+  <div id="root"></div>
+  <script src="../shared/manifest.js"></script>
+  <script src="../shared/catalog.js"></script>
+  <script src="../shared/renderer.js"></script>
+  <script>
+  // ─── EDIT BELOW ONLY. Do not touch HTML/script tags. ────────────────────
+  const MODULE = {
+    id: 'patient',
+    name: 'Patient',
+    color: '#5BA3D8',
+    bg: '#0E1F2E',
+    lbg: '#E5F0F8',
+    features: ['identity', 'kyc', 'merge', 'family-history', 'sequence'],
+    tables: [
+      { n:'patients', feature:'identity', desc:'Master patient identity. UHID, demographics, allergies — referenced by every clinical & billing row.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants'},
+          {n:'uhid',t:'varchar · UHID or TEMP- prefix',uk:1},
+          {n:'registration_status',t:"varchar · 'provisional'|'complete'|'merged'"},
+          {n:'merged_into_patient_id',t:'uuid · self-ref for temp merges',fk:'patients',nl:1},
+          {n:'first_name',t:'varchar'},
+          {n:'last_name',t:'varchar'},
+          {n:'gender',t:"varchar · 'M'|'F'|'O'"},
+          {n:'dob',t:'date'},
+          {n:'age',t:'int'},
+          {n:'mobile',t:'varchar · indexed, not unique'},
+          {n:'alt_mobile',t:'varchar',nl:1},
+          {n:'address',t:'jsonb · {line1, city, pincode}'},
+          {n:'address_pincode',t:'varchar GENERATED · from address JSONB',nw:1},
+          {n:'address_city',t:'varchar GENERATED · from address JSONB',nw:1},
+          {n:'blood_group',t:'varchar',nl:1},
+          {n:'marital_status',t:'varchar',nl:1},
+          {n:'allergies',t:'text[] · denormalized from allergies_lookup'},
+          {n:'chronic_conditions',t:'text[] · denormalized from chronic_conditions_lookup'},
+          {n:'emergency_contact',t:'jsonb',nl:1},
+          {n:'is_active',t:'boolean'},
+          {n:'created_by',t:'uuid',fk:'users'},
+          {n:'created_at',t:'timestamptz'},
+          {n:'updated_by',t:'uuid',fk:'users',nl:1,nw:1},
+          {n:'updated_at',t:'timestamptz',nw:1},
+          {n:'version',t:'int DEFAULT 0',nw:1},
+        ]},
+      { n:'patient_govt_ids', feature:'kyc', nw:1, desc:'Encrypted KYC storage (Aadhaar, PAN, passport, voter ID, DL) with hash + last4 for dedup. RLS-protected; required for Phase 2 insurance/TPA.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants'},
+          {n:'patient_id',t:'uuid',fk:'patients'},
+          {n:'id_type',t:"varchar · 'aadhaar'|'pan'|'passport'|'voter'|'dl'|'other'"},
+          {n:'id_value_encrypted',t:'bytea · pgcrypto'},
+          {n:'id_value_hash',t:'varchar · for dedup'},
+          {n:'id_value_last4',t:'varchar · UI hint'},
+          {n:'issuing_authority',t:'varchar',nl:1},
+          {n:'holder_name_on_id',t:'varchar',nl:1},
+          {n:'verified',t:'boolean DEFAULT FALSE'},
+          {n:'verified_at',t:'timestamptz',nl:1},
+          {n:'verified_by',t:'uuid',fk:'users',nl:1},
+          {n:'verification_method',t:"varchar · 'manual'|'digilocker'|'ocr'",nl:1},
+          {n:'verification_notes',t:'text',nl:1},
+          {n:'document_attachment_id',t:'uuid',fk:'file_attachments',nl:1},
+          {n:'is_active',t:'boolean DEFAULT TRUE'},
+          {n:'created_by',t:'uuid',fk:'users'},
+          {n:'created_at',t:'timestamptz'},
+          {n:'updated_at',t:'timestamptz'},
+        ]},
+      { n:'patient_merges', feature:'merge', desc:'Audit of duplicate-record consolidations. Source patient is hidden, child rows repointed to target. Layer 2 maker-checker for unmerge.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants'},
+          {n:'source_patient_id',t:'uuid · the duplicate that disappears',fk:'patients'},
+          {n:'target_patient_id',t:'uuid · the surviving record',fk:'patients'},
+          {n:'reason',t:'text · why these are the same person'},
+          {n:'rows_repointed',t:'jsonb · {op_visits:3, payments:5, ...}'},
+          {n:'merged_by',t:'uuid',fk:'users'},
+          {n:'merged_at',t:'timestamptz'},
+          {n:'unmerged_at',t:'timestamptz · only set on unmerge',nl:1},
+          {n:'unmerged_by',t:'uuid',fk:'users',nl:1},
+          {n:'unmerge_reason',t:'text',nl:1},
+          {n:'approval_status',t:"varchar · 'pending'|'approved'|'rejected' · for unmerge",nw:1},
+          {n:'approved_by',t:'uuid',fk:'users',nl:1,nw:1},
+          {n:'approved_at',t:'timestamptz',nl:1,nw:1},
+          {n:'rejection_reason',t:'text',nl:1,nw:1},
+        ]},
+      { n:'patient_mergeable_tables', feature:'merge', nw:1, desc:'Registry of every table with patient_id FK — read by sp_merge_patients to dynamically repoint child rows. 21+ entries.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'module',t:"varchar · 'consultation'|'lab'|'pharmacy'…"},
+          {n:'table_name',t:'varchar',uk:1},
+          {n:'fk_column',t:"varchar · usually 'patient_id'"},
+          {n:'merge_order',t:'int · processing sequence'},
+          {n:'is_active',t:'boolean DEFAULT TRUE'},
+          {n:'notes',t:'text',nl:1},
+          {n:'added_at',t:'timestamptz'},
+          {n:'added_by',t:'uuid',fk:'users'},
+        ]},
+      { n:'uhid_sequences', feature:'sequence', desc:'Per-tenant, per-year UHID counter. Source of truth for the next sequence number.',
+        f:[
+          {n:'tenant_id',t:'uuid',fk:'tenants',pk:1},
+          {n:'year',t:'int',pk:1},
+          {n:'last_sequence',t:'int DEFAULT 0'},
+        ]},
+      { n:'patient_family_history', feature:'family-history', nw:1, desc:'First-degree relatives\' chronic conditions for hereditary-risk assessment by doctors.',
+        f:[
+          {n:'id',t:'uuid',pk:1},
+          {n:'tenant_id',t:'uuid',fk:'tenants'},
+          {n:'patient_id',t:'uuid',fk:'patients'},
+          {n:'relationship',t:"varchar · 'father'|'mother'|'sibling'|'child'|'grandparent'"},
+          {n:'relationship_specific',t:'varchar · e.g. paternal_uncle',nl:1},
+          {n:'condition_name',t:'varchar'},
+          {n:'icd10_code',t:'varchar',nl:1},
+          {n:'age_of_onset',t:'int',nl:1},
+          {n:'is_deceased',t:'boolean DEFAULT FALSE'},
+          {n:'age_at_death',t:'int',nl:1},
+          {n:'cause_of_death',t:'text',nl:1},
+          {n:'notes',t:'text',nl:1},
+          {n:'is_active',t:'boolean DEFAULT TRUE'},
+          {n:'created_by',t:'uuid',fk:'users'},
+          {n:'created_at',t:'timestamptz'},
+          {n:'updated_at',t:'timestamptz'},
+        ]},
+    ]
+  };
+  renderModule(MODULE);
+  </script>
+</body>
+</html>

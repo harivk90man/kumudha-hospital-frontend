@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HMS Schema v3 — Module Browser</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark">
+  <div class="container">
+    <span class="navbar-brand mb-0 h1">HMS Schema <span class="badge bg-primary">v3</span></span>
+    <span class="navbar-text">Single-tenant per deployment</span>
+  </div>
+</nav>
+
+<main class="container py-4">
+
+  <div class="row mb-4">
+    <div class="col-12">
+      <h1>Hospital Management System — Schema v3</h1>
+      <p class="lead">Visual companion to the canonical TSDs. 19 modules, dependency-ordered.</p>
+      <p>
+        <a href="CONVENTIONS.md" class="btn btn-outline-primary btn-sm">
+          <i class="bi bi-book"></i> Conventions
+        </a>
+        <a href="../../05-tsd/README.md" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-file-text"></i> TSDs (text spec)
+        </a>
+        <a href="../v2/index.html" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-clock-history"></i> v2 browser (legacy)
+        </a>
+      </p>
+    </div>
+  </div>
+
+  <div class="row mb-4">
+    <div class="col-md-7 position-relative">
+      <input type="text" id="table-search" class="form-control" placeholder="Search tables… e.g. patients, invoices, drug_stock" autocomplete="off">
+      <ul id="search-results" class="list-group shadow position-absolute w-100" style="z-index:1000;display:none;top:100%;left:0;max-height:340px;overflow-y:auto;"></ul>
+    </div>
+  </div>
+
+  <h2 class="h4 mt-4">Foundation — Module 01 sliced into 4</h2>
+  <p class="text-muted small">Module 1 (Platform Tenancy) covers 12 tables. Sliced into 4 reviewable cuts so each can be locked independently. Late iteration on any slice is fine — early slices may be amended once a later one surfaces an issue.</p>
+  <div class="row g-3">
+    <div class="col-md-3">
+      <a href="modules/01a-identity-and-auth.html" class="card text-decoration-none h-100">
+        <div class="card-body">
+          <h5 class="card-title">01A · Identity &amp; Auth</h5>
+          <p class="card-text small text-muted">hospital_profile, users, user_sessions.</p>
+          <span class="badge bg-success">Ready · review</span>
+        </div>
+      </a>
+    </div>
+    <div class="col-md-3">
+      <a href="modules/01b-organisation.html" class="card text-decoration-none h-100">
+        <div class="card-body">
+          <h5 class="card-title">01B · Organisation</h5>
+          <p class="card-text small text-muted">departments, doctor_profiles, doctor_leaves.</p>
+          <span class="badge bg-success">Ready · review</span>
+        </div>
+      </a>
+    </div>
+    <div class="col-md-3">
+      <a href="modules/01c-rbac.html" class="card text-decoration-none h-100">
+        <div class="card-body">
+          <h5 class="card-title">01C · RBAC</h5>
+          <p class="card-text small text-muted">roles, user_roles, role_permissions (CRUD-per-table).</p>
+          <span class="badge bg-success">Ready · review</span>
+        </div>
+      </a>
+    </div>
+    <div class="col-md-3">
+      <a href="modules/01d-operational-config.html" class="card text-decoration-none h-100">
+        <div class="card-body">
+          <h5 class="card-title">01D · Operational Config</h5>
+          <p class="card-text small text-muted">system_config, user_preferences, holidays.</p>
+          <span class="badge bg-success">Ready · review</span>
+        </div>
+      </a>
+    </div>
+  </div>
+
+  <h2 class="h4 mt-4">Foundation — rest</h2>
+  <div class="row g-3">
+    <div class="col-md-4">
+      <a href="modules/02-platform-audit.html" class="card text-decoration-none h-100">
+        <div class="card-body">
+          <h5 class="card-title">02 · Platform Audit</h5>
+          <p class="card-text small text-muted">audit_logs (trigger-driven), audit_excluded_tables.</p>
+          <span class="badge bg-success">Ready · review</span>
+        </div>
+      </a>
+    </div>
+    <div class="col-md-4">
+      <div class="card h-100">
+        <div class="card-body">
+          <h5 class="card-title">03 · Platform Events</h5>
+          <p class="card-text small text-muted">domain_events, domain_event_types_lookup.</p>
+          <span class="badge bg-secondary">Deferred</span>
+          <p class="card-text small text-muted mt-2"><em>audit_logs covers forensic needs; analytics goes via Module 19 MVs. Re-add when a concrete external subscriber (integration, webhook) is identified.</em></p>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card h-100">
+        <div class="card-body">
+          <h5 class="card-title">04 · Platform Notifications</h5>
+          <p class="card-text small text-muted">notifications, notification_acknowledgments.</p>
+          <span class="badge bg-secondary">Deferred</span>
+          <p class="card-text small text-muted mt-2"><em>Add when in-app / SMS / email alerts to staff are an active requirement.</em></p>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <a href="modules/05-document-templates.html" class="card text-decoration-none h-100">
+        <div class="card-body">
+          <h5 class="card-title">05 · Document Templates</h5>
+          <p class="card-text small text-muted">document_templates. file_attachments dropped — per-entity in owning modules.</p>
+          <span class="badge bg-success">Ready · review</span>
+        </div>
+      </a>
+    </div>
+    <div class="col-md-4">
+      <a href="modules/06-platform-lookups.html" class="card text-decoration-none h-100">
+        <div class="card-body">
+          <h5 class="card-title">06 · Platform Lookups</h5>
+          <p class="card-text small text-muted">allergies_lookup, chronic_conditions_lookup.</p>
+          <span class="badge bg-success">Ready · review</span>
+        </div>
+      </a>
+    </div>
+  </div>
+
+  <h2 class="h4 mt-4">Patient + OPD path</h2>
+  <div class="row g-3">
+    <div class="col-md-4"><a href="modules/07-patient.html" class="card text-decoration-none h-100"><div class="card-body"><h5 class="card-title">07 · Patient</h5><p class="card-text small text-muted">patients, patient_govt_ids, patient_merges, patient_allergies, patient_chronic_conditions.</p><span class="badge bg-success">Ready · review</span></div></a></div>
+    <div class="col-md-4"><a href="modules/08-journey.html" class="card text-decoration-none h-100"><div class="card-body"><h5 class="card-title">08 · Journey</h5><p class="card-text small text-muted">stations, patient_journey_events. (patient_states deferred)</p><span class="badge bg-success">Ready · review</span></div></a></div>
+    <div class="col-md-4"><a href="modules/09-appointments.html" class="card text-decoration-none h-100"><div class="card-body"><h5 class="card-title">09 · Appointments</h5><p class="card-text small text-muted">appointments, appointment_slots, tokens.</p><span class="badge bg-success">Ready · review</span></div></a></div>
+    <div class="col-md-4"><a href="modules/10-encounter.html" class="card text-decoration-none h-100"><div class="card-body"><h5 class="card-title">10 · Encounter</h5><p class="card-text small text-muted">op_visits, patient_queue.</p><span class="badge bg-success">Ready · review</span></div></a></div>
+    <div class="col-md-4"><a href="modules/11-consultation.html" class="card text-decoration-none h-100"><div class="card-body"><h5 class="card-title">11 · Consultation</h5><p class="card-text small text-muted">vitals, consultations, diagnosis_templates, prescriptions, prescription_items, doctor_recommendations.</p><span class="badge bg-success">Ready · review</span></div></a></div>
+  </div>
+
+  <h2 class="h4 mt-4">Ancillary</h2>
+  <div class="row g-3">
+    <div class="col-md-4"><a href="modules/12-lab.html" class="card text-decoration-none h-100"><div class="card-body"><h5 class="card-title">12 · Lab</h5><p class="card-text small text-muted">lab_tests, lab_test_groups, lab_test_group_items, lab_orders, lab_order_items, lab_samples, lab_results.</p><span class="badge bg-success">Ready · review</span></div></a></div>
+    <div class="col-md-4"><a href="modules/13-radiology.html" class="card text-decoration-none h-100"><div class="card-body"><h5 class="card-title">13 · Radiology</h5><p class="card-text small text-muted">radiology_procedures, radiology_orders, radiology_attachments, radiology_reports. (radiology_studies dropped)</p><span class="badge bg-success">Ready · review</span></div></a></div>
+    <div class="col-md-4"><a href="modules/14-inventory.html" class="card text-decoration-none h-100"><div class="card-body"><h5 class="card-title">14 · Inventory</h5><p class="card-text small text-muted">vendors, vendor_contacts, drug_catalogue, drug_stock, purchase_orders(_items), drug_stock_ledger, narcotic_register.</p><span class="badge bg-success">Ready · review</span></div></a></div>
+    <div class="col-md-4"><a href="modules/15-pharmacy.html" class="card text-decoration-none h-100"><div class="card-body"><h5 class="card-title">15 · Pharmacy</h5><p class="card-text small text-muted">pharmacy_sales, pharmacy_sale_items, pharmacy_returns, pharmacy_return_items.</p><span class="badge bg-success">Ready · review</span></div></a></div>
+  </div>
+
+  <h2 class="h4 mt-4">Money</h2>
+  <div class="row g-3">
+    <div class="col-md-4"><a href="modules/16-pricing.html" class="card text-decoration-none h-100"><div class="card-body"><h5 class="card-title">16 · Pricing</h5><p class="card-text small text-muted">services, service_price_history. (service_billing_policies dropped)</p><span class="badge bg-success">Ready · review</span></div></a></div>
+    <div class="col-md-4"><a href="modules/17-billing.html" class="card text-decoration-none h-100"><div class="card-body"><h5 class="card-title">17 · Billing</h5><p class="card-text small text-muted">invoices, invoice_items. (credit_notes dropped)</p><span class="badge bg-success">Ready · review</span></div></a></div>
+    <div class="col-md-4"><a href="modules/18-payments.html" class="card text-decoration-none h-100"><div class="card-body"><h5 class="card-title">18 · Payments</h5><p class="card-text small text-muted">payments, payment_allocations, cash_counters, cash_sessions, cash_counter_handovers. (payees, bridge tables dropped)</p><span class="badge bg-success">Ready · review</span></div></a></div>
+  </div>
+
+  <h2 class="h4 mt-4">Analytics</h2>
+  <div class="row g-3">
+    <div class="col-md-4"><a href="modules/19-analytics.html" class="card text-decoration-none h-100"><div class="card-body"><h5 class="card-title">19 · Analytics</h5><p class="card-text small text-muted">All tables and MVs deferred. 3 MV specs documented for when batch job is built: mv_revenue_daily, mv_collections_daily, mv_revenue_by_doctor.</p><span class="badge bg-secondary">Deferred</span></div></a></div>
+  </div>
+
+  <hr class="my-5">
+
+  <div class="row text-muted small">
+    <div class="col-md-6">
+      <strong>Locked decisions (see <a href="CONVENTIONS.md">CONVENTIONS.md</a>):</strong>
+      <ul>
+        <li>Single schema, single tenant per deployment; no <code>tenant_id</code></li>
+        <li>UUIDv7 PKs; <code>numeric(14,2)</code> money; soft-delete <code>deleted_at</code></li>
+        <li>3-layer audit; <code>jsonb</code> for structured data; <code>text</code> for plain strings</li>
+        <li>Bootstrap 5 via CDN; no custom CSS/JS</li>
+      </ul>
+    </div>
+    <div class="col-md-6">
+      <strong>Source artefacts:</strong>
+      <ul>
+        <li><a href="../../05-tsd/README.md">TSDs</a> — canonical text spec</li>
+        <li><a href="../../../backend/db/sample_data.sql">sample_data.sql</a> — sample-row source</li>
+        <li><a href="../../../backend/BACKEND.md">BACKEND.md</a> — app-layer persistence rules</li>
+      </ul>
+    </div>
+  </div>
+
+</main>
+
+<script>
+const TABLES = [
+  // 01A
+  {n:'hospital_profile',  m:'01A · Identity & Auth',       f:'modules/01a-identity-and-auth.html#hospital_profile'},
+  {n:'users',             m:'01A · Identity & Auth',       f:'modules/01a-identity-and-auth.html#users'},
+  {n:'user_sessions',     m:'01A · Identity & Auth',       f:'modules/01a-identity-and-auth.html#user_sessions'},
+  // 01B
+  {n:'departments',       m:'01B · Organisation',          f:'modules/01b-organisation.html#departments'},
+  {n:'doctor_profiles',   m:'01B · Organisation',          f:'modules/01b-organisation.html#doctor_profiles'},
+  {n:'doctor_leaves',     m:'01B · Organisation',          f:'modules/01b-organisation.html#doctor_leaves'},
+  // 01C
+  {n:'roles',             m:'01C · RBAC',                  f:'modules/01c-rbac.html#roles'},
+  {n:'user_roles',        m:'01C · RBAC',                  f:'modules/01c-rbac.html#user_roles'},
+  {n:'role_permissions',  m:'01C · RBAC',                  f:'modules/01c-rbac.html#role_permissions'},
+  // 01D
+  {n:'system_config',     m:'01D · Operational Config',    f:'modules/01d-operational-config.html#system_config'},
+  {n:'user_preferences',  m:'01D · Operational Config',    f:'modules/01d-operational-config.html#user_preferences'},
+  {n:'holidays',          m:'01D · Operational Config',    f:'modules/01d-operational-config.html#holidays'},
+  // 02
+  {n:'audit_logs',              m:'02 · Platform Audit',   f:'modules/02-platform-audit.html#audit_logs'},
+  {n:'audit_excluded_tables',   m:'02 · Platform Audit',   f:'modules/02-platform-audit.html#audit_excluded_tables'},
+  // 05
+  {n:'document_templates',      m:'05 · Document Templates', f:'modules/05-document-templates.html#document_templates'},
+  // 06
+  {n:'allergies_lookup',            m:'06 · Platform Lookups', f:'modules/06-platform-lookups.html#allergies_lookup'},
+  {n:'chronic_conditions_lookup',   m:'06 · Platform Lookups', f:'modules/06-platform-lookups.html#chronic_conditions_lookup'},
+  // 07
+  {n:'patients',                    m:'07 · Patient', f:'modules/07-patient.html#patients'},
+  {n:'patient_govt_ids',            m:'07 · Patient', f:'modules/07-patient.html#patient_govt_ids'},
+  {n:'patient_merges',              m:'07 · Patient', f:'modules/07-patient.html#patient_merges'},
+  {n:'patient_allergies',           m:'07 · Patient', f:'modules/07-patient.html#patient_allergies'},
+  {n:'patient_chronic_conditions',  m:'07 · Patient', f:'modules/07-patient.html#patient_chronic_conditions'},
+  // 08
+  {n:'stations',              m:'08 · Journey', f:'modules/08-journey.html#stations'},
+  {n:'patient_journey_events',m:'08 · Journey', f:'modules/08-journey.html#patient_journey_events'},
+  // 09
+  {n:'appointments',      m:'09 · Appointments', f:'modules/09-appointments.html#appointments'},
+  {n:'appointment_slots', m:'09 · Appointments', f:'modules/09-appointments.html#appointment_slots'},
+  {n:'tokens',            m:'09 · Appointments', f:'modules/09-appointments.html#tokens'},
+  // 10
+  {n:'op_visits',     m:'10 · Encounter', f:'modules/10-encounter.html#op_visits'},
+  {n:'patient_queue', m:'10 · Encounter', f:'modules/10-encounter.html#patient_queue'},
+  // 11
+  {n:'vitals',                m:'11 · Consultation', f:'modules/11-consultation.html#vitals'},
+  {n:'consultations',         m:'11 · Consultation', f:'modules/11-consultation.html#consultations'},
+  {n:'diagnosis_templates',   m:'11 · Consultation', f:'modules/11-consultation.html#diagnosis_templates'},
+  {n:'prescriptions',         m:'11 · Consultation', f:'modules/11-consultation.html#prescriptions'},
+  {n:'prescription_items',    m:'11 · Consultation', f:'modules/11-consultation.html#prescription_items'},
+  {n:'doctor_recommendations',m:'11 · Consultation', f:'modules/11-consultation.html#doctor_recommendations'},
+  // 12
+  {n:'lab_tests',           m:'12 · Lab', f:'modules/12-lab.html#lab_tests'},
+  {n:'lab_test_groups',     m:'12 · Lab', f:'modules/12-lab.html#lab_test_groups'},
+  {n:'lab_test_group_items',m:'12 · Lab', f:'modules/12-lab.html#lab_test_group_items'},
+  {n:'lab_orders',          m:'12 · Lab', f:'modules/12-lab.html#lab_orders'},
+  {n:'lab_order_items',     m:'12 · Lab', f:'modules/12-lab.html#lab_order_items'},
+  {n:'lab_samples',         m:'12 · Lab', f:'modules/12-lab.html#lab_samples'},
+  {n:'lab_results',         m:'12 · Lab', f:'modules/12-lab.html#lab_results'},
+  // 13
+  {n:'radiology_procedures',  m:'13 · Radiology', f:'modules/13-radiology.html#radiology_procedures'},
+  {n:'radiology_orders',      m:'13 · Radiology', f:'modules/13-radiology.html#radiology_orders'},
+  {n:'radiology_attachments', m:'13 · Radiology', f:'modules/13-radiology.html#radiology_attachments'},
+  {n:'radiology_reports',     m:'13 · Radiology', f:'modules/13-radiology.html#radiology_reports'},
+  // 14
+  {n:'vendors',             m:'14 · Inventory', f:'modules/14-inventory.html#vendors'},
+  {n:'vendor_contacts',     m:'14 · Inventory', f:'modules/14-inventory.html#vendor_contacts'},
+  {n:'drug_catalogue',      m:'14 · Inventory', f:'modules/14-inventory.html#drug_catalogue'},
+  {n:'drug_stock',          m:'14 · Inventory', f:'modules/14-inventory.html#drug_stock'},
+  {n:'purchase_orders',     m:'14 · Inventory', f:'modules/14-inventory.html#purchase_orders'},
+  {n:'purchase_order_items',m:'14 · Inventory', f:'modules/14-inventory.html#purchase_order_items'},
+  {n:'drug_stock_ledger',   m:'14 · Inventory', f:'modules/14-inventory.html#drug_stock_ledger'},
+  {n:'narcotic_register',   m:'14 · Inventory', f:'modules/14-inventory.html#narcotic_register'},
+  // 15
+  {n:'pharmacy_sales',        m:'15 · Pharmacy', f:'modules/15-pharmacy.html#pharmacy_sales'},
+  {n:'pharmacy_sale_items',   m:'15 · Pharmacy', f:'modules/15-pharmacy.html#pharmacy_sale_items'},
+  {n:'pharmacy_returns',      m:'15 · Pharmacy', f:'modules/15-pharmacy.html#pharmacy_returns'},
+  {n:'pharmacy_return_items', m:'15 · Pharmacy', f:'modules/15-pharmacy.html#pharmacy_return_items'},
+  // 16
+  {n:'services',              m:'16 · Pricing', f:'modules/16-pricing.html#services'},
+  {n:'service_price_history', m:'16 · Pricing', f:'modules/16-pricing.html#service_price_history'},
+  // 17
+  {n:'invoices',      m:'17 · Billing', f:'modules/17-billing.html#invoices'},
+  {n:'invoice_items', m:'17 · Billing', f:'modules/17-billing.html#invoice_items'},
+  // 18
+  {n:'payments',              m:'18 · Payments', f:'modules/18-payments.html#payments'},
+  {n:'payment_allocations',   m:'18 · Payments', f:'modules/18-payments.html#payment_allocations'},
+  {n:'cash_counters',         m:'18 · Payments', f:'modules/18-payments.html#cash_counters'},
+  {n:'cash_sessions',         m:'18 · Payments', f:'modules/18-payments.html#cash_sessions'},
+  {n:'cash_counter_handovers',m:'18 · Payments', f:'modules/18-payments.html#cash_counter_handovers'},
+];
+
+const input   = document.getElementById('table-search');
+const results = document.getElementById('search-results');
+
+function highlight(name, q) {
+  const i = name.toLowerCase().indexOf(q);
+  if (i < 0) return name;
+  return name.slice(0, i)
+    + '<mark class="px-0">' + name.slice(i, i + q.length) + '</mark>'
+    + name.slice(i + q.length);
+}
+
+function render(q) {
+  const matches = TABLES.filter(t => t.n.toLowerCase().includes(q)).slice(0, 14);
+  if (!matches.length) {
+    results.innerHTML = '<li class="list-group-item text-muted small py-2">No tables found</li>';
+  } else {
+    results.innerHTML = matches.map(t =>
+      `<li class="list-group-item list-group-item-action py-2 px-3 d-flex justify-content-between align-items-center"
+           style="cursor:pointer" data-href="${t.f}">
+         <code style="color:#d63384">${highlight(t.n, q)}</code>
+         <span class="text-muted small ms-3 text-end">${t.m}</span>
+       </li>`
+    ).join('');
+    results.querySelectorAll('li[data-href]').forEach(li =>
+      li.addEventListener('mousedown', e => { e.preventDefault(); window.location.href = li.dataset.href; })
+    );
+  }
+  results.style.display = 'block';
+}
+
+input.addEventListener('input', () => {
+  const q = input.value.trim().toLowerCase();
+  q ? render(q) : (results.style.display = 'none');
+});
+
+input.addEventListener('focus', () => {
+  const q = input.value.trim().toLowerCase();
+  if (q) render(q);
+});
+
+input.addEventListener('blur', () => {
+  setTimeout(() => results.style.display = 'none', 200);
+});
+</script>
+</body>
+</html>

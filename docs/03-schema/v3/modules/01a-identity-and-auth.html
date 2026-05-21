@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>01A · Identity &amp; Auth Core — HMS Schema v3</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <style>
+    code { color: #d63384; font-size: 0.92em; }
+    .table th { white-space: nowrap; }
+    h2 .badge { font-size: 0.55em; vertical-align: middle; }
+    pre { background: #f8f9fa; padding: 1rem; border-radius: 0.375rem; font-size: 0.85em; }
+    .toc-card { background: #fff; }
+    /* Sample data: very small + nowrap so wide rows scroll horizontally */
+    .sample-data td, .sample-data th { white-space: nowrap; font-size: 0.78em; }
+    .sample-data .json { color: #6c757d; max-width: 28ch; overflow: hidden; text-overflow: ellipsis; display: inline-block; vertical-align: bottom; }
+  </style>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark sticky-top">
+  <div class="container">
+    <a href="../index.html" class="navbar-brand">
+      <i class="bi bi-arrow-left"></i> v3 Schema
+    </a>
+    <span class="navbar-text">Module 01 · Slice <strong>1A</strong> of 4 · Identity &amp; Auth Core</span>
+  </div>
+</nav>
+
+<main class="container py-4">
+
+  <h1>Identity &amp; Auth Core</h1>
+  <p class="lead">Who is this hospital, who can log in, and which sessions are active right now.</p>
+
+  <div class="card toc-card mb-4">
+    <div class="card-body">
+      <h6 class="card-subtitle text-muted mb-2">Slice 1A contents</h6>
+      <ol class="mb-0 small">
+        <li><a href="#uniform-block">Uniform audit + soft-delete block</a> — applies to every table in v3</li>
+        <li><a href="#hospital_profile">hospital_profile</a> — singleton hospital identity + UHID format</li>
+        <li><a href="#users">users</a> — every staff account in one table (auth + HR)</li>
+        <li><a href="#user_sessions">user_sessions</a> — active &amp; deleted login sessions</li>
+      </ol>
+    </div>
+  </div>
+
+  <!-- ================================================================ -->
+  <!-- Uniform audit + soft-delete block                                -->
+  <!-- ================================================================ -->
+  <section id="uniform-block" class="mb-5">
+    <h2>0. Uniform audit + soft-delete block</h2>
+    <p>Every table in v3 carries the same 7-column block at the end of its row. No table is an exception — append-only tables and singletons get the columns too (they stay frozen at insert values or NULL forever; trigger enforcement keeps them honest). Uniformity over micro-optimisation.</p>
+
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Default</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>created_by</code></td><td>uuid</td><td>NO</td><td>—</td><td>FK → <code>users(id)</code> ON DELETE SET NULL. Inserter.</td></tr>
+        <tr><td><code>created_at</code></td><td>timestamptz</td><td>NO</td><td><code>now()</code></td><td>Insert timestamp.</td></tr>
+        <tr><td><code>updated_by</code></td><td>uuid</td><td>YES</td><td>—</td><td>FK → <code>users(id)</code> ON DELETE SET NULL. Last UPDATE-er (NULL on insert).</td></tr>
+        <tr><td><code>updated_at</code></td><td>timestamptz</td><td>NO</td><td><code>now()</code></td><td>Last-update timestamp. Trigger <code>fn_touch_updated()</code> refreshes on every UPDATE.</td></tr>
+        <tr><td><code>version</code></td><td>int</td><td>NO</td><td><code>0</code></td><td>Optimistic-lock counter. Trigger increments on every UPDATE.</td></tr>
+        <tr><td><code>deleted_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>Soft-delete timestamp. <code>NULL</code> = live row. Live queries filter <code>WHERE deleted_at IS NULL</code>.</td></tr>
+        <tr><td><code>deleted_by</code></td><td>uuid</td><td>YES</td><td>—</td><td>FK → <code>users(id)</code> ON DELETE SET NULL. Who soft-deleted (set together with <code>deleted_at</code>).</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <p class="small">
+      <strong>Trigger:</strong> <code>fn_touch_updated()</code> (BEFORE UPDATE) sets <code>updated_at = now()</code> and <code>version = version + 1</code> on every row UPDATE.
+      <strong>Append-only tables</strong> (<code>audit_logs</code>, <code>domain_events</code>, etc.) carry the columns too but a separate <code>fn_append_only_guard</code> trigger raises an exception on any UPDATE/DELETE — so <code>updated_*</code>, <code>version</code>, <code>deleted_*</code> stay at insert defaults forever. Cosmetic but uniform.
+      <strong>The 7 columns are not repeated in every per-table column spec below</strong> — assume they're present.
+    </p>
+  </section>
+
+  <hr class="my-5">
+
+  <!-- ================================================================ -->
+  <!-- 1. hospital_profile                                              -->
+  <!-- ================================================================ -->
+  <section id="hospital_profile" class="mb-5">
+    <h2>1. hospital_profile
+      <span class="badge bg-secondary">singleton</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+    </h2>
+    <p>One-row table holding hospital identity and the UHID format. App reads <code>SELECT * FROM hospital_profile LIMIT 1</code> at startup. UHID format columns are application-locked once <code>uhid_sequences.last_sequence &gt; 0</code> (per BRD §1 / §12).</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>hospital_code</code></td><td>text</td><td>NO</td><td>UNIQUE, CHECK length 2–10</td><td>—</td><td>Short hospital code (e.g. <code>KH</code>)</td></tr>
+        <tr><td><code>hospital_name</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Display name</td></tr>
+        <tr><td><code>address</code></td><td>jsonb</td><td>NO</td><td>CHECK <code>fn_validate_hospital_address</code></td><td><code>'{}'</code></td><td>Structured address — JSON shape below</td></tr>
+        <tr><td><code>gst_number</code></td><td>text</td><td>YES</td><td>CHECK char_length = 15</td><td>—</td><td>GSTIN (India 15-char format)</td></tr>
+        <tr><td><code>license_number</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Hospital licence number</td></tr>
+        <tr><td><code>logo_path</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Relative path to logo</td></tr>
+        <tr><td><code>timezone</code></td><td>text</td><td>NO</td><td>—</td><td><code>'Asia/Kolkata'</code></td><td>IANA timezone; drives all local-date interpretations</td></tr>
+        <tr><td><code>uhid_prefix</code></td><td>text</td><td>NO</td><td>—</td><td><code>'UHID'</code></td><td>Prefix for new UHIDs</td></tr>
+        <tr><td><code>uhid_separator</code></td><td>text</td><td>NO</td><td>CHECK char_length = 1</td><td><code>'-'</code></td><td>Separator between UHID parts</td></tr>
+        <tr><td><code>uhid_sequence_padding</code></td><td>int</td><td>NO</td><td>CHECK BETWEEN 3 AND 10</td><td><code>6</code></td><td>Zero-padding width for the sequence</td></tr>
+        <tr><td><code>uhid_include_year</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>TRUE</code></td><td>Embed year in UHID format?</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns (§0).</p>
+
+    <h5>JSON shape — <code>address</code> column</h5>
+    <p class="small text-muted">Validated by the DB-side <code>fn_validate_hospital_address(jsonb)</code> CHECK. Required keys: <code>line1</code>, <code>city</code>, <code>state</code>, <code>country</code>.</p>
+
+    <table class="table table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Key</th><th>Type</th><th>Required</th><th>Rule</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>line1</code></td><td>string</td><td>Yes</td><td>Street / building</td></tr>
+        <tr><td><code>line2</code></td><td>string &#124; null</td><td>No</td><td>Apartment, floor, landmark</td></tr>
+        <tr><td><code>city</code></td><td>string</td><td>Yes</td><td>—</td></tr>
+        <tr><td><code>state</code></td><td>string</td><td>Yes</td><td>—</td></tr>
+        <tr><td><code>pincode</code></td><td>string &#124; null</td><td>No</td><td>Local postal code format</td></tr>
+        <tr><td><code>country</code></td><td>string</td><td>Yes</td><td>ISO-3166-1 alpha-2 (exactly 2 chars)</td></tr>
+        <tr><td><code>gstStateCode</code></td><td>string &#124; null</td><td>No</td><td>2-digit Indian state code (e.g. <code>"33"</code> for Tamil Nadu)</td></tr>
+      </tbody>
+    </table>
+
+<pre>{
+  "line1": "22 Pondy Salai",
+  "line2": null,
+  "city": "Villupuram",
+  "state": "Tamil Nadu",
+  "pincode": "605602",
+  "country": "IN",
+  "gstStateCode": "33"
+}</pre>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_hospital_profile</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_hospital_profile_singleton</code> — UNIQUE INDEX ON <code>((true))</code> WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— one-row invariant</span></li>
+      <li><code>uq_hospital_profile_code</code> — UNIQUE (hospital_code)</li>
+      <li><code>chk_hospital_profile_hospital_code_len</code> — CHECK <code>char_length(hospital_code) BETWEEN 2 AND 10</code></li>
+      <li><code>chk_hospital_profile_gst_len</code> — CHECK <code>gst_number IS NULL OR char_length(gst_number) = 15</code></li>
+      <li><code>chk_hospital_profile_uhid_padding</code> — CHECK <code>uhid_sequence_padding BETWEEN 3 AND 10</code></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_hospital_profile_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code> (Layer 1)</li>
+      <li><code>tr_hospital_profile_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code> (Layer 3)</li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr>
+          <th>id</th><th>hospital_code</th><th>hospital_name</th><th>address</th>
+          <th>gst_number</th><th>license_number</th><th>logo_path</th><th>timezone</th>
+          <th>uhid_prefix</th><th>uhid_separator</th><th>uhid_sequence_padding</th><th>uhid_include_year</th>
+          <th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th>
+          <th>deleted_at</th><th>deleted_by</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>0192a7b3-…-1111</code></td>
+          <td>KH</td>
+          <td>Kumudha Hospital</td>
+          <td><span class="json"><code>{"line1":"22 Pondy Salai","line2":null,"city":"Villupuram","state":"Tamil Nadu","pincode":"605602","country":"IN","gstStateCode":"33"}</code></span></td>
+          <td>33ABCDE1234F1Z5</td>
+          <td>TN-MED-1234/2018</td>
+          <td>/assets/kh-logo.png</td>
+          <td>Asia/Kolkata</td>
+          <td>KH</td>
+          <td>-</td>
+          <td>5</td>
+          <td>true</td>
+          <td><code>…0001 (admin)</code></td>
+          <td>2024-01-01 09:00:00+05:30</td>
+          <td><code>…0001 (admin)</code></td>
+          <td>2026-04-10 14:22:00+05:30</td>
+          <td>3</td>
+          <td>NULL</td>
+          <td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="text-muted small">
+      Singleton: only this one row will ever exist (enforced by <code>uq_hospital_profile_singleton</code>).
+      <code>version = 3</code> means the row has been UPDATEd three times since insert — probably address/logo refreshes.
+      <code>deleted_at</code> is NULL (singletons are never deleted; the column is cosmetic per the uniform rule).
+    </p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 2. users                                                         -->
+  <!-- ================================================================ -->
+  <section id="users" class="mb-5">
+    <h2>2. users
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Every staff account — admin, doctors, nurses, receptionists, pharmacists, lab/radio techs — in one row each. Auth (password, lockout, MFA) and HR (employee_id, department, designation, joining_date) live together. Doctor-specific extensions (fees, schedule, signature) live in <code>doctor_profiles</code> (Slice 1B).</p>
+
+    <h5>Columns (table-specific)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td colspan="6" class="text-info-emphasis"><strong>HR identity</strong></td></tr>
+        <tr><td><code>employee_id</code></td><td>text</td><td>NO</td><td>UNIQUE</td><td>—</td><td>HR / payroll ID (e.g. <code>EMP010</code>)</td></tr>
+        <tr><td><code>full_name</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Display name on rosters &amp; prescriptions</td></tr>
+        <tr><td><code>department_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>departments(id)</code> RESTRICT (Slice 1B)</td><td>—</td><td>Primary department; NULL for cross-cutting roles</td></tr>
+        <tr><td><code>designation</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Job title</td></tr>
+        <tr><td><code>joining_date</code></td><td>date</td><td>YES</td><td>—</td><td>—</td><td>HR record</td></tr>
+        <tr><td><code>profile_data</code></td><td>jsonb</td><td>NO</td><td>—</td><td><code>'{}'</code></td><td>Role-specific extension; polymorphic by <code>type</code> discriminator. JSON shape below.</td></tr>
+        <tr><td colspan="6" class="text-info-emphasis"><strong>Auth — login identifiers</strong></td></tr>
+        <tr><td><code>username</code></td><td>text</td><td>NO</td><td>UNIQUE, CHECK length 3–64</td><td>—</td><td>Primary login handle</td></tr>
+        <tr><td><code>mobile</code></td><td>text</td><td>NO</td><td>UNIQUE, CHECK length 10–15</td><td>—</td><td>Login alt + contact</td></tr>
+        <tr><td><code>email</code></td><td>text</td><td>YES</td><td>UNIQUE (partial)</td><td>—</td><td>Login alt + password reset target</td></tr>
+        <tr><td colspan="6" class="text-info-emphasis"><strong>Auth — credentials &amp; security state</strong></td></tr>
+        <tr><td><code>password_hash</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Argon2id hash</td></tr>
+        <tr><td><code>password_changed_at</code></td><td>timestamptz</td><td>NO</td><td>—</td><td><code>now()</code></td><td>Last user-driven password change. Drives age-based reset policy together with <code>system_config.auth.password_max_age_days</code> (Slice 1D).</td></tr>
+        <tr><td><code>must_change_password</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>FALSE</code></td><td>Forced-change gate. Set <code>TRUE</code> by: admin provisioning, admin password reset, lockout-unlock policy. Cleared by user-driven change. Login refuses to issue a normal session while <code>TRUE</code> — only a scoped change-password token.</td></tr>
+        <tr><td><code>failed_attempts</code></td><td>int</td><td>NO</td><td>CHECK &gt;= 0</td><td><code>0</code></td><td>Failed login counter (reset on success)</td></tr>
+        <tr><td><code>locked_until</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>Lockout window end; NULL = not locked</td></tr>
+        <tr><td><code>mfa_enabled</code></td><td>boolean</td><td>NO</td><td>—</td><td><code>FALSE</code></td><td>2FA on/off</td></tr>
+        <tr><td><code>mfa_secret</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>TOTP seed (encrypted at rest)</td></tr>
+        <tr><td><code>status</code></td><td>text</td><td>NO</td><td>CHECK IN ('active','inactive','suspended')</td><td><code>'active'</code></td><td>Auth gate</td></tr>
+        <tr><td colspan="6" class="text-info-emphasis"><strong>Telemetry</strong></td></tr>
+        <tr><td><code>last_login_at</code></td><td>timestamptz</td><td>YES</td><td>—</td><td>—</td><td>Last successful login</td></tr>
+        <tr><td><code>last_login_ip</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Source IP at last login</td></tr>
+        <tr><td><code>last_login_user_agent</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Client UA at last login</td></tr>
+        <tr><td><code>notes</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Free-form HR notes</td></tr>
+        <tr><td><code>profile_picture</code></td><td>bytea</td><td>YES</td><td>—</td><td>—</td><td>Staff profile photo stored as binary. NULL = no photo uploaded. Migrate to object-storage path at scale.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns (§0).</p>
+
+    <h5>JSON shape — <code>profile_data</code> column</h5>
+    <p class="small text-muted">Polymorphic by the <code>type</code> discriminator — one variant per role. The schema accepts any of the variants below; the discriminator picks which keys are valid for a given row.</p>
+
+    <table class="table table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Common key</th><th>Type</th><th>Required</th><th>Allowed values</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>type</code></td><td>string</td><td>Yes</td><td><code>"admin"</code> &#124; <code>"doctor"</code> &#124; <code>"receptionist"</code> &#124; <code>"pharmacist"</code> &#124; <code>"lab_tech"</code></td></tr>
+      </tbody>
+    </table>
+
+    <p class="small text-muted mb-1">Per-variant extra keys:</p>
+    <table class="table table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>type</th><th>Extra keys</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>"admin"</code></td><td>—</td><td>No extension fields.</td></tr>
+        <tr><td><code>"doctor"</code></td><td><code>languages</code> : array of string</td><td>Languages the doctor speaks; used by reception when assigning patients.</td></tr>
+        <tr><td><code>"receptionist"</code></td><td><code>tills</code> : array of string</td><td>Till IDs this receptionist may operate. Empty array = none assigned yet.</td></tr>
+        <tr><td><code>"pharmacist"</code></td><td><code>narcotic_licence</code> : string</td><td>Drug-control licence number, required for narcotic dispensing.</td></tr>
+        <tr><td><code>"lab_tech"</code></td><td>—</td><td>No extension fields.</td></tr>
+      </tbody>
+    </table>
+
+<pre>// admin
+{"type": "admin"}
+
+// doctor
+{"type": "doctor", "languages": ["English", "Tamil", "Kannada"]}
+
+// receptionist
+{"type": "receptionist", "tills": ["till-1"]}
+
+// pharmacist
+{"type": "pharmacist", "narcotic_licence": "NL-2024-018"}
+
+// lab_tech
+{"type": "lab_tech"}</pre>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_users</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_users_employee_id</code> — UNIQUE (employee_id)</li>
+      <li><code>uq_users_username</code> — UNIQUE (username)</li>
+      <li><code>uq_users_mobile</code> — UNIQUE (mobile)</li>
+      <li><code>uq_users_email</code> — UNIQUE (email) WHERE <code>email IS NOT NULL</code></li>
+      <li><code>chk_users_mobile_len</code> — CHECK <code>char_length(mobile) BETWEEN 10 AND 15</code></li>
+      <li><code>chk_users_username_len</code> — CHECK <code>char_length(username) BETWEEN 3 AND 64</code></li>
+      <li><code>chk_users_failed_attempts</code> — CHECK <code>failed_attempts &gt;= 0</code></li>
+      <li><code>chk_users_status</code> — CHECK <code>status IN ('active','inactive','suspended')</code></li>
+      <li><code>chk_users_mfa_secret_present</code> — CHECK <code>(mfa_enabled = FALSE) OR (mfa_secret IS NOT NULL)</code></li>
+      <li><code>ix_users_department</code> — INDEX (department_id) WHERE <code>department_id IS NOT NULL AND deleted_at IS NULL</code></li>
+      <li><code>ix_users_status_active</code> — INDEX (status) WHERE <code>deleted_at IS NULL</code></li>
+      <li><code>ix_users_locked</code> — INDEX (locked_until) WHERE <code>locked_until IS NOT NULL</code></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_users_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_users_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns (split into 4 sub-tables for readability)</h5>
+
+    <h6 class="text-muted mt-3">2.1 HR identity</h6>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>employee_id</th><th>full_name</th><th>department_id</th><th>designation</th><th>joining_date</th><th>profile_data (jsonb)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>…0001</code></td><td>EMP001</td><td>System Administrator</td><td><code>…dept Front</code></td><td>Administrator</td><td>2024-01-01</td><td><span class="json"><code>{"type":"admin"}</code></span></td></tr>
+        <tr><td><code>…0002</code></td><td>EMP002</td><td>Dr. Priya Iyer</td><td><code>…dept Ortho</code></td><td>Consultant Orthopaedic Surgeon (Head)</td><td>2024-01-15</td><td><span class="json"><code>{"type":"doctor","languages":["English","Tamil","Kannada"]}</code></span></td></tr>
+        <tr class="table-success"><td><code>…0015</code></td><td>EMP015</td><td>Dr. Aarthi Krishnamoorthy</td><td><code>…dept Ortho</code></td><td>Junior Orthopaedic Consultant</td><td>2025-09-01</td><td><span class="json"><code>{"type":"doctor","languages":["English","Tamil"]}</code></span></td></tr>
+        <tr><td><code>…0010</code></td><td>EMP010</td><td>Dr. Anand Krishnan</td><td><code>…dept GenMed</code></td><td>Consultant Physician</td><td>2024-03-01</td><td><span class="json"><code>{"type":"doctor","languages":["English","Tamil","Hindi"]}</code></span></td></tr>
+        <tr><td><code>…0011</code></td><td>EMP011</td><td>Dr. Saritha Nair</td><td><code>…dept Paed</code></td><td>Consultant Paediatrician</td><td>2024-03-25</td><td><span class="json"><code>{"type":"doctor","languages":["English","Tamil","Malayalam"]}</code></span></td></tr>
+        <tr><td><code>…0012</code></td><td>EMP012</td><td>Dr. Vinod Kumar</td><td><code>…dept Cardio</code></td><td>Consultant Cardiologist</td><td>2024-04-10</td><td><span class="json"><code>{"type":"doctor","languages":["English","Tamil","Telugu"]}</code></span></td></tr>
+        <tr><td><code>…0013</code></td><td>EMP013</td><td>Dr. Lakshmi Subramanian</td><td><code>…dept Ophth</code></td><td>Consultant Ophthalmologist</td><td>2024-04-05</td><td><span class="json"><code>{"type":"doctor","languages":["English","Tamil"]}</code></span></td></tr>
+        <tr><td><code>…0014</code></td><td>EMP014</td><td>Dr. Ravi Gopalan</td><td><code>…dept Surg</code></td><td>Consultant General Surgeon</td><td>2024-04-05</td><td><span class="json"><code>{"type":"doctor","languages":["English","Tamil","Hindi"]}</code></span></td></tr>
+        <tr><td><code>…0020</code></td><td>EMP020</td><td>Naveen Rajan</td><td><code>…dept Front</code></td><td>Receptionist</td><td>2024-05-20</td><td><span class="json"><code>{"type":"receptionist","tills":["till-1"]}</code></span></td></tr>
+        <tr class="table-warning"><td><code>…0025</code></td><td>EMP025</td><td>Suresh Kumar</td><td><code>…dept Front</code></td><td>Receptionist (trainee)</td><td>2025-09-15</td><td><span class="json"><code>{"type":"receptionist","tills":[]}</code></span></td></tr>
+        <tr class="table-secondary"><td><code>…0030</code></td><td>EMP030</td><td>Geetha Murugesan</td><td><code>…dept Pharma</code></td><td>Pharmacist</td><td>2024-06-01</td><td><span class="json"><code>{"type":"pharmacist","narcotic_licence":"NL-2024-018"}</code></span></td></tr>
+        <tr class="table-danger"><td><code>…0040</code></td><td>EMP040</td><td>Karthik Subramani</td><td><code>…dept Lab</code></td><td>Former Lab Tech</td><td>2024-02-10</td><td><span class="json"><code>{"type":"lab_tech"}</code></span></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Department references are forward-pointers; the <code>departments</code> table itself lands in <a href="01b-organisation.html#departments">Slice 1B</a>. In SQL terms, the <code>users.department_id</code> column is populated in Slice 1B after the <code>departments</code> table is created (the <code>fk_users_department</code> FK is added in the same migration that wires the cycle).
+      <br><span class="badge bg-success">green row</span> <strong>N:1 demonstration</strong> — Dr Priya (head, EMP002) and Dr Aarthi (junior, EMP015) both have <code>department_id = Ortho-dept-uuid</code>. The schema has no UNIQUE on <code>users.department_id</code>, so any number of users can share a department. Apollo's 5 cardiologists would all sit in the same <code>CARDIO</code> row by the same rule.</p>
+
+    <h6 class="text-muted mt-3">2.2 Auth identifiers + credentials</h6>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>employee_id</th><th>username</th><th>mobile</th><th>email</th><th>password_hash (truncated)</th><th>password_changed_at</th><th>must_change_password</th><th>failed_attempts</th><th>locked_until</th><th>mfa_enabled</th><th>mfa_secret</th><th>status</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>EMP001</td><td>admin</td><td>0000000001</td><td>admin@kumudhahospital.in</td><td><code>$argon2id$v=19$m=65536,t=3,p=4$…</code></td><td>2026-04-01 09:00</td><td>false</td><td>0</td><td>NULL</td><td>true</td><td><code>enc:b3F2y9…</code></td><td>active</td></tr>
+        <tr><td>EMP002</td><td>priya.iyer</td><td>9876500001</td><td>priya.iyer@kumudhahospital.in</td><td><code>$argon2id$…</code></td><td>2025-12-15 14:30</td><td>false</td><td>0</td><td>NULL</td><td>false</td><td>NULL</td><td>active</td></tr>
+        <tr class="table-success"><td>EMP015</td><td>aarthi.k</td><td>9876500015</td><td>aarthi.k@kumudhahospital.in</td><td><code>$argon2id$…</code></td><td>2025-09-01 10:00</td><td>false</td><td>0</td><td>NULL</td><td>false</td><td>NULL</td><td>active</td></tr>
+        <tr><td>EMP010</td><td>anand.krishnan</td><td>9876500010</td><td>anand.krishnan@kumudhahospital.in</td><td><code>$argon2id$…</code></td><td>2025-11-02 11:00</td><td>false</td><td>0</td><td>NULL</td><td>false</td><td>NULL</td><td>active</td></tr>
+        <tr><td>EMP011</td><td>saritha.nair</td><td>9876500011</td><td>saritha.nair@kumudhahospital.in</td><td><code>$argon2id$…</code></td><td>2024-03-25 10:00</td><td>false</td><td>0</td><td>NULL</td><td>false</td><td>NULL</td><td>active</td></tr>
+        <tr><td>EMP012</td><td>vinod.kumar</td><td>9876500012</td><td>vinod.kumar@kumudhahospital.in</td><td><code>$argon2id$…</code></td><td>2026-03-10 08:00</td><td>false</td><td>0</td><td>NULL</td><td>true</td><td><code>enc:a8K1w2…</code></td><td>active</td></tr>
+        <tr><td>EMP013</td><td>lakshmi.subramanian</td><td>9876500013</td><td>lakshmi.subramanian@kumudhahospital.in</td><td><code>$argon2id$…</code></td><td>2024-04-05 10:00</td><td>false</td><td>0</td><td>NULL</td><td>false</td><td>NULL</td><td>active</td></tr>
+        <tr><td>EMP014</td><td>ravi.gopalan</td><td>9876500014</td><td>ravi.gopalan@kumudhahospital.in</td><td><code>$argon2id$…</code></td><td>2024-04-05 10:00</td><td>false</td><td>0</td><td>NULL</td><td>false</td><td>NULL</td><td>active</td></tr>
+        <tr><td>EMP020</td><td>naveen.rajan</td><td>9876500020</td><td>naveen.rajan@kumudhahospital.in</td><td><code>$argon2id$…</code></td><td>2026-02-14 07:30</td><td>false</td><td>0</td><td>NULL</td><td>false</td><td>NULL</td><td>active</td></tr>
+        <tr class="table-warning"><td>EMP025</td><td>suresh.kumar</td><td>9876500025</td><td>suresh.kumar@kumudhahospital.in</td><td><code>$argon2id$…</code></td><td>2025-09-15 10:00</td><td><strong>true</strong></td><td>5</td><td>2026-05-13 09:30+05:30</td><td>false</td><td>NULL</td><td>active</td></tr>
+        <tr class="table-secondary"><td>EMP030</td><td>geetha.m</td><td>9876500030</td><td>geetha.m@kumudhahospital.in</td><td><code>$argon2id$…</code></td><td>2024-06-01 12:00</td><td>false</td><td>0</td><td>NULL</td><td>false</td><td>NULL</td><td>suspended</td></tr>
+        <tr class="table-danger"><td>EMP040</td><td>karthik.s</td><td>9876500040</td><td>karthik.s@kumudhahospital.in</td><td><code>$argon2id$…</code></td><td>2024-02-10 11:00</td><td>false</td><td>0</td><td>NULL</td><td>false</td><td>NULL</td><td>inactive</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h6 class="text-muted mt-3">2.3 Telemetry, notes &amp; profile picture</h6>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>employee_id</th><th>last_login_at</th><th>last_login_ip</th><th>last_login_user_agent</th><th>notes</th><th>profile_picture</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>EMP001</td><td>2026-05-13 08:10:00+05:30</td><td>10.0.0.1</td><td>Mozilla/5.0 … Chrome/126</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>EMP002</td><td>2026-05-13 07:55:00+05:30</td><td>10.0.1.45</td><td>Mozilla/5.0 … Chrome/126</td><td>NULL</td><td>[binary]</td></tr>
+        <tr class="table-success"><td>EMP015</td><td>2026-05-13 13:45:00+05:30</td><td>10.0.1.46</td><td>Mozilla/5.0 … Chrome/126</td><td>Joined Sep 2025 under Dr Priya's mentorship</td><td>NULL</td></tr>
+        <tr><td>EMP010</td><td>2026-05-13 08:30:00+05:30</td><td>10.0.1.40</td><td>Mozilla/5.0 … Firefox/127</td><td>NULL</td><td>[binary]</td></tr>
+        <tr><td>EMP011</td><td>2026-05-12 18:00:00+05:30</td><td>10.0.1.41</td><td>Mozilla/5.0 … Chrome/126</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>EMP012</td><td>2026-05-13 08:14:00+05:30</td><td>10.0.1.42</td><td>Mozilla/5.0 … Chrome/126</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>EMP013</td><td>2026-05-12 16:30:00+05:30</td><td>10.0.1.43</td><td>Mozilla/5.0 … Safari/17</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>EMP014</td><td>2026-05-12 17:00:00+05:30</td><td>10.0.1.44</td><td>Mozilla/5.0 … Edge/126</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>EMP020</td><td>2026-05-13 07:55:00+05:30</td><td>10.0.1.10</td><td>Mozilla/5.0 … Edge/126</td><td>NULL</td><td>NULL</td></tr>
+        <tr class="table-warning"><td>EMP025</td><td>2026-05-12 16:20:00+05:30</td><td>10.0.1.55</td><td>Mozilla/5.0 … Chrome/126</td><td>3rd-month review pending</td><td>NULL</td></tr>
+        <tr class="table-secondary"><td>EMP030</td><td>2026-03-15 10:00:00+05:30</td><td>10.0.1.30</td><td>Mozilla/5.0 … Safari/17</td><td>Suspended 2026-03-16 — inventory discrepancy under review</td><td>NULL</td></tr>
+        <tr class="table-danger"><td>EMP040</td><td>2025-12-20 17:00:00+05:30</td><td>10.0.1.50</td><td>Mozilla/5.0 … Chrome/120</td><td>Resigned 2025-12-31</td><td>NULL</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <h6 class="text-muted mt-3">2.4 Audit + soft-delete (uniform block)</h6>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>employee_id</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>EMP001</td><td>NULL (bootstrap)</td><td>2024-01-01 09:00:00+05:30</td><td><code>…0001</code></td><td>2026-04-01 09:00:00+05:30</td><td>1</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>EMP002</td><td><code>…0001</code></td><td>2024-01-15 10:00:00+05:30</td><td><code>…0001</code></td><td>2025-12-15 14:30:00+05:30</td><td>2</td><td>NULL</td><td>NULL</td></tr>
+        <tr class="table-success"><td>EMP015</td><td><code>…0001</code></td><td>2025-09-01 10:00:00+05:30</td><td>NULL</td><td>2025-09-01 10:00:00+05:30</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>EMP010</td><td><code>…0001</code></td><td>2024-03-01 10:00:00+05:30</td><td><code>…0001</code></td><td>2025-11-02 11:00:00+05:30</td><td>1</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>EMP011</td><td><code>…0001</code></td><td>2024-03-25 10:00:00+05:30</td><td>NULL</td><td>2024-03-25 10:00:00+05:30</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>EMP012</td><td><code>…0001</code></td><td>2024-04-10 10:00:00+05:30</td><td><code>…0001</code></td><td>2026-03-10 08:00:00+05:30</td><td>3</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>EMP013</td><td><code>…0001</code></td><td>2024-04-05 10:00:00+05:30</td><td>NULL</td><td>2024-04-05 10:00:00+05:30</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>EMP014</td><td><code>…0001</code></td><td>2024-04-05 10:00:00+05:30</td><td>NULL</td><td>2024-04-05 10:00:00+05:30</td><td>0</td><td>NULL</td><td>NULL</td></tr>
+        <tr><td>EMP020</td><td><code>…0001</code></td><td>2024-05-20 10:00:00+05:30</td><td><code>…0001</code></td><td>2026-02-14 07:30:00+05:30</td><td>1</td><td>NULL</td><td>NULL</td></tr>
+        <tr class="table-warning"><td>EMP025</td><td><code>…0001</code></td><td>2025-09-15 10:00:00+05:30</td><td><code>…0001</code></td><td>2026-05-13 08:30:00+05:30</td><td>6</td><td>NULL</td><td>NULL</td></tr>
+        <tr class="table-secondary"><td>EMP030</td><td><code>…0001</code></td><td>2024-06-01 10:00:00+05:30</td><td><code>…0001</code></td><td>2026-03-16 16:00:00+05:30</td><td>3</td><td>NULL</td><td>NULL</td></tr>
+        <tr class="table-danger"><td>EMP040</td><td><code>…0001</code></td><td>2024-02-10 10:00:00+05:30</td><td><code>…0001</code></td><td>2025-12-31 18:00:00+05:30</td><td>4</td><td>2025-12-31 18:00:00+05:30</td><td><code>…0001 (admin)</code></td></tr>
+      </tbody>
+    </table>
+    </div>
+
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 3. user_sessions                                                 -->
+  <!-- ================================================================ -->
+  <section id="user_sessions" class="mb-5">
+    <h2>3. user_sessions
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-secondary">Tier 3 audit-excluded</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+    </h2>
+    <p>Active &amp; soft-deleted login sessions. Stores the hashed refresh token (long-lived) and session metadata, so we can support "log out other devices" and forced sign-out on password change. Access tokens are stateless JWTs — verified by signature, not stored. Audit-excluded — JWT issuance churn would explode <code>audit_logs</code>.</p>
+
+    <div class="alert alert-secondary small">
+      <strong>v3 deltas:</strong>
+      <ul class="mb-0">
+        <li>v2's <code>is_active boolean</code> dropped in favour of the uniform <code>deleted_at</code>. "Session is revoked" = <code>deleted_at IS NOT NULL</code>.</li>
+        <li><code>token_hash</code> (access-token SHA-256) <strong>dropped</strong>. Access tokens are stateless JWTs — no DB hit per request, no per-request write. Revocation is granted via short access-token expiry (8h) + refresh-side revocation.</li>
+        <li><code>last_active_at</code> <strong>added</strong> for idle-timeout enforcement, decoupled from absolute expiry. App writes it at most once per minute to keep the write cost trivial.</li>
+        <li><code>user_id</code> FK changed from <code>CASCADE</code> to <strong><code>RESTRICT</code></strong> (matches §6 default). Hard-deleting a user must explicitly revoke their sessions first — session history has forensic value.</li>
+        <li>Self-FK <code>rotated_from_session_id</code> added for refresh-token rotation chains.</li>
+      </ul>
+    </div>
+
+    <h5>Columns (table-specific)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>user_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>users(id)</code> RESTRICT</td><td>—</td><td>Session owner. RESTRICT: a user with live sessions cannot be hard-deleted; revoke first.</td></tr>
+        <tr><td><code>refresh_hash</code></td><td>text</td><td>YES</td><td>UNIQUE (partial)</td><td>—</td><td>SHA-256 of refresh JWT. NULL once the session is revoked / rotated.</td></tr>
+        <tr><td><code>rotated_from_session_id</code></td><td>uuid</td><td>YES</td><td>FK → <code>user_sessions(id)</code> SET NULL</td><td>—</td><td>Self-FK chain — points to the session this one replaced via refresh-token rotation</td></tr>
+        <tr><td><code>ip_address</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Source IP at issue time</td></tr>
+        <tr><td><code>user_agent</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Client UA string</td></tr>
+        <tr><td><code>issued_at</code></td><td>timestamptz</td><td>NO</td><td>—</td><td><code>now()</code></td><td>Issue timestamp</td></tr>
+        <tr><td><code>expires_at</code></td><td>timestamptz</td><td>NO</td><td>CHECK &gt; issued_at</td><td>—</td><td>Absolute session expiry (refresh-token cutoff)</td></tr>
+        <tr><td><code>last_active_at</code></td><td>timestamptz</td><td>NO</td><td>—</td><td><code>now()</code></td><td>Last authenticated request seen on this session — drives idle-timeout. App writes at most every 60s.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns (§0). "Revoked" = <code>deleted_at IS NOT NULL</code>.</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_user_sessions</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_user_sessions_refresh_hash</code> — UNIQUE (refresh_hash) WHERE <code>refresh_hash IS NOT NULL AND deleted_at IS NULL</code> <span class="text-muted">(excludes revoked rows that nulled the hash)</span></li>
+      <li><code>chk_user_sessions_expiry</code> — CHECK <code>expires_at &gt; issued_at</code></li>
+      <li><code>ix_user_sessions_user_active</code> — INDEX (user_id, expires_at DESC) WHERE <code>deleted_at IS NULL</code></li>
+      <li><code>ix_user_sessions_cleanup</code> — INDEX (expires_at) WHERE <code>deleted_at IS NULL AND expires_at &lt; now()</code> <span class="text-muted">(sweep job)</span></li>
+      <li><code>ix_user_sessions_idle</code> — INDEX (last_active_at) WHERE <code>deleted_at IS NULL</code> <span class="text-muted">(idle-timeout sweep)</span></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr>
+          <th>id</th><th>user_id</th><th>refresh_hash</th><th>rotated_from_session_id</th>
+          <th>ip_address</th><th>user_agent</th>
+          <th>issued_at</th><th>expires_at</th><th>last_active_at</th>
+          <th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th>
+          <th>deleted_at</th><th>deleted_by</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>0193…s001</code></td><td><code>…0012 (Vinod)</code></td>
+          <td><code>sha256:r1f9…</code></td><td>NULL</td>
+          <td>10.0.1.42</td><td>Mozilla/5.0 … Chrome/126</td>
+          <td>2026-05-13 08:14:00+05:30</td><td>2026-05-13 16:14:00+05:30</td><td>2026-05-13 08:42:00+05:30</td>
+          <td><code>…0012 (Vinod)</code></td><td>2026-05-13 08:14:00+05:30</td>
+          <td><code>…0012 (Vinod)</code></td><td>2026-05-13 08:42:00+05:30</td><td>1</td>
+          <td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>0193…s002</code></td><td><code>…0020 (Naveen)</code></td>
+          <td><code>sha256:r2c0…</code></td><td>NULL</td>
+          <td>10.0.1.10</td><td>Mozilla/5.0 … Edge/126</td>
+          <td>2026-05-13 07:55:00+05:30</td><td>2026-05-13 15:55:00+05:30</td><td>2026-05-13 08:50:00+05:30</td>
+          <td><code>…0020 (Naveen)</code></td><td>2026-05-13 07:55:00+05:30</td>
+          <td><code>…0020 (Naveen)</code></td><td>2026-05-13 08:50:00+05:30</td><td>3</td>
+          <td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>0193…s003</code></td><td><code>…0012 (Vinod)</code></td>
+          <td><code>sha256:r3a1…</code></td><td><code>0193…s001</code></td>
+          <td>10.0.1.42</td><td>Mozilla/5.0 … Chrome/126</td>
+          <td>2026-05-13 12:10:00+05:30</td><td>2026-05-13 20:10:00+05:30</td><td>2026-05-13 12:10:00+05:30</td>
+          <td><code>…0012 (Vinod)</code></td><td>2026-05-13 12:10:00+05:30</td>
+          <td>NULL</td><td>2026-05-13 12:10:00+05:30</td><td>0</td>
+          <td>NULL</td><td>NULL</td>
+        </tr>
+        <tr class="table-info">
+          <td><code>0193…s004</code></td><td><code>…0002 (Priya)</code></td>
+          <td>NULL</td><td>NULL</td>
+          <td>10.0.1.45</td><td>Mozilla/5.0 … Safari/17</td>
+          <td>2026-05-12 17:10:00+05:30</td><td>2026-05-13 01:10:00+05:30</td><td>2026-05-12 19:28:00+05:30</td>
+          <td><code>…0002 (Priya)</code></td><td>2026-05-12 17:10:00+05:30</td>
+          <td><code>…0002 (Priya)</code></td><td>2026-05-12 19:30:00+05:30</td><td>1</td>
+          <td>2026-05-12 19:30:00+05:30</td><td><code>…0002 (Priya)</code></td>
+        </tr>
+        <tr class="table-danger">
+          <td><code>0193…s005</code></td><td><code>…0025 (Suresh)</code></td>
+          <td>NULL</td><td>NULL</td>
+          <td>10.0.1.55</td><td>Mozilla/5.0 … Chrome/126</td>
+          <td>2026-05-12 14:00:00+05:30</td><td>2026-05-12 22:00:00+05:30</td><td>2026-05-12 16:20:00+05:30</td>
+          <td><code>…0025 (Suresh)</code></td><td>2026-05-12 14:00:00+05:30</td>
+          <td><code>…0001 (admin)</code></td><td>2026-05-13 08:15:00+05:30</td><td>1</td>
+          <td>2026-05-13 08:15:00+05:30</td><td><code>…0001 (admin)</code></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+
+    <p class="small text-muted">
+      <strong>Row 1</strong> Vinod logged in this morning — fully active session.<br>
+      <strong>Row 2</strong> Naveen logged in this morning — fully active session.<br>
+      <strong>Row 3</strong> Refresh-token rotation: Vinod's first session was traded for a new pair at 12:10. <code>rotated_from_session_id</code> points back to row 1; row 1's <code>deleted_at</code> would be set by the rotation handler (not shown here for clarity — could be set or left as natural expiry).<br>
+      <span class="badge bg-info">blue</span> <strong>Row 4</strong> User-initiated logout: Priya logged out at 19:30. <code>deleted_at</code> + <code>deleted_by</code> = Priya herself; <code>version=1</code> (one UPDATE).<br>
+      <span class="badge bg-danger">red</span> <strong>Row 5</strong> Admin force-logout: linked to Suresh's account being locked at 08:15 this morning. <code>deleted_by</code> = admin (not Suresh).
+    </p>
+
+  </section>
+
+  <hr class="my-4">
+
+  <div class="row text-muted small">
+    <div class="col-md-6">
+      <strong>What this slice locks:</strong>
+      <ul>
+        <li>Uniform 7-column audit + soft-delete block on every v3 table (no exceptions)</li>
+        <li><code>hospital_profile</code> singleton structure (with <code>address</code> as structured jsonb)</li>
+        <li><code>users</code> as a single auth+HR table (no <code>users_directory</code> split)</li>
+        <li>2FA day-one via <code>mfa_enabled</code> + <code>mfa_secret</code></li>
+        <li>Lockout state via <code>failed_attempts</code> + <code>locked_until</code></li>
+        <li>Forced-change gate via <code>must_change_password</code> (boolean) — set on admin provisioning / admin reset, cleared on user-driven change. Login refuses normal sessions while set, issuing only a scoped change-password token.</li>
+        <li><code>user_sessions</code>: stateless JWTs (no <code>token_hash</code>); refresh-only DB state; <code>last_active_at</code> for idle timeout; <code>user_id</code> RESTRICT; <code>rotated_from_session_id</code> self-FK for refresh chains</li>
+      </ul>
+    </div>
+    <div class="col-md-6">
+      <strong>Open for next slice (1B · Organisation):</strong>
+      <ul>
+        <li><code>departments</code> table (resolves <code>users.department_id</code> FK)</li>
+        <li><code>doctor_profiles</code> table (1:1 extension of <code>users</code> for clinical staff)</li>
+        <li>Lock the <code>available_days</code> JSON shape + validator</li>
+      </ul>
+      <strong>Cross-refs:</strong>
+      <ul>
+        <li>TSD-01 — <a href="../../../05-tsd/01-platform-tenancy.md">docs/05-tsd/01-platform-tenancy.md</a></li>
+        <li>Sample data — <a href="../../../../backend/db/sample_data.sql">backend/db/sample_data.sql</a></li>
+        <li>BACKEND.md persistence rules — <a href="../../../../backend/BACKEND.md">backend/BACKEND.md</a></li>
+        <li>v3 Conventions — <a href="../CONVENTIONS.md">docs/03-schema/v3/CONVENTIONS.md</a></li>
+      </ul>
+    </div>
+  </div>
+
+</main>
+
+</body>
+</html>

@@ -1,0 +1,1 @@
+export { diagnosticsRoutes } from './diagnosticsRoutes';

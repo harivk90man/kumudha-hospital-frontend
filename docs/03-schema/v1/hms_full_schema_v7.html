@@ -1,0 +1,1100 @@
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+h2.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+.R{--b0:#0f0f11;--b1:#181820;--b2:#1e1e26;--b3:#252530;--bd:#2c2c3c;--t1:#dcdce8;--t2:#b0b0bc;--t3:#484858;--t4:#303040;--amb:#c4880e;--ambl:rgba(196,136,14,.08);--amb2:rgba(196,136,14,.25);--upd:#4480c8;--updl:rgba(68,128,200,.07);background:var(--b0);border-radius:12px;overflow:hidden;font-family:'SF Mono',ui-monospace,monospace;transition:background .2s}
+.R.L{--b0:#f2f2f6;--b1:#ffffff;--b2:#fafafa;--b3:#f0f0f5;--bd:#e0e0ea;--t1:#18182a;--t2:#404052;--t3:#888898;--t4:#e8e8f2;--amb:#7a4500;--ambl:rgba(122,69,0,.06);--amb2:rgba(122,69,0,.22);--upd:#0C447C;--updl:rgba(12,68,124,.05)}
+.top{display:flex;align-items:center;gap:6px;padding:10px 12px 0;background:var(--b0);transition:background .2s}
+.tabbar{display:flex;gap:1px;flex:1;overflow-x:auto;scrollbar-width:none}
+.tabbar::-webkit-scrollbar{display:none}
+.tab{padding:6px 11px;border-radius:6px 6px 0 0;font-size:11px;cursor:pointer;color:var(--t3);border:1px solid transparent;border-bottom:none;background:transparent;white-space:nowrap;font-family:inherit;transition:color .12s}
+.tab.on{background:var(--b1);color:var(--t1);border-color:var(--bd)}
+.tab:hover:not(.on){color:var(--t2)}
+.tab.p2{opacity:.6}
+.tab.p2.on{opacity:.85}
+.tab.p2::after{content:'P2';font-size:8px;margin-left:5px;padding:1px 4px;background:var(--t4);color:var(--amb);border-radius:2px;letter-spacing:.05em;font-weight:700;border:1px solid var(--amb2)}
+.p2-banner{margin:0 0 12px;padding:9px 13px;background:var(--ambl);border:1px solid var(--amb2);border-left:3px solid var(--amb);border-radius:5px;font-size:11px;color:var(--t1);font-family:sans-serif;line-height:1.5}
+.p2-banner strong{color:var(--amb);font-weight:700;letter-spacing:.06em;margin-right:8px;text-transform:uppercase;font-size:10px}
+.R.L .p2-banner{background:rgba(122,69,0,.05)}
+.tog{flex-shrink:0;width:30px;height:30px;border-radius:7px;border:1px solid var(--bd);background:var(--b3);cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--t2);font-size:15px;transition:all .15s}
+.wrap{padding:10px 12px 0}
+.body{background:var(--b1);border:1px solid var(--bd);border-radius:0 8px 8px 8px;padding:12px;transition:background .2s,border-color .2s}
+.sbar{display:flex;gap:20px;margin-bottom:12px;align-items:flex-end;flex-wrap:wrap}
+.sn{font-size:20px;font-weight:600;line-height:1}
+.sl{font-size:10px;color:var(--t3);margin-top:2px;font-family:sans-serif;letter-spacing:.05em}
+.chips{margin-left:auto;display:flex;gap:6px;align-self:center;flex-wrap:wrap}
+.chip{font-size:10px;padding:3px 8px;border-radius:5px;font-family:sans-serif;font-weight:500}
+.chip-new{background:var(--ambl);color:var(--amb);border:1px solid var(--amb2)}
+.chip-upd{background:var(--updl);color:var(--upd);border:1px solid rgba(68,128,200,.2)}
+.R.L .chip-upd{border-color:rgba(12,68,124,.18)}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.card{background:var(--b2);border:1px solid var(--bd);border-radius:7px;overflow:hidden;transition:background .2s,border-color .2s}
+.chd{padding:7px 11px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--bd);transition:background .2s,border-color .2s}
+.tdesc{font-size:10.5px;color:var(--t2);font-family:'Segoe UI',sans-serif;padding:7px 11px 8px;border-bottom:1px solid var(--bd);line-height:1.45;transition:color .2s,border-color .2s}
+.tn{font-size:11.5px;font-weight:500;color:var(--t1)}
+.tc{font-size:10px;color:var(--t3);margin-left:auto;font-family:sans-serif}
+.ntag{font-size:9px;padding:1px 5px;border-radius:3px;font-family:sans-serif;font-weight:500}
+.ntag-new{background:var(--amb2);color:var(--amb)}
+.ntag-upd{background:rgba(68,128,200,.18);color:var(--upd)}
+.row{display:flex;align-items:center;gap:6px;padding:4px 10px;border-bottom:1px solid var(--b3);transition:border-color .2s,background .2s}
+.row:last-child{border-bottom:none}
+.row:hover{background:var(--b3)}
+.row.nw{background:var(--ambl)}
+.row.nw .fn{color:var(--t1)}
+.row.ud{background:var(--updl)}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.dpk{background:#c4880e}.dfk{background:#4480c8}.duk{background:#52a06a}.dnl{background:var(--t4)}
+.fn{font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--t2)}
+.ft{font-size:10px;white-space:nowrap;color:var(--t3)}
+.bg{font-size:9px;padding:1px 5px;border-radius:3px;margin-left:2px;font-family:sans-serif;white-space:nowrap}
+.bpk{background:rgba(196,136,14,.15);color:#c4880e}
+.bfk{background:rgba(68,128,200,.12);color:#4480c8}
+.buk{background:rgba(82,160,106,.12);color:#52a06a}
+.bnl{background:var(--b3);color:var(--t3);border:1px solid var(--bd)}
+.bnew{background:var(--amb2);color:var(--amb);border:1px solid rgba(196,136,14,.3)}
+.bupd{background:rgba(68,128,200,.18);color:var(--upd);border:1px solid rgba(68,128,200,.28)}
+.R.L .bpk{color:#7a4500}.R.L .bfk{color:#0C447C}.R.L .buk{color:#1a5020}
+.R.L .bnew{color:var(--amb)}.R.L .bupd{color:var(--upd);background:rgba(12,68,124,.1)}
+.foot{display:flex;gap:12px;padding:10px 12px 12px;background:var(--b0);flex-wrap:wrap;transition:background .2s}
+.li{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--t3);font-family:sans-serif}
+.totals{display:flex;align-items:center;gap:14px;padding:9px 14px 0;background:var(--b0);transition:background .2s}
+.totals-label{font-size:10px;color:var(--t3);font-family:sans-serif;letter-spacing:.08em;text-transform:uppercase}
+.totals-stat{display:flex;align-items:baseline;gap:5px}
+.totals-num{font-size:15px;font-weight:600;color:var(--t1);font-family:'SF Mono',ui-monospace,monospace;line-height:1}
+.totals-cap{font-size:9px;color:var(--t3);font-family:sans-serif;letter-spacing:.06em;text-transform:uppercase}
+.totals-divider{width:1px;height:14px;background:var(--bd)}
+.totals-version{margin-left:auto;font-size:9.5px;color:var(--t3);font-family:sans-serif;padding:2px 8px;border:1px solid var(--bd);border-radius:4px;letter-spacing:.05em}
+.row{cursor:pointer;transition:background .08s}
+.row:hover{background:var(--t4)}
+.row:hover .fn{color:var(--t1)}
+.row .fn::after{content:'';display:inline-block;margin-left:6px;opacity:0;color:var(--t2);font-size:9px;transition:opacity .08s}
+.row:hover .fn::after{opacity:.6;content:'›'}
+.dr-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);opacity:0;pointer-events:none;transition:opacity .18s;z-index:90}
+.dr-overlay.open{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:480px;max-width:92vw;background:var(--b1);border-left:1px solid var(--bd);transform:translateX(100%);transition:transform .22s cubic-bezier(.2,.8,.2,1);z-index:100;display:flex;flex-direction:column;font-family:'SF Mono',ui-monospace,monospace;color:var(--t1)}
+.drawer.open{transform:translateX(0)}
+.dr-head{padding:18px 22px 14px;border-bottom:1px solid var(--bd);background:var(--b2);color:var(--t1)}
+.dr-eyebrow{font-size:10px;color:var(--t2);letter-spacing:.1em;text-transform:uppercase;font-family:sans-serif;margin-bottom:6px;font-weight:500}
+.dr-title{display:flex;align-items:baseline;gap:2px;font-size:18px;font-weight:500;letter-spacing:-.01em;color:var(--t1);font-family:'SF Mono',ui-monospace,monospace}
+.dr-table{color:var(--t2)}
+.dr-dot{color:var(--t2);margin:0 2px}
+.dr-field{color:var(--t1);font-weight:600}
+.dr-tags{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.dr-tag{font-size:9.5px;padding:3px 8px;border-radius:3px;letter-spacing:.05em;font-family:sans-serif;text-transform:uppercase;font-weight:600;background:var(--b3);color:var(--t1);border:1px solid var(--bd)}
+.dr-tag-pk{background:var(--ambl);color:var(--amb);border-color:var(--amb2)}
+.dr-tag-fk{background:var(--updl);color:var(--upd);border-color:var(--upd)}
+.dr-tag-uk{background:var(--b3);color:var(--t1);border-color:var(--bd)}
+.dr-tag-nl{background:var(--t4);color:var(--t2);border-color:var(--bd)}
+.dr-tag-new{background:var(--ambl);color:var(--amb);border-color:var(--amb2)}
+.dr-tag-upd{background:var(--updl);color:var(--upd);border-color:var(--upd)}
+.dr-close{position:absolute;top:14px;right:14px;width:30px;height:30px;border-radius:50%;background:var(--b3);border:1px solid var(--bd);color:var(--t1);cursor:pointer;font-family:inherit;font-size:18px;line-height:1;display:grid;place-items:center;transition:background .1s,transform .1s}
+.dr-close:hover{background:var(--t4);transform:scale(1.05)}
+.dr-body{flex:1;overflow-y:auto;padding:20px 22px 28px;color:var(--t1)}
+.dr-section{margin-bottom:22px}
+.dr-section-label{font-size:10px;color:var(--t2);letter-spacing:.1em;text-transform:uppercase;font-family:sans-serif;margin-bottom:9px;font-weight:600}
+.dr-desc{font-size:13.5px;color:var(--t1);line-height:1.65;font-family:sans-serif}
+.dr-typebox{font-size:12px;background:var(--b2);padding:10px 13px;border-radius:5px;border:1px solid var(--bd);word-break:break-word;color:var(--t1);font-family:'SF Mono',ui-monospace,monospace}
+.dr-vals{display:flex;flex-direction:column;gap:5px}
+.dr-val{font-size:12px;padding:8px 11px;background:var(--b2);border:1px solid var(--bd);border-radius:5px;display:flex;justify-content:space-between;align-items:center;color:var(--t1);font-family:'SF Mono',ui-monospace,monospace}
+.dr-val-tag{font-size:9.5px;color:var(--t2);font-family:sans-serif;letter-spacing:.05em;text-transform:uppercase;font-weight:500}
+.dr-meta-grid{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:12px}
+.dr-meta-k{color:var(--t2);font-family:sans-serif;font-size:11px;letter-spacing:.04em;text-transform:uppercase;align-self:center;font-weight:500}
+.dr-meta-v{color:var(--t1);font-family:'SF Mono',ui-monospace,monospace}
+.dr-page{font-size:12.5px;padding:9px 12px;background:var(--b2);border:1px solid var(--bd);border-radius:5px;margin-bottom:6px;color:var(--t1);display:flex;align-items:center;justify-content:space-between;gap:10px}
+.dr-page-name{font-family:sans-serif;color:var(--t1);font-weight:500}
+.dr-page-role{font-size:10px;color:var(--t2);font-family:sans-serif;letter-spacing:.05em;text-transform:uppercase;background:var(--b3);padding:2px 7px;border-radius:3px;border:1px solid var(--bd);font-weight:500;margin-top:2px;display:inline-block}
+.dr-page-op{font-size:9.5px;font-family:sans-serif;letter-spacing:.08em;text-transform:uppercase;font-weight:600;padding:3px 7px;border-radius:3px;background:var(--b3);color:var(--t1);border:1px solid var(--bd);white-space:nowrap}
+.dr-page-op.write{background:var(--ambl);color:var(--amb);border-color:var(--amb2)}
+.dr-page-op.read{background:var(--updl);color:var(--upd);border-color:var(--upd)}
+.dr-empty{font-size:12px;color:var(--t2);font-style:italic;font-family:sans-serif;padding:10px;background:var(--b2);border:1px dashed var(--bd);border-radius:5px}
+</style>
+
+<h2 class="sr-only">HMS full schema v7.1 — patched: hybrid state model, token uniqueness, slot lock, modules restructured (15 modules, patients + journey events in Core, new Patient Encounters module)</h2>
+<div class="R" id="root">
+  <div class="totals" id="totals"></div>
+  <div class="top">
+    <div class="tabbar" id="tabbar"></div>
+    <button class="tog" onclick="toggleTheme()" aria-label="Toggle theme"><i class="ti ti-sun" id="togi">☀</i></button>
+  </div>
+  <div class="wrap"><div class="body" id="body"></div></div>
+  <div class="foot">
+    <div class="li"><div class="dot dpk"></div>primary key</div>
+    <div class="li"><div class="dot dfk"></div>foreign key</div>
+  <div class="li"><div class="dot duk"></div>unique</div>
+    <div class="li"><div class="dot dnl"></div>nullable</div>
+    <div class="li" style="margin-left:6px"><span style="width:24px;height:10px;border-radius:2px;display:inline-block;background:var(--ambl);border:1px solid var(--amb2)"></span>new field/table</div>
+    <div class="li"><span style="width:24px;height:10px;border-radius:2px;display:inline-block;background:var(--updl);border:1px solid rgba(68,128,200,.2)"></span>updated</div>
+  </div>
+  <div class="dr-overlay" id="drOverlay"></div>
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <button class="dr-close" id="drClose" aria-label="Close">×</button>
+    <div class="dr-head" id="drHead"></div>
+    <div class="dr-body" id="drBody"></div>
+  </aside>
+</div>
+
+<script>
+const M=[
+{nm:'Core / Platform',cl:'#9B7EE8',bg:'#221c3a',lbg:'#EFEDFB',tb:[
+  {n:'tenants',f:[{n:'id',t:'uuid',pk:1},{n:'tenant_code',t:"varchar · 'KH' (Kumudha Hospital, Villupuram) — UHID prefix",uk:1},{n:'hospital_name',t:'varchar'},{n:'address',t:'text',nl:1},{n:'gst_number',t:'varchar',nl:1},{n:'license_number',t:'varchar',nl:1},{n:'logo_path',t:'text',nl:1},{n:'uhid_prefix',t:"varchar DEFAULT 'UHID'"},{n:'uhid_separator',t:"varchar(1) DEFAULT '-'"},{n:'uhid_sequence_padding',t:'int DEFAULT 6'},{n:'uhid_include_year',t:'boolean DEFAULT TRUE'},{n:'is_active',t:'boolean'},{n:'created_at',t:'timestamptz'}]},
+  {n:'users',f:[{n:'id',t:'uuid',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'employee_id',t:'varchar',uk:1},{n:'full_name',t:'varchar'},{n:'mobile',t:'varchar',uk:1},{n:'email',t:'varchar',nl:1},{n:'username',t:'varchar',uk:1},{n:'password_hash',t:'varchar'},{n:'department_id',t:'uuid',fk:'departments',nl:1},{n:'designation',t:'varchar',nl:1},{n:'profile_data',t:'jsonb · role-specific'},{n:'status',t:"varchar · 'active'|'inactive'|'suspended'"},{n:'last_login_at',t:'timestamptz',nl:1},{n:'created_at',t:'timestamptz'},{n:'updated_at',t:'timestamptz'}]},
+  {n:'departments',f:[{n:'id',t:'uuid',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'dept_name',t:'varchar'},{n:'dept_code',t:'varchar',uk:1},{n:'segment',t:"varchar · 'ortho'|'derma'|'lab'|'pharma'…"},{n:'head_doctor_id',t:'uuid',fk:'users',nl:1},{n:'is_active',t:'boolean'}]},
+  {n:'doctor_profiles',f:[{n:'id',t:'uuid',pk:1},{n:'user_id',t:'uuid',fk:'users',uk:1},{n:'specialization',t:'varchar',nl:1},{n:'qualification',t:'varchar',nl:1},{n:'registration_number',t:'varchar',nl:1},{n:'consultation_fee',t:'decimal',nl:1},{n:'follow_up_fee',t:'decimal',nl:1},{n:'follow_up_window_days',t:'int DEFAULT 7'},{n:'available_days',t:'jsonb',nl:1},{n:'slot_duration_mins',t:'int'},{n:'signature_path',t:'text',nl:1}]},
+  {n:'roles',f:[{n:'id',t:'uuid',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'role_name',t:'varchar',uk:1},{n:'description',t:'text',nl:1},{n:'is_system_role',t:'boolean'}]},
+  {n:'user_roles',f:[{n:'id',t:'uuid',pk:1},{n:'user_id',t:'uuid',fk:'users'},{n:'role_id',t:'uuid',fk:'roles'},{n:'is_default',t:"boolean DEFAULT FALSE · landing role"},{n:'assigned_by',t:'uuid',fk:'users',nl:1},{n:'assigned_at',t:'timestamptz'},{n:'is_active',t:'boolean'}]},
+  {n:'permissions',f:[{n:'id',t:'uuid',pk:1},{n:'permission_key',t:'varchar · pharmacy.stock.edit',uk:1},{n:'module_name',t:'varchar'},{n:'action_name',t:'varchar'},{n:'description',t:'text',nl:1},{n:'is_active',t:'boolean'}]},
+  {n:'role_permissions',f:[{n:'id',t:'uuid',pk:1},{n:'role_id',t:'uuid',fk:'roles'},{n:'permission_id',t:'uuid',fk:'permissions'},{n:'granted_by',t:'uuid',fk:'users',nl:1},{n:'granted_at',t:'timestamptz'}]},
+  {n:'user_sessions',f:[{n:'id',t:'uuid',pk:1},{n:'user_id',t:'uuid',fk:'users'},{n:'token_hash',t:'varchar'},{n:'ip_address',t:'varchar',nl:1},{n:'device_info',t:'text',nl:1},{n:'created_at',t:'timestamptz'},{n:'expires_at',t:'timestamptz'},{n:'is_active',t:'boolean'}]},
+  {n:'audit_logs',f:[{n:'id',t:'uuid',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'user_id',t:'uuid',fk:'users',nl:1},{n:'module_name',t:'varchar'},{n:'action',t:'varchar'},{n:'entity_type',t:'varchar',nl:1},{n:'entity_id',t:'uuid',nl:1},{n:'old_values',t:'jsonb',nl:1},{n:'new_values',t:'jsonb',nl:1},{n:'ip_address',t:'varchar',nl:1},{n:'user_agent',t:'text',nl:1},{n:'created_at',t:'timestamptz'}]},
+  {n:'domain_events',f:[{n:'id',t:'bigserial',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'aggregate_type',t:"varchar · 'bill'|'admission'…"},{n:'aggregate_id',t:'uuid'},{n:'event_type',t:"varchar · 'BillFinalized'…"},{n:'payload',t:'jsonb'},{n:'occurred_at',t:'timestamptz'},{n:'processed_by',t:'jsonb · subscriber list',nl:1}]},
+  {n:'notifications',ud:1,f:[{n:'id',t:'uuid',pk:1},{n:'user_id',t:'uuid',fk:'users',nl:1},{n:'role_id',t:'uuid',fk:'roles',nl:1},{n:'type',t:'varchar'},{n:'title',t:'varchar'},{n:'body',t:'text',nl:1},{n:'link',t:'varchar',nl:1},{n:'priority',t:"varchar · 'normal'|'high'|'urgent'"},{n:'ack_required',t:'boolean DEFAULT FALSE',nw:1},{n:'ack_sla_minutes',t:'int · target ACK time',nl:1,nw:1},{n:'escalation_chain',t:'jsonb · ["doctor","hod","oncall"]',nl:1,nw:1},{n:'escalated_at',t:'timestamptz',nl:1,nw:1},{n:'escalated_to',t:'uuid',fk:'users',nl:1,nw:1},{n:'read_at',t:'timestamptz',nl:1},{n:'created_at',t:'timestamptz'}]},
+  {n:'notification_acknowledgments 🆕v8',f:[{n:'id',t:'uuid',pk:1},{n:'notification_id',t:'uuid',fk:'notifications'},{n:'acked_by',t:'uuid',fk:'users'},{n:'acked_at',t:'timestamptz'},{n:'action_taken',t:'text · what was done about it',nl:1},{n:'sla_minutes',t:'int · target time',nl:1},{n:'breached_sla',t:'boolean DEFAULT FALSE'}]},
+  {n:'system_config',f:[{n:'id',t:'uuid',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'config_key',t:'varchar',uk:1},{n:'config_value',t:'text'},{n:'description',t:'text',nl:1},{n:'updated_by',t:'uuid',fk:'users'},{n:'updated_at',t:'timestamptz'}]},
+  {n:'user_preferences',f:[{n:'id',t:'uuid',pk:1},{n:'user_id',t:'uuid',fk:'users',uk:1},{n:'default_role_id',t:'uuid',fk:'roles',nl:1},{n:'default_landing_path',t:"varchar · '/doctor/queue'",nl:1},{n:'theme',t:"varchar DEFAULT 'system' · light|dark|system"},{n:'language',t:"varchar DEFAULT 'en'"},{n:'date_format',t:"varchar DEFAULT 'DD-MM-YYYY'"},{n:'notifications_email',t:'boolean DEFAULT TRUE'},{n:'notifications_inapp',t:'boolean DEFAULT TRUE'},{n:'notifications_sms',t:'boolean DEFAULT FALSE'},{n:'updated_at',t:'timestamptz'}]},
+  {n:'document_templates',f:[{n:'id',t:'uuid',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'template_type',t:"varchar · 'consultation'|'discharge_summary'|'prescription'|'lab_report'|'inventory_request'|'op_notes'"},{n:'name',t:'varchar'},{n:'category',t:"varchar · by diagnosis or procedure",nl:1},{n:'department_id',t:'uuid',fk:'departments',nl:1},{n:'icd10_code',t:'varchar',nl:1},{n:'content',t:'jsonb · structure varies by template_type'},{n:'applicable_role_ids',t:'uuid[] · which roles can use',nl:1},{n:'version',t:'int DEFAULT 1 · increment on edit'},{n:'usage_count',t:'int DEFAULT 0'},{n:'is_active',t:'boolean DEFAULT true'},{n:'created_by',t:'uuid',fk:'users'},{n:'created_at',t:'timestamptz'},{n:'updated_at',t:'timestamptz'}]},
+  {n:'file_attachments',f:[{n:'id',t:'uuid',pk:1},{n:'patient_id',t:'uuid',fk:'patients'},{n:'module_name',t:'varchar'},{n:'reference_id',t:'uuid'},{n:'file_name',t:'varchar'},{n:'file_type',t:'varchar'},{n:'file_path',t:'text'},{n:'uploaded_by',t:'uuid',fk:'users'},{n:'uploaded_at',t:'timestamptz'}]},
+]},
+{nm:'Patient Master',cl:'#5BA3D8',bg:'#0E1F2E',lbg:'#E5F0F8',tb:[
+  {n:'patients',ud:1,f:[{n:'id',t:'uuid',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'uhid',t:'varchar · UHID or TEMP- prefix',uk:1},{n:'registration_status',t:"varchar · 'provisional'|'complete'|'merged'"},{n:'merged_into_patient_id',t:'uuid · self-ref for temp merges',fk:'patients',nl:1},{n:'first_name',t:'varchar'},{n:'last_name',t:'varchar'},{n:'gender',t:"varchar · 'M'|'F'|'O'"},{n:'dob',t:'date'},{n:'age',t:'int'},{n:'mobile',t:'varchar · indexed, not unique'},{n:'alt_mobile',t:'varchar',nl:1},{n:'address',t:'jsonb · line1,city,pincode'},{n:'blood_group',t:'varchar',nl:1},{n:'marital_status',t:'varchar',nl:1},{n:'aadhaar_last4',t:'varchar · dedup hint',nl:1},{n:'allergies',t:'text[]'},{n:'chronic_conditions',t:'text[]'},{n:'emergency_contact',t:'jsonb',nl:1},{n:'is_active',t:'boolean'},{n:'created_by',t:'uuid',fk:'users'},{n:'created_at',t:'timestamptz'}]},
+  {n:'patient_merges 🆕v8',f:[{n:'id',t:'uuid',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'source_patient_id',t:'uuid · the duplicate that disappears',fk:'patients'},{n:'target_patient_id',t:'uuid · the surviving record',fk:'patients'},{n:'reason',t:'text · why these are the same person'},{n:'rows_repointed',t:'jsonb · {op_visits:3, payments:5,...}'},{n:'merged_by',t:'uuid',fk:'users'},{n:'merged_at',t:'timestamptz'},{n:'unmerged_at',t:'timestamptz · only set on unmerge',nl:1},{n:'unmerged_by',t:'uuid',fk:'users',nl:1},{n:'unmerge_reason',t:'text',nl:1}]},
+  {n:'uhid_sequences',f:[{n:'tenant_id',t:'uuid',fk:'tenants',pk:1},{n:'year',t:'int',pk:1},{n:'last_sequence',t:'int DEFAULT 0'}]},
+]},
+{nm:'Patient Journey / Workflow',cl:'#C49B5B',bg:'#1F1A0F',lbg:'#F8EFDC',tb:[
+  {n:'patient_states',nw:1,f:[{n:'code',t:'int PK · 100|101|...|710',pk:1,nw:1},{n:'phase',t:'int · 0|1|2|3|4|5|6|7 (0=ER, 7=IP)',nw:1},{n:'phase_label',t:"varchar · 'Front Desk & Initial Billing'",nw:1},{n:'slug',t:"varchar UNIQUE · 'reg_paid'|'consult_finalized'",uk:1,nw:1},{n:'display_name',t:"varchar · 'Reg. Paid'",nw:1},{n:'description',t:'text · meaning + when entered',nw:1},{n:'owning_dept',t:"varchar · 'front_desk'|'nursing'|'doctor'|'lab'|'radiology'|'pharmacy'|'ward'|'er'",nw:1},{n:'derived_from',t:"varchar · which underlying layer · 'patients'|'op_visits'|'patient_queue'|'invoices'",nw:1},{n:'is_blocking',t:'boolean · true if patient cannot proceed without resolving',nw:1},{n:'sla_minutes',t:'int · target time before next state',nl:1,nw:1},{n:'next_possible_codes',t:'int[] · valid transitions for state-machine validation',nw:1},{n:'display_color',t:"varchar · '#378ADD' for UI pill",nw:1},{n:'is_active',t:'boolean DEFAULT true',nw:1}]},
+  {n:'stations',nw:1,f:[{n:'code',t:'int PK',pk:1,nw:1},{n:'tenant_id',t:'uuid',fk:'tenants',nw:1},{n:'slug',t:"varchar UNIQUE · 'front_desk'|'billing'|'vitals'|'doctor:1'|'lab'|'radiology'|'pharmacy'",uk:1,nw:1},{n:'display_name',t:"varchar · 'Front Desk', 'Billing Counter'",nw:1},{n:'phase',t:'int · 1|2|3|4|5|6 (matches patient_states.phase)',nw:1},{n:'owning_dept',t:'varchar',nw:1},{n:'physical_location',t:"varchar · 'Ground floor, Counter 1'",nl:1,nw:1},{n:'avg_service_time_minutes',t:'int · for ETA computation',nl:1,nw:1},{n:'is_active',t:'boolean DEFAULT true',nw:1}]},
+  {n:'patient_journey_events',ud:1,f:[{n:'id',t:'uuid',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'patient_id',t:'uuid',fk:'patients'},{n:'op_visit_id',t:'uuid',fk:'op_visits',nl:1},{n:'ip_admission_id',t:'uuid',fk:'ip_admissions',nl:1},{n:'from_state_code',t:'int · 100..710',fk:'patient_states',nl:1,nw:1},{n:'to_state_code',t:'int · 100..710',fk:'patient_states',nw:1},{n:'station_id',t:'int · where transition happened',fk:'stations',nl:1,nw:1},{n:'duration_in_prev_state_seconds',t:'int · precomputed for fast metrics',nl:1,nw:1},{n:'from_state',t:"varchar · DEPRECATED — kept for back-compat",nl:1},{n:'to_state',t:'varchar · DEPRECATED — kept for back-compat',nl:1},{n:'triggered_by_user_id',t:'uuid · who caused it',fk:'users',nl:1},{n:'reason',t:'text',nl:1},{n:'metadata',t:"jsonb · snapshot + return_to_provider_id for side trips",nl:1},{n:'occurred_at',t:'timestamptz · indexed for time-window queries'}]},
+]},
+{nm:'Scheduling',cl:'#378ADD',bg:'#182038',lbg:'#E6F1FB',tb:[
+  {n:'appointment_slots',f:[{n:'id',t:'uuid',pk:1},{n:'doctor_id',t:'uuid',fk:'users'},{n:'slot_date',t:'date'},{n:'slot_time',t:'time'},{n:'duration_minutes',t:'int'},{n:'is_booked',t:'boolean'},{n:'is_blocked',t:'boolean'},{n:'block_reason',t:'varchar',nl:1}]},
+  {n:'appointments',f:[{n:'id',t:'uuid',pk:1},{n:'patient_id',t:'uuid',fk:'patients'},{n:'doctor_id',t:'uuid',fk:'users'},{n:'appointment_date',t:'date'},{n:'appointment_time',t:'time'},{n:'appointment_type',t:"varchar · 'new'|'follow_up'"},{n:'source',t:"varchar · 'walk_in'|'phone'|'online'"},{n:'reason',t:'text',nl:1},{n:'status',t:"varchar · scheduled→checked_in→billed→vitals_done→in_consultation→completed"},{n:'created_by',t:'uuid',fk:'users'},{n:'created_at',t:'timestamptz'}]},
+]},
+{nm:'Patient Encounters',cl:'#2A8E9E',bg:'#0E2226',lbg:'#E0F2F4',tb:[
+  {n:'op_visits',ud:1,f:[{n:'id',t:'uuid',pk:1},{n:'op_number',t:'varchar',uk:1},{n:'patient_id',t:'uuid',fk:'patients'},{n:'appointment_id',t:'uuid',fk:'appointments',nl:1},{n:'doctor_id',t:'uuid',fk:'users'},{n:'visit_date',t:'date'},{n:'token_number',t:'varchar'},{n:'chief_complaint',t:'text',nl:1},{n:'is_emergency',t:'boolean DEFAULT false'},{n:'emergency_triage',t:"varchar · 'red'|'yellow'|'green'",nl:1},{n:'current_state_code',t:'int · denormalized for fast lookups · 100..602 · synced by trigger',fk:'patient_states',nl:1,nw:1},{n:'status',t:'varchar · DEPRECATED — derive from current_state_code'},{n:'is_mlc',t:'boolean DEFAULT FALSE · medico-legal',nw:1},{n:'mlc_number',t:'varchar · links to mlc_records',nl:1,nw:1},{n:'created_by',t:'uuid',fk:'users'},{n:'created_at',t:'timestamptz'}]},
+  {n:'patient_queue',ud:1,f:[{n:'id',t:'uuid',pk:1},{n:'patient_id',t:'uuid',fk:'patients'},{n:'op_visit_id',t:'uuid',fk:'op_visits',nl:1},{n:'parent_queue_id',t:'uuid · self-ref for side trips',fk:'patient_queue',nl:1},{n:'station_id',t:'int · stations table FK',fk:'stations',nw:1},{n:'station',t:"varchar · DEPRECATED — slug kept for back-compat",nl:1},{n:'state_code',t:'int · current state',fk:'patient_states',nl:1,nw:1},{n:'status',t:"varchar · 'waiting'|'in_progress'|'paused'|'done'|'returned_for_review'|'skipped'"},{n:'priority',t:"varchar · 'normal'|'urgent'|'emergency'"},{n:'token_number',t:'varchar'},{n:'referred_by_user_id',t:'uuid · who sent them here',fk:'users',nl:1},{n:'referral_reason',t:'varchar',nl:1},{n:'return_to_station_id',t:'int · station to return to after side trip',fk:'stations',nl:1,nw:1},{n:'return_to_provider_id',t:'uuid · doctor to return to (review queue 501)',fk:'users',nl:1,nw:1},{n:'entered_at',t:'timestamptz'},{n:'called_at',t:'timestamptz',nl:1},{n:'completed_at',t:'timestamptz',nl:1}]},
+  {n:'tokens',ud:1,f:[{n:'id',t:'uuid',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'service_type',t:"varchar · 'doctor'|'lab'|'radiology'|'pharmacy'|'billing'|'vitals'"},{n:'service_provider_id',t:'uuid · doctor_id or null for shared counters',fk:'users',nl:1},{n:'token_date',t:'date'},{n:'token_number',t:"varchar · 'D-04'|'L-12'|'P-08'"},{n:'token_sequence',t:'int · sequential per (tenant, service, provider, date)'},{n:'slot_id',t:'uuid · locks token to slot — never reused',fk:'appointment_slots',nl:1,nw:1},{n:'patient_id',t:'uuid',fk:'patients'},{n:'context_table',t:"varchar · 'op_visits'|'lab_orders'|'pharmacy_sales'|'invoices'",nl:1},{n:'context_id',t:'uuid · row id in context_table',nl:1},{n:'state_code',t:'int · current state of token holder',fk:'patient_states',nl:1,nw:1},{n:'status',t:"varchar · 'active'|'called'|'completed'|'cancelled'|'no_show'"},{n:'priority',t:"varchar · 'normal'|'urgent'|'emergency'"},{n:'issued_at',t:'timestamptz'},{n:'called_at',t:'timestamptz',nl:1},{n:'completed_at',t:'timestamptz',nl:1},{n:'_uk',t:'UNIQUE(tenant_id, service_type, service_provider_id, token_date, token_sequence) — prevents reuse',nw:1}]},
+  {n:'ip_admissions',ud:1,f:[{n:'id',t:'uuid',pk:1},{n:'ip_number',t:'varchar',uk:1},{n:'patient_id',t:'uuid',fk:'patients'},{n:'op_visit_id',t:'uuid',fk:'op_visits',nl:1},{n:'admission_date',t:'timestamptz'},{n:'admission_reason',t:'text'},{n:'provisional_diagnosis',t:'text',nl:1},{n:'admitted_by_doctor_id',t:'uuid',fk:'users'},{n:'current_bed_id',t:'uuid',fk:'beds'},{n:'expected_discharge_date',t:'date',nl:1},{n:'discharge_date',t:'timestamptz',nl:1},{n:'current_state_code',t:'int · 701..710 typically',fk:'patient_states',nl:1,nw:1},{n:'status',t:"varchar · admitted|discharged|lama|deceased|transferred"},{n:'is_mlc',t:'boolean DEFAULT FALSE',nw:1},{n:'mlc_number',t:'varchar · matches mlc_records',nl:1,nw:1},{n:'version',t:'int DEFAULT 0 · optimistic lock',nw:1},{n:'created_by',t:'uuid',fk:'users'}]},
+]},
+{nm:'Clinical',cl:'#1D9E75',bg:'#142820',lbg:'#E1F5EE',tb:[
+  {n:'consultations',f:[{n:'id',t:'uuid',pk:1},{n:'op_visit_id',t:'uuid',fk:'op_visits'},{n:'patient_id',t:'uuid',fk:'patients'},{n:'doctor_id',t:'uuid',fk:'users'},{n:'chief_complaint',t:'text',nl:1},{n:'history_of_present_illness',t:'text',nl:1},{n:'examination_findings',t:'jsonb',nl:1},{n:'diagnoses',t:"jsonb[] · {icd10,desc,type}"},{n:'symptoms',t:'text',nl:1},{n:'clinical_notes',t:'text',nl:1},{n:'advice',t:'text',nl:1},{n:'vitals_snapshot',t:'jsonb',nl:1},{n:'next_action',t:"varchar · prescription_only|lab_ordered|admit_ip|surgery_referral|follow_up…"},{n:'follow_up_required',t:'boolean'},{n:'follow_up_date',t:'date',nl:1},{n:'admission_required',t:'boolean'},{n:'surgery_required',t:'boolean'},{n:'physio_required',t:'boolean'},{n:'created_at',t:'timestamptz'},{n:'updated_at',t:'timestamptz'}]},
+  {n:'diagnosis_templates',f:[{n:'id',t:'uuid',pk:1},{n:'template_name',t:'varchar'},{n:'department_id',t:'uuid',fk:'departments',nl:1},{n:'specialty',t:'varchar',nl:1},{n:'icd10_code',t:'varchar',nl:1},{n:'diagnosis_text',t:'text'},{n:'template_json',t:"jsonb · default exam, common meds, common tests"},{n:'default_advice',t:'text',nl:1},{n:'default_followup_days',t:'int',nl:1},{n:'created_by',t:'uuid',fk:'users',nl:1},{n:'is_active',t:'boolean'}]},
+  {n:'prescriptions',f:[{n:'id',t:'uuid',pk:1},{n:'consultation_id',t:'uuid',fk:'consultations'},{n:'patient_id',t:'uuid',fk:'patients'},{n:'doctor_id',t:'uuid',fk:'users'},{n:'status',t:"varchar · 'active'|'dispensed'|'partially_dispensed'|'cancelled'"},{n:'created_at',t:'timestamptz'}]},
+  {n:'prescription_items',f:[{n:'id',t:'uuid',pk:1},{n:'prescription_id',t:'uuid',fk:'prescriptions'},{n:'medicine_id',t:'uuid',fk:'medicines'},{n:'dosage',t:'varchar'},{n:'frequency',t:"varchar · '1-0-1'"},{n:'duration_days',t:'int'},{n:'instructions',t:'text',nl:1},{n:'quantity_prescribed',t:'int'},{n:'dispensed_qty',t:'int DEFAULT 0'}]},
+  {n:'doctor_recommendations',f:[{n:'id',t:'uuid',pk:1},{n:'consultation_id',t:'uuid',fk:'consultations'},{n:'patient_id',t:'uuid',fk:'patients'},{n:'recommendation_type',t:"varchar · physio|surgery|admission|follow_up|lab|radiology"},{n:'reference_id',t:'uuid · polymorphic',nl:1},{n:'notes',t:'text',nl:1},{n:'priority',t:"varchar · 'routine'|'urgent'|'stat'"},{n:'status',t:'varchar'},{n:'created_at',t:'timestamptz'}]},
+  {n:'consultation_drafts',f:[{n:'id',t:'uuid',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'doctor_id',t:'uuid',fk:'users'},{n:'patient_id',t:'uuid',fk:'patients'},{n:'op_visit_id',t:'uuid',fk:'op_visits',nl:1},{n:'ip_admission_id',t:'uuid',fk:'ip_admissions',nl:1},{n:'draft_data',t:'jsonb · all consultation fields snapshot'},{n:'autosave_count',t:'int DEFAULT 0'},{n:'last_saved_at',t:'timestamptz'},{n:'expires_at',t:'timestamptz · auto-cleanup after 7 days'},{n:'restored_at',t:'timestamptz',nl:1}]},
+  {n:'vitals',f:[{n:'id',t:'uuid',pk:1},{n:'patient_id',t:'uuid',fk:'patients'},{n:'op_visit_id',t:'uuid',fk:'op_visits',nl:1},{n:'ip_admission_id',t:'uuid',fk:'ip_admissions',nl:1},{n:'temperature_f',t:'decimal',nl:1},{n:'weight_kg',t:'decimal',nl:1},{n:'height_cm',t:'decimal',nl:1},{n:'bp_systolic',t:'int',nl:1},{n:'bp_diastolic',t:'int',nl:1},{n:'spo2',t:'int',nl:1},{n:'pulse_rate',t:'int',nl:1},{n:'respiratory_rate',t:'int',nl:1},{n:'blood_sugar_random',t:'decimal',nl:1},{n:'blood_sugar_fasting',t:'decimal',nl:1},{n:'notes',t:'text',nl:1},{n:'recorded_by',t:'uuid',fk:'users'},{n:'recorded_at',t:'timestamptz'}]},
+  {n:'physio_sessions',f:[{n:'id',t:'uuid',pk:1},{n:'patient_id',t:'uuid',fk:'patients'},{n:'ip_admission_id',t:'uuid',fk:'ip_admissions',nl:1},{n:'op_visit_id',t:'uuid',fk:'op_visits',nl:1},{n:'therapist_id',t:'uuid',fk:'users'},{n:'session_date',t:'date'},{n:'session_time',t:'time'},{n:'duration_minutes',t:'int'},{n:'notes',t:'text',nl:1},{n:'status',t:'varchar'}]},
+]},
+{nm:'Billing',cl:'#BA7517',bg:'#281c0c',lbg:'#FAEEDA',tb:[
+  {n:'services',f:[{n:'id',t:'uuid',pk:1},{n:'service_name',t:'varchar'},{n:'service_type',t:'varchar'},{n:'segment',t:'varchar · for revenue analytics'},{n:'department_id',t:'uuid',fk:'departments',nl:1},{n:'hsn_code',t:'varchar',nl:1},{n:'sac_code',t:'varchar · 9993xx for healthcare',nl:1,nw:1},{n:'gst_pct',t:'decimal DEFAULT 0 · DEPRECATED v8'},{n:'default_price',t:'decimal · history kept in service_price_history'},{n:'is_active',t:'boolean'}]},
+  {n:'invoices',f:[{n:'id',t:'uuid',pk:1},{n:'invoice_number',t:'varchar',uk:1},{n:'patient_id',t:'uuid',fk:'patients'},{n:'invoice_type',t:"varchar · 'OP'|'IP_INTERIM'|'IP_FINAL'|'PHARMACY'|'LAB_DIRECT'"},{n:'op_visit_id',t:'uuid',fk:'op_visits',nl:1},{n:'ip_admission_id',t:'uuid',fk:'ip_admissions',nl:1},{n:'subtotal',t:'decimal'},{n:'total_line_discount',t:'decimal DEFAULT 0'},{n:'total_bill_discount',t:'decimal DEFAULT 0'},{n:'discount_type',t:"varchar · 'percentage'|'flat'"},{n:'discount_amount',t:'decimal'},{n:'discount_approved_by',t:'uuid',fk:'users',nl:1},{n:'discount_reason',t:'text',nl:1},{n:'tax_amount',t:'decimal'},{n:'total_amount',t:'decimal'},{n:'net_amount',t:'decimal'},{n:'amount_paid',t:'decimal DEFAULT 0'},{n:'balance',t:'decimal'},{n:'payment_status',t:"varchar · draft|finalized|paid|partially_paid|cancelled"},{n:'finalized_at',t:'timestamptz',nl:1},{n:'version',t:'int DEFAULT 0 · optimistic lock',nw:1},{n:'created_by',t:'uuid',fk:'users'},{n:'created_at',t:'timestamptz'}]},
+  {n:'invoice_items',f:[{n:'id',t:'uuid',pk:1},{n:'invoice_id',t:'uuid',fk:'invoices'},{n:'service_id',t:'uuid',fk:'services',nl:1},{n:'item_type',t:"varchar · consultation|drug|lab_test|radiology|room_charge|nursing|procedure|surgery|consumable"},{n:'reference_id',t:'uuid · polymorphic',nl:1},{n:'segment',t:'varchar · ortho|derma|lab…'},{n:'item_name',t:'varchar'},{n:'hsn_code',t:'varchar',nl:1},{n:'quantity',t:'int'},{n:'unit_price',t:'decimal'},{n:'discount_pct',t:'decimal DEFAULT 0'},{n:'discount_amount',t:'decimal DEFAULT 0'},{n:'line_discount_reason',t:'text',nl:1},{n:'line_discount_by',t:'uuid',fk:'users',nl:1},{n:'tax_pct',t:'decimal DEFAULT 0 · DEPRECATED v8'},{n:'cgst_pct',t:'decimal DEFAULT 0',nw:1},{n:'cgst_amount',t:'decimal DEFAULT 0',nw:1},{n:'sgst_pct',t:'decimal DEFAULT 0',nw:1},{n:'sgst_amount',t:'decimal DEFAULT 0',nw:1},{n:'igst_pct',t:'decimal DEFAULT 0',nw:1},{n:'igst_amount',t:'decimal DEFAULT 0',nw:1},{n:'total_price',t:'decimal · after discount'}]},
+  {n:'payments',f:[{n:'id',t:'uuid',pk:1},{n:'invoice_id',t:'uuid · nullable when paying via allocation',fk:'invoices',nl:1},{n:'payee_id',t:'uuid · who paid or received',fk:'payees'},{n:'payment_direction',t:"varchar · 'in' (collection) | 'out' (refund/payout)"},{n:'session_id',t:'uuid',fk:'business_sessions'},{n:'payment_mode',t:"varchar · cash|card|upi|cheque|insurance"},{n:'amount',t:'decimal'},{n:'transaction_ref',t:'varchar',nl:1},{n:'paid_at',t:'timestamptz'},{n:'received_by',t:'uuid',fk:'users'},{n:'idempotency_key',t:'varchar · UNIQUE partial — prevents double-charge',nl:1,nw:1},{n:'version',t:'int DEFAULT 0 · optimistic lock',nw:1},{n:'notes',t:'text',nl:1}]},
+  {n:'payees',f:[{n:'id',t:'uuid',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'payee_type',t:"varchar · 'patient'|'walk_in'|'vendor'|'employee'|'insurance'|'other'"},{n:'patient_id',t:'uuid · if patient',fk:'patients',nl:1},{n:'vendor_id',t:'uuid · if pharma vendor',fk:'pharmacy_vendors',nl:1},{n:'employee_user_id',t:'uuid · if employee advance',fk:'users',nl:1},{n:'name',t:'varchar · for walk-in or other',nl:1},{n:'mobile',t:'varchar',nl:1},{n:'gstin',t:'varchar',nl:1},{n:'notes',t:'text',nl:1},{n:'created_at',t:'timestamptz'}]},
+  {n:'payment_allocations',f:[{n:'id',t:'uuid',pk:1},{n:'payment_id',t:'uuid',fk:'payments'},{n:'allocation_type',t:"varchar · 'invoice'|'pharmacy_sale'|'ip_advance'|'interim_bill'|'refund'|'on_account'"},{n:'invoice_id',t:'uuid',fk:'invoices',nl:1},{n:'pharmacy_sale_id',t:'uuid',fk:'pharmacy_sales',nl:1},{n:'ip_admission_id',t:'uuid · for advance',fk:'ip_admissions',nl:1},{n:'interim_bill_id',t:'uuid',fk:'interim_bills',nl:1},{n:'amount',t:'decimal'},{n:'notes',t:'text',nl:1},{n:'created_at',t:'timestamptz'}]},
+  {n:'service_billing_policies',f:[{n:'service_type',t:"varchar PK · 'op_consultation'|'lab_routine'|'lab_stat'|'radiology'|'pharmacy_rx'|'pharmacy_otc'|'ip_admission'|'surgery'",pk:1},{n:'tenant_id',t:'uuid',fk:'tenants',pk:1},{n:'payment_timing',t:"varchar · 'before_service'|'after_service'|'on_discharge'|'split'"},{n:'advance_required',t:'boolean DEFAULT false'},{n:'advance_percentage',t:'decimal · % of estimate',nl:1},{n:'min_advance_amount',t:'decimal',nl:1},{n:'emergency_override',t:'boolean DEFAULT true · stat cases bypass'},{n:'updated_by',t:'uuid',fk:'users'},{n:'updated_at',t:'timestamptz'}]},
+  {n:'credit_notes',f:[{n:'id',t:'uuid',pk:1},{n:'credit_note_number',t:'varchar',uk:1},{n:'patient_id',t:'uuid',fk:'patients',nl:1},{n:'pharmacy_return_id',t:'uuid',fk:'pharmacy_returns',nl:1},{n:'invoice_id',t:'uuid',fk:'invoices',nl:1},{n:'amount',t:'decimal'},{n:'status',t:"varchar · 'pending'|'applied'|'refunded'"},{n:'expires_at',t:'date',nl:1},{n:'reason',t:'text',nl:1},{n:'created_by',t:'uuid',fk:'users'},{n:'created_at',t:'timestamptz'}]},
+  {n:'payment_item_types',f:[{n:'id',t:'int',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'code',t:"varchar · 'xray'|'pharmacy'|'consultation'|'lab'|'cafeteria'",uk:1},{n:'display_name',t:'varchar · X-Ray|Pharmacy|Consultation|Lab|Cafeteria'},{n:'detail_table',t:'varchar · payment_xray|payment_pharmacy|payment_consultation|payment_lab|payment_cafeteria'},{n:'is_active',t:'boolean'}]},
+  {n:'payment_items',f:[{n:'id',t:'uuid',pk:1},{n:'payment_id',t:'uuid',fk:'payments'},{n:'payment_type_id',t:'int · which source',fk:'payment_item_types'},{n:'item_record_id',t:'uuid · polymorphic — id of payment_xray|payment_pharmacy|… row'},{n:'amount',t:'decimal · line ₹'},{n:'created_at',t:'timestamptz'}]},
+  {n:'payment_xray',f:[{n:'id',t:'uuid',pk:1},{n:'radiology_order_id',t:'uuid',fk:'radiology_orders'},{n:'procedure_name',t:'varchar · CXR PA view|MRI Brain'},{n:'modality',t:"varchar · 'xray'|'ct'|'mri'|'ultrasound'"},{n:'rate',t:'decimal'},{n:'quantity',t:'int DEFAULT 1'},{n:'discount',t:'decimal DEFAULT 0'},{n:'amount',t:'decimal · final ₹ for this line'}]},
+  {n:'payment_pharmacy',f:[{n:'id',t:'uuid',pk:1},{n:'pharmacy_sale_id',t:'uuid',fk:'pharmacy_sales'},{n:'medicine_name',t:'varchar'},{n:'batch_no',t:'varchar',nl:1},{n:'quantity',t:'int'},{n:'unit_price',t:'decimal'},{n:'discount',t:'decimal DEFAULT 0'},{n:'amount',t:'decimal'}]},
+  {n:'payment_consultation',f:[{n:'id',t:'uuid',pk:1},{n:'consultation_id',t:'uuid',fk:'consultations'},{n:'doctor_id',t:'uuid',fk:'users'},{n:'visit_type',t:"varchar · 'new'|'follow_up'"},{n:'fee',t:'decimal'},{n:'discount',t:'decimal DEFAULT 0'},{n:'amount',t:'decimal'}]},
+  {n:'payment_lab',f:[{n:'id',t:'uuid',pk:1},{n:'lab_order_id',t:'uuid',fk:'lab_orders'},{n:'test_name',t:'varchar · CBC|LFT|Diabetes Panel'},{n:'sample_type',t:'varchar',nl:1},{n:'rate',t:'decimal'},{n:'discount',t:'decimal DEFAULT 0'},{n:'amount',t:'decimal'}]},
+  {n:'payment_cafeteria',f:[{n:'id',t:'uuid',pk:1},{n:'order_ref',t:'varchar · external POS ref',nl:1},{n:'item_name',t:'varchar'},{n:'quantity',t:'int'},{n:'unit_price',t:'decimal'},{n:'amount',t:'decimal'}]},
+  {n:'service_price_history 🆕v8',f:[{n:'id',t:'uuid',pk:1},{n:'service_id',t:'uuid',fk:'services'},{n:'price',t:'decimal'},{n:'effective_from',t:'date'},{n:'effective_to',t:'date',nl:1},{n:'changed_by',t:'uuid',fk:'users',nl:1},{n:'changed_at',t:'timestamptz'},{n:'reason',t:'text',nl:1}]},
+]},
+{nm:'Cash & Closure',cl:'#E59332',bg:'#2a1d08',lbg:'#FEF2DE',tb:[
+  {n:'cash_counters',f:[{n:'id',t:'uuid',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'name',t:'varchar · Front Desk|Pharmacy|IP Billing'},{n:'location',t:'varchar',nl:1},{n:'is_active',t:'boolean'}]},
+  {n:'business_sessions',f:[{n:'id',t:'uuid',pk:1},{n:'counter_id',t:'uuid',fk:'cash_counters'},{n:'session_label',t:"varchar · 'MORNING'|'EVENING'|'NIGHT'|'FULL_DAY'|'CUSTOM'"},{n:'business_date',t:'date'},{n:'opened_by',t:'uuid',fk:'users'},{n:'opened_at',t:'timestamptz'},{n:'closed_by',t:'uuid',fk:'users',nl:1},{n:'closed_at',t:'timestamptz',nl:1},{n:'status',t:"varchar · 'OPEN'|'CLOSED'|'REOPENED'|'LOCKED'"},{n:'opening_float',t:'decimal'},{n:'expected_cash',t:'decimal',nl:1},{n:'counted_cash',t:'decimal',nl:1},{n:'variance',t:'decimal · counted − expected',nl:1},{n:'variance_reason',t:'text',nl:1},{n:'denomination_breakdown',t:"jsonb · {2000:5,500:20…}",nl:1},{n:'closure_notes',t:'text',nl:1},{n:'closure_report_pdf_url',t:'text',nl:1},{n:'approved_by',t:'uuid',fk:'users',nl:1}]},
+  {n:'session_movements',f:[{n:'id',t:'uuid',pk:1},{n:'session_id',t:'uuid',fk:'business_sessions'},{n:'type',t:"varchar · 'EXPENSE_PAYOUT'|'REFUND_PAYOUT'|'PETTY_CASH_OUT'|'CASH_DEPOSIT_TO_BANK'|'CASH_HANDOVER'"},{n:'amount',t:'decimal'},{n:'reason',t:'text'},{n:'reference_doc_url',t:'text',nl:1},{n:'performed_by',t:'uuid',fk:'users'},{n:'performed_at',t:'timestamptz'}]},
+  {n:'session_closure_audit',f:[{n:'id',t:'uuid',pk:1},{n:'session_id',t:'uuid',fk:'business_sessions'},{n:'action',t:"varchar · 'opened'|'closed'|'reopened'|'adjusted'|'approved'|'locked'"},{n:'performed_by',t:'uuid',fk:'users'},{n:'before_state',t:'jsonb',nl:1},{n:'after_state',t:'jsonb',nl:1},{n:'ip_address',t:'varchar',nl:1},{n:'created_at',t:'timestamptz'}]},
+]},
+{nm:'IP',p2:1,cl:'#0F9E80',bg:'#102820',lbg:'#E1F5EE',tb:[
+  {n:'rooms',f:[{n:'id',t:'uuid',pk:1},{n:'room_number',t:'varchar'},{n:'room_type',t:"varchar · general|semi_private|private|deluxe|icu|nicu|picu"},{n:'floor',t:'varchar',nl:1},{n:'ward_name',t:'varchar',nl:1},{n:'bed_count',t:'int'},{n:'price_per_day',t:'decimal'},{n:'status',t:"varchar · available|occupied|cleaning|maintenance|blocked"}]},
+  {n:'beds',f:[{n:'id',t:'uuid',pk:1},{n:'room_id',t:'uuid',fk:'rooms'},{n:'bed_number',t:'varchar'},{n:'status',t:"varchar · available|occupied|cleaning|blocked"}]},
+  {n:'bed_assignments',f:[{n:'id',t:'uuid',pk:1},{n:'ip_admission_id',t:'uuid',fk:'ip_admissions'},{n:'bed_id',t:'uuid',fk:'beds'},{n:'from_ts',t:'timestamptz'},{n:'to_ts',t:'timestamptz · NULL = current',nl:1},{n:'transfer_reason',t:'text',nl:1},{n:'assigned_by',t:'uuid',fk:'users'},{n:'version',t:'int DEFAULT 0 · optimistic lock',nw:1}]},
+  {n:'ward_orders',f:[{n:'id',t:'uuid',pk:1},{n:'ip_admission_id',t:'uuid',fk:'ip_admissions'},{n:'doctor_id',t:'uuid',fk:'users'},{n:'order_type',t:"varchar · 'medication'|'diet'|'procedure'|'monitoring'|'investigation'"},{n:'details',t:'jsonb'},{n:'status',t:"varchar · 'pending'|'in_progress'|'completed'|'cancelled'"},{n:'ordered_at',t:'timestamptz'}]},
+  {n:'interim_bills',f:[{n:'id',t:'uuid',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'interim_bill_number',t:'varchar · IB-2026-00041',uk:1},{n:'ip_admission_id',t:'uuid',fk:'ip_admissions'},{n:'patient_id',t:'uuid',fk:'patients'},{n:'snapshot_at',t:'timestamptz · charges up to this moment'},{n:'amount_charged_to_date',t:'decimal'},{n:'advance_paid_to_date',t:'decimal'},{n:'interim_paid_to_date',t:'decimal · prior interims'},{n:'amount_due_now',t:'decimal'},{n:'purpose',t:"varchar · 'attender_pharmacy'|'family_review'|'mid_stay_settlement'"},{n:'status',t:"varchar · 'generated'|'paid'|'consolidated_into_final'|'cancelled'"},{n:'pdf_url',t:'text',nl:1},{n:'generated_by',t:'uuid',fk:'users'},{n:'created_at',t:'timestamptz'}]},
+  {n:'mlc_records 🆕v8',f:[{n:'id',t:'uuid',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'mlc_number',t:'varchar · MLC-YYYY-NNNNN',uk:1},{n:'patient_id',t:'uuid',fk:'patients'},{n:'op_visit_id',t:'uuid',fk:'op_visits',nl:1},{n:'ip_admission_id',t:'uuid',fk:'ip_admissions',nl:1},{n:'incident_type',t:"varchar · rta|assault|self_harm|poisoning|burn|sexual_assault|animal_bite|industrial|other"},{n:'incident_datetime',t:'timestamptz',nl:1},{n:'incident_place',t:'text',nl:1},{n:'brought_by',t:'varchar',nl:1},{n:'brought_by_relation',t:'varchar',nl:1},{n:'brought_by_mobile',t:'varchar',nl:1},{n:'police_station',t:'varchar',nl:1},{n:'police_intimated_at',t:'timestamptz',nl:1},{n:'police_fir_number',t:'varchar',nl:1},{n:'closure_status',t:"varchar · open|intimated|documented|closed"},{n:'notes',t:'text',nl:1},{n:'created_by',t:'uuid',fk:'users'},{n:'created_at',t:'timestamptz'}]},
+  {n:'nursing_notes',f:[{n:'id',t:'uuid',pk:1},{n:'ip_admission_id',t:'uuid',fk:'ip_admissions'},{n:'patient_id',t:'uuid',fk:'patients'},{n:'note_type',t:'varchar'},{n:'note_text',t:'text'},{n:'vitals_snapshot',t:'jsonb',nl:1},{n:'intake_output',t:'jsonb',nl:1},{n:'recorded_by',t:'uuid',fk:'users'},{n:'recorded_at',t:'timestamptz'}]},
+  {n:'medication_administrations',f:[{n:'id',t:'uuid',pk:1},{n:'ip_admission_id',t:'uuid',fk:'ip_admissions'},{n:'ward_order_id',t:'uuid',fk:'ward_orders',nl:1},{n:'medicine_batch_id',t:'uuid',fk:'medicine_batches'},{n:'dose',t:'varchar'},{n:'route',t:"varchar · 'oral'|'iv'|'im'|'sc'|'topical'"},{n:'administered_by',t:'uuid',fk:'users'},{n:'administered_at',t:'timestamptz'},{n:'notes',t:'text',nl:1}]},
+  {n:'discharge_summaries',f:[{n:'id',t:'uuid',pk:1},{n:'ip_admission_id',t:'uuid',fk:'ip_admissions'},{n:'patient_id',t:'uuid',fk:'patients'},{n:'final_diagnosis',t:'text'},{n:'procedure_done',t:'text',nl:1},{n:'hospital_course',t:'text',nl:1},{n:'discharge_advice',t:'text'},{n:'medications',t:'text',nl:1},{n:'follow_up_date',t:'date',nl:1},{n:'created_by',t:'uuid',fk:'users'},{n:'created_at',t:'timestamptz'}]},
+  {n:'shift_handovers',f:[{n:'id',t:'uuid',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'ward_or_unit',t:"varchar · 'ICU'|'General'|'OT'|'ER'"},{n:'from_user_id',t:'uuid · outgoing nurse',fk:'users'},{n:'to_user_id',t:'uuid · incoming nurse',fk:'users',nl:1},{n:'shift_date',t:'date'},{n:'shift_label',t:"varchar · 'Morning'|'Evening'|'Night'"},{n:'status',t:"varchar · 'pending'|'in_progress'|'signed_off'|'force_closed'"},{n:'general_notes',t:'text · ward-level alerts, supplies, BMS issues',nl:1},{n:'submitted_at',t:'timestamptz',nl:1},{n:'acknowledged_at',t:'timestamptz · both nurses signed',nl:1},{n:'created_at',t:'timestamptz'}]},
+  {n:'patient_handover_notes',f:[{n:'id',t:'uuid',pk:1},{n:'shift_handover_id',t:'uuid',fk:'shift_handovers'},{n:'ip_admission_id',t:'uuid',fk:'ip_admissions'},{n:'patient_id',t:'uuid',fk:'patients'},{n:'condition_summary',t:"varchar · 'stable'|'monitoring'|'deteriorating'|'critical'"},{n:'pending_meds',t:'text · meds due in next shift',nl:1},{n:'pending_orders',t:'text · investigations, procedures',nl:1},{n:'watch_points',t:'text · what to monitor closely',nl:1},{n:'family_notes',t:'text · family communication context',nl:1},{n:'iv_status',t:"varchar · 'patent'|'replaced_today'|'removed'",nl:1},{n:'acknowledged_by_recipient',t:'boolean DEFAULT false'},{n:'acknowledged_at',t:'timestamptz',nl:1}]},
+]},
+{nm:'Surgery',p2:1,cl:'#D85A30',bg:'#281408',lbg:'#FAECE7',tb:[
+  {n:'surgery_types',f:[{n:'id',t:'uuid',pk:1},{n:'surgery_name',t:'varchar'},{n:'code',t:'varchar',uk:1},{n:'department_id',t:'uuid',fk:'departments',nl:1},{n:'default_duration_mins',t:'int'},{n:'default_price',t:'decimal'},{n:'required_equipment',t:'jsonb',nl:1}]},
+  {n:'ot_rooms',f:[{n:'id',t:'uuid',pk:1},{n:'name',t:'varchar · OT-1|OT-2…'},{n:'equipment',t:'jsonb',nl:1},{n:'status',t:"varchar · 'available'|'in_use'|'cleaning'|'maintenance'"}]},
+  {n:'surgery_schedules',f:[{n:'id',t:'uuid',pk:1},{n:'surgery_number',t:'varchar',uk:1},{n:'patient_id',t:'uuid',fk:'patients'},{n:'ip_admission_id',t:'uuid',fk:'ip_admissions',nl:1},{n:'primary_surgeon_id',t:'uuid',fk:'users'},{n:'anesthetist_id',t:'uuid',fk:'users',nl:1},{n:'surgery_type_id',t:'uuid',fk:'surgery_types'},{n:'ot_room_id',t:'uuid',fk:'ot_rooms'},{n:'scheduled_start',t:'timestamptz'},{n:'scheduled_end',t:'timestamptz'},{n:'status',t:"varchar · scheduled|pre_op|in_progress|completed|cancelled|postponed"},{n:'pre_op_notes',t:'text',nl:1},{n:'op_notes',t:'text',nl:1},{n:'post_op_notes',t:'text',nl:1},{n:'complications',t:'text',nl:1},{n:'notes',t:'text',nl:1}]},
+  {n:'surgery_team',f:[{n:'id',t:'uuid',pk:1},{n:'surgery_schedule_id',t:'uuid',fk:'surgery_schedules'},{n:'user_id',t:'uuid',fk:'users'},{n:'role_in_surgery',t:"varchar · 'surgeon'|'assistant'|'scrub_nurse'|'circulating_nurse'|'anesthetist'"}]},
+  {n:'surgery_consumables',f:[{n:'id',t:'uuid',pk:1},{n:'surgery_schedule_id',t:'uuid',fk:'surgery_schedules'},{n:'medicine_batch_id',t:'uuid',fk:'medicine_batches',nl:1},{n:'consumable_name',t:'varchar'},{n:'qty_used',t:'int'},{n:'unit_price',t:'decimal'},{n:'total_price',t:'decimal'},{n:'recorded_by',t:'uuid',fk:'users'},{n:'recorded_at',t:'timestamptz'}]},
+]},
+{nm:'Lab',cl:'#639922',bg:'#182208',lbg:'#EAF3DE',tb:[
+  {n:'lab_tests',f:[{n:'id',t:'uuid',pk:1},{n:'test_code',t:'varchar',uk:1},{n:'test_name',t:'varchar'},{n:'category',t:"varchar · hematology|biochemistry|microbiology|serology|pathology"},{n:'sample_type',t:'varchar'},{n:'department_id',t:'uuid',fk:'departments',nl:1},{n:'default_price',t:'decimal'},{n:'normal_range_male',t:'varchar · display string',nl:1},{n:'normal_range_female',t:'varchar · display string',nl:1},{n:'ref_min_male',t:'decimal · for auto-flag',nl:1},{n:'ref_max_male',t:'decimal · for auto-flag',nl:1},{n:'ref_min_female',t:'decimal · for auto-flag',nl:1},{n:'ref_max_female',t:'decimal · for auto-flag',nl:1},{n:'critical_low',t:'decimal · alerts trigger',nl:1},{n:'critical_high',t:'decimal · alerts trigger',nl:1},{n:'unit',t:'varchar',nl:1},{n:'tat_hours',t:'int',nl:1},{n:'is_active',t:'boolean'}]},
+  {n:'lab_test_panels',f:[{n:'id',t:'uuid',pk:1},{n:'panel_name',t:'varchar · CBC|LFT|Diabetes Panel'},{n:'test_ids',t:'uuid[]'},{n:'package_price',t:'decimal'},{n:'is_active',t:'boolean'}]},
+  {n:'lab_orders',f:[{n:'id',t:'uuid',pk:1},{n:'patient_id',t:'uuid',fk:'patients'},{n:'op_visit_id',t:'uuid',fk:'op_visits',nl:1},{n:'ip_admission_id',t:'uuid',fk:'ip_admissions',nl:1},{n:'doctor_id',t:'uuid',fk:'users'},{n:'priority',t:"varchar · 'routine'|'urgent'|'stat'"},{n:'invoice_id',t:'uuid',fk:'invoices',nl:1},{n:'payment_required_before_service',t:'boolean DEFAULT true · stat overrides'},{n:'status',t:"varchar · ordered|sample_collected|in_progress|reported|cancelled"},{n:'ordered_at',t:'timestamptz'},{n:'completed_at',t:'timestamptz',nl:1}]},
+  {n:'lab_order_items',f:[{n:'id',t:'uuid',pk:1},{n:'lab_order_id',t:'uuid',fk:'lab_orders'},{n:'lab_test_id',t:'uuid',fk:'lab_tests'},{n:'sample_id',t:'uuid',fk:'lab_samples',nl:1},{n:'status',t:"varchar · pending|in_progress|completed"}]},
+  {n:'lab_samples',f:[{n:'id',t:'uuid',pk:1},{n:'sample_barcode',t:'varchar',uk:1},{n:'patient_id',t:'uuid',fk:'patients'},{n:'lab_order_id',t:'uuid',fk:'lab_orders'},{n:'sample_type',t:'varchar'},{n:'status',t:"varchar · collected|received|rejected|processed|disposed",nw:1},{n:'collected_by',t:'uuid',fk:'users'},{n:'collected_at',t:'timestamptz'},{n:'received_at',t:'timestamptz',nl:1},{n:'rejected_at',t:'timestamptz',nl:1,nw:1},{n:'rejected_by',t:'uuid',fk:'users',nl:1,nw:1},{n:'rejection_reason',t:'text',nl:1},{n:'replaces_sample_id',t:'uuid · self-ref for re-collection',fk:'lab_samples',nl:1,nw:1}]},
+  {n:'lab_results',f:[{n:'id',t:'uuid',pk:1},{n:'lab_order_item_id',t:'uuid',fk:'lab_order_items'},{n:'value',t:'varchar · raw display value'},{n:'value_numeric',t:'decimal · parsed for trending',nl:1},{n:'value_text',t:"varchar · for 'Positive'|'Reactive' etc",nl:1},{n:'unit',t:'varchar',nl:1},{n:'flag',t:"varchar · 'normal'|'high'|'low'|'critical'"},{n:'method',t:'varchar',nl:1},{n:'comments',t:'text',nl:1},{n:'report_pdf_url',t:'text',nl:1},{n:'performed_by',t:'uuid',fk:'users'},{n:'verified_by',t:'uuid',fk:'users',nl:1},{n:'reported_at',t:'timestamptz'}]},
+]},
+{nm:'Radiology',cl:'#3B8B55',bg:'#162010',lbg:'#E1F5EE',tb:[
+  {n:'radiology_procedures',f:[{n:'id',t:'uuid',pk:1},{n:'procedure_code',t:'varchar',uk:1},{n:'test_name',t:'varchar'},{n:'modality',t:"varchar · 'xray'|'ultrasound'|'ct'|'mri'"},{n:'body_part',t:'varchar',nl:1},{n:'default_price',t:'decimal'},{n:'is_active',t:'boolean'}]},
+  {n:'radiology_orders',f:[{n:'id',t:'uuid',pk:1},{n:'patient_id',t:'uuid',fk:'patients'},{n:'op_visit_id',t:'uuid',fk:'op_visits',nl:1},{n:'ip_admission_id',t:'uuid',fk:'ip_admissions',nl:1},{n:'doctor_id',t:'uuid',fk:'users'},{n:'radiology_procedure_id',t:'uuid',fk:'radiology_procedures'},{n:'priority',t:"varchar · 'routine'|'urgent'|'stat'"},{n:'invoice_id',t:'uuid',fk:'invoices',nl:1},{n:'payment_required_before_service',t:'boolean DEFAULT true · stat overrides'},{n:'status',t:"varchar · ordered|in_progress|completed|reported|cancelled"},{n:'ordered_at',t:'timestamptz'}]},
+  {n:'radiology_studies',f:[{n:'id',t:'uuid',pk:1},{n:'radiology_order_id',t:'uuid',fk:'radiology_orders'},{n:'study_uid',t:'varchar · DICOM',uk:1},{n:'images_url',t:'text[]'},{n:'technician_id',t:'uuid',fk:'users'},{n:'study_completed_at',t:'timestamptz'}]},
+  {n:'radiology_reports',f:[{n:'id',t:'uuid',pk:1},{n:'radiology_order_id',t:'uuid',fk:'radiology_orders'},{n:'study_id',t:'uuid',fk:'radiology_studies',nl:1},{n:'findings',t:'text',nl:1},{n:'impression',t:'text',nl:1},{n:'reported_by_radiologist_id',t:'uuid',fk:'users',nl:1},{n:'file_attachment_id',t:'uuid',fk:'file_attachments',nl:1},{n:'report_pdf_url',t:'text',nl:1},{n:'uploaded_by',t:'uuid',fk:'users'},{n:'uploaded_at',t:'timestamptz'}]},
+]},
+{nm:'Pharmacy',cl:'#D4537E',bg:'#281020',lbg:'#FBEAF0',tb:[
+  {n:'vendors',f:[{n:'id',t:'uuid',pk:1},{n:'vendor_name',t:'varchar'},{n:'contact_person',t:'varchar',nl:1},{n:'mobile',t:'varchar'},{n:'address',t:'text',nl:1},{n:'gst_number',t:'varchar',nl:1},{n:'payment_terms',t:'varchar',nl:1},{n:'is_active',t:'boolean'}]},
+  {n:'purchase_orders',f:[{n:'id',t:'uuid',pk:1},{n:'po_number',t:'varchar',uk:1},{n:'vendor_id',t:'uuid',fk:'vendors'},{n:'expected_date',t:'date',nl:1},{n:'status',t:"varchar · draft|sent|partially_received|received|cancelled"},{n:'total_amount',t:'decimal'},{n:'ordered_by',t:'uuid',fk:'users'},{n:'approved_by',t:'uuid',fk:'users',nl:1},{n:'ordered_at',t:'timestamptz'},{n:'received_at',t:'timestamptz',nl:1}]},
+  {n:'purchase_order_items',f:[{n:'id',t:'uuid',pk:1},{n:'purchase_order_id',t:'uuid',fk:'purchase_orders'},{n:'medicine_id',t:'uuid',fk:'medicines'},{n:'quantity_ordered',t:'int'},{n:'quantity_received',t:'int'},{n:'unit_price',t:'decimal'},{n:'cgst_pct',t:'decimal DEFAULT 0',nw:1},{n:'sgst_pct',t:'decimal DEFAULT 0',nw:1},{n:'igst_pct',t:'decimal DEFAULT 0',nw:1},{n:'total_price',t:'decimal'}]},
+  {n:'stock_movements',f:[{n:'id',t:'uuid',pk:1},{n:'medicine_batch_id',t:'uuid',fk:'medicine_batches'},{n:'movement_type',t:"varchar · 'purchase_in'|'sale_out'|'return_in'|'return_writeoff'|'adjustment'|'expiry_writeoff'|'surgery_use'|'ward_use'"},{n:'quantity',t:'int'},{n:'reference_type',t:'varchar'},{n:'reference_id',t:'uuid'},{n:'created_by',t:'uuid',fk:'users'},{n:'created_at',t:'timestamptz'}]},
+  {n:'pharmacy_sales',f:[{n:'id',t:'uuid',pk:1},{n:'sale_number',t:'varchar',uk:1},{n:'patient_id',t:'uuid',fk:'patients',nl:1},{n:'sale_type',t:"varchar · 'op_patient'|'ip_patient'|'walkin_prescription'|'walkin_otc'"},{n:'session_id',t:'uuid',fk:'business_sessions'},{n:'customer_name',t:'varchar',nl:1},{n:'customer_mobile',t:'varchar',nl:1},{n:'customer_age',t:'int',nl:1},{n:'external_prescription_ref',t:'varchar',nl:1},{n:'prescription_id',t:'uuid',fk:'prescriptions',nl:1},{n:'invoice_id',t:'uuid',fk:'invoices',nl:1},{n:'subtotal',t:'decimal'},{n:'bill_discount_type',t:"varchar · 'percentage'|'flat'"},{n:'bill_discount_value',t:'decimal DEFAULT 0'},{n:'bill_discount_amount',t:'decimal DEFAULT 0'},{n:'net_amount',t:'decimal'},{n:'discount_approved_by',t:'uuid',fk:'users',nl:1},{n:'discount_reason',t:'text',nl:1},{n:'printer_target',t:"varchar · 'dot_matrix_main'"},{n:'sale_date',t:'timestamptz'},{n:'idempotency_key',t:'varchar · UNIQUE partial — prevents double-charge',nl:1,nw:1},{n:'version',t:'int DEFAULT 0 · optimistic lock',nw:1},{n:'created_by',t:'uuid',fk:'users'}]},
+  {n:'pharmacy_sale_items',f:[{n:'id',t:'uuid',pk:1},{n:'pharmacy_sale_id',t:'uuid',fk:'pharmacy_sales'},{n:'medicine_id',t:'uuid',fk:'medicines'},{n:'medicine_batch_id',t:'uuid',fk:'medicine_batches'},{n:'quantity',t:'int'},{n:'unit_price',t:'decimal'},{n:'discount_pct',t:'decimal DEFAULT 0'},{n:'discount_amount',t:'decimal DEFAULT 0'},{n:'total_price',t:'decimal · after item discount'}]},
+  {n:'pharmacy_returns',f:[{n:'id',t:'uuid',pk:1},{n:'return_number',t:'varchar',uk:1},{n:'original_sale_id',t:'uuid',fk:'pharmacy_sales'},{n:'patient_id',t:'uuid',fk:'patients',nl:1},{n:'customer_name',t:'varchar',nl:1},{n:'customer_mobile',t:'varchar',nl:1},{n:'return_type',t:"varchar · 'full'|'partial'"},{n:'return_reason',t:'text',nl:1},{n:'total_return_amount',t:'decimal'},{n:'refund_mode',t:"varchar · 'cash'|'upi'|'card'|'credit_note'"},{n:'refund_amount',t:'decimal'},{n:'session_id',t:'uuid',fk:'business_sessions',nl:1},{n:'credit_note_id',t:'uuid',fk:'credit_notes',nl:1},{n:'approved_by',t:'uuid',fk:'users'},{n:'processed_by',t:'uuid',fk:'users'},{n:'created_at',t:'timestamptz'}]},
+  {n:'pharmacy_return_items',f:[{n:'id',t:'uuid',pk:1},{n:'pharmacy_return_id',t:'uuid',fk:'pharmacy_returns'},{n:'pharmacy_sale_item_id',t:'uuid',fk:'pharmacy_sale_items'},{n:'medicine_id',t:'uuid',fk:'medicines'},{n:'medicine_batch_id',t:'uuid',fk:'medicine_batches'},{n:'quantity_returned',t:'int'},{n:'unit_price',t:'decimal · from original sale'},{n:'return_amount',t:'decimal · qty × price − disc'},{n:'condition',t:"varchar · 'good'|'opened'|'damaged'|'expired'"},{n:'restock_quantity',t:'int · 0 if damaged'},{n:'notes',t:'text',nl:1}]},
+  {n:'narcotic_register 🆕v8',f:[{n:'id',t:'uuid',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'medicine_id',t:'uuid',fk:'medicines'},{n:'medicine_batch_id',t:'uuid',fk:'medicine_batches',nl:1},{n:'pharmacy_sale_id',t:'uuid',fk:'pharmacy_sales',nl:1},{n:'prescription_id',t:'uuid',fk:'prescriptions',nl:1},{n:'transaction_type',t:"varchar · purchase_in|dispense_out|wastage|transfer|return|expired_writeoff"},{n:'quantity',t:'int'},{n:'balance_after',t:'int · running balance per NDPS Act'},{n:'prescriber_name',t:'varchar',nl:1},{n:'prescriber_reg_no',t:'varchar',nl:1},{n:'recipient_name',t:'varchar',nl:1},{n:'recipient_relation',t:'varchar',nl:1},{n:'recipient_id_proof',t:'varchar',nl:1},{n:'witnessed_by',t:'uuid',fk:'users',nl:1},{n:'performed_by',t:'uuid',fk:'users'},{n:'performed_at',t:'timestamptz'},{n:'notes',t:'text',nl:1}]},
+]},
+{nm:'Inventory',cl:'#B86F8E',bg:'#22141A',lbg:'#F5E5EC',tb:[
+  {n:'medicines',f:[{n:'id',t:'uuid',pk:1},{n:'medicine_name',t:'varchar'},{n:'generic_name',t:'varchar',nl:1},{n:'brand_name',t:'varchar',nl:1},{n:'manufacturer',t:'varchar',nl:1},{n:'category',t:'varchar'},{n:'schedule',t:"varchar · 'H'|'H1'|'X'|'OTC' · DEPRECATED v8 — use drug_schedule"},{n:'drug_schedule',t:"varchar · 'H'|'H1'|'X'|'G'|'OTC'",nl:1,nw:1},{n:'is_narcotic',t:'boolean DEFAULT FALSE · NDPS Act',nw:1},{n:'form',t:'varchar · tablet|syrup|injection'},{n:'strength',t:'varchar',nl:1},{n:'unit',t:'varchar'},{n:'hsn_code',t:'varchar',nl:1},{n:'gst_pct',t:'decimal DEFAULT 0'},{n:'requires_prescription',t:'boolean'},{n:'reorder_level',t:'int'},{n:'is_active',t:'boolean'}]},
+  {n:'medicine_batches',f:[{n:'id',t:'uuid',pk:1},{n:'medicine_id',t:'uuid',fk:'medicines'},{n:'batch_number',t:'varchar'},{n:'mfg_date',t:'date',nl:1},{n:'expiry_date',t:'date'},{n:'purchase_price',t:'decimal'},{n:'mrp_at_purchase',t:'decimal'},{n:'selling_price',t:'decimal'},{n:'quantity_received',t:'int'},{n:'quantity_available',t:'int · auto-decrement by trigger'},{n:'vendor_id',t:'uuid',fk:'vendors'},{n:'po_id',t:'uuid',fk:'purchase_orders',nl:1},{n:'received_date',t:'date'},{n:'version',t:'int DEFAULT 0 · optimistic lock',nw:1}]},
+]},
+{nm:'Reports / Analytics',cl:'#7868D8',bg:'#1e1a38',lbg:'#EEEDFE',tb:[
+  {n:'revenue_targets',f:[{n:'id',t:'uuid',pk:1},{n:'department_id',t:'uuid',fk:'departments'},{n:'target_month',t:'date'},{n:'target_amount',t:'decimal'},{n:'created_by',t:'uuid',fk:'users'},{n:'created_at',t:'timestamptz'}]},
+  {n:'announcements',f:[{n:'id',t:'uuid',pk:1},{n:'title',t:'varchar'},{n:'body',t:'text'},{n:'audience',t:"varchar · 'all'|role|dept"},{n:'is_pinned',t:'boolean'},{n:'starts_at',t:'timestamptz',nl:1},{n:'ends_at',t:'timestamptz',nl:1},{n:'created_by',t:'uuid',fk:'users'},{n:'created_at',t:'timestamptz'}]},
+  {n:'alert_rules',f:[{n:'id',t:'uuid',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'name',t:"varchar · 'High-value cancellation'"},{n:'description',t:'text',nl:1},{n:'trigger_event',t:"varchar · subscribes to domain_events: BillCancelled|SurgeryCancelled|DiscountApplied|VarianceReported|ExpiryWriteoff"},{n:'condition',t:"jsonb · e.g. {min_amount:25000,max_pct:15}"},{n:'notify_role_ids',t:'uuid[]',nl:1},{n:'notify_user_ids',t:'uuid[]',nl:1},{n:'channels',t:"varchar[] · 'in_app'|'email'|'whatsapp'"},{n:'severity',t:"varchar · 'info'|'warning'|'critical'"},{n:'is_active',t:'boolean DEFAULT true'},{n:'created_by',t:'uuid',fk:'users'},{n:'created_at',t:'timestamptz'}]},
+  {n:'mv_revenue_daily',f:[{n:'business_date',t:'date'},{n:'segment',t:'varchar'},{n:'department_id',t:'uuid',fk:'departments'},{n:'gross_revenue',t:'decimal'},{n:'discount_total',t:'decimal'},{n:'net_revenue',t:'decimal'},{n:'invoice_count',t:'int'}]},
+  {n:'mv_revenue_by_doctor',f:[{n:'business_date',t:'date'},{n:'doctor_id',t:'uuid',fk:'users'},{n:'consultations_count',t:'int'},{n:'consultation_revenue',t:'decimal'},{n:'procedures_revenue',t:'decimal'},{n:'total_attributed_revenue',t:'decimal'}]},
+  {n:'mv_outstanding_dues',f:[{n:'patient_id',t:'uuid',fk:'patients'},{n:'invoice_id',t:'uuid',fk:'invoices'},{n:'invoice_date',t:'date'},{n:'balance',t:'decimal'},{n:'ageing_bucket',t:"varchar · '0-30'|'31-60'|'61-90'|'90+'"}]},
+  {n:'mv_bed_occupancy_daily',f:[{n:'occupancy_date',t:'date'},{n:'room_type',t:'varchar'},{n:'total_bed_nights',t:'int'},{n:'occupied_bed_nights',t:'int'},{n:'occupancy_pct',t:'decimal'}]},
+  {n:'mv_pharmacy_expiry_loss',f:[{n:'period_month',t:'date'},{n:'medicine_id',t:'uuid',fk:'medicines'},{n:'qty_expired',t:'int'},{n:'value_lost',t:'decimal'}]},
+  {n:'mv_payroll_cost_monthly',f:[{n:'period_month',t:'int'},{n:'period_year',t:'int'},{n:'department_id',t:'uuid',fk:'departments'},{n:'headcount',t:'int'},{n:'total_cost',t:'decimal'},{n:'avg_cost_per_head',t:'decimal'}]},
+]},
+{nm:'HR · Attendance',p2:1,cl:'#4F8FB8',bg:'#0f1c28',lbg:'#E5EFF7',tb:[
+  {n:'employee_profiles',f:[{n:'id',t:'uuid',pk:1},{n:'user_id',t:'uuid',fk:'users',uk:1},{n:'employment_type',t:"varchar · full_time|part_time|contract|consultant|visiting"},{n:'date_of_joining',t:'date'},{n:'date_of_confirmation',t:'date',nl:1},{n:'probation_end_date',t:'date',nl:1},{n:'reporting_to',t:'uuid',fk:'users',nl:1},{n:'work_location',t:'varchar',nl:1},{n:'bank_account',t:"jsonb · {acct,ifsc,bank}",nl:1},{n:'pan_number',t:'varchar',nl:1},{n:'aadhaar_last4',t:'varchar',nl:1},{n:'pf_number',t:'varchar',nl:1},{n:'esi_number',t:'varchar',nl:1},{n:'uan_number',t:'varchar',nl:1},{n:'date_of_exit',t:'date',nl:1},{n:'exit_reason',t:'text',nl:1}]},
+  {n:'salary_structures',f:[{n:'id',t:'uuid',pk:1},{n:'name',t:"varchar · Doctor L1|Staff Nurse Grade A"},{n:'components',t:"jsonb · earning|deduction rules"},{n:'is_active',t:'boolean'},{n:'created_by',t:'uuid',fk:'users'},{n:'created_at',t:'timestamptz'}]},
+  {n:'employee_salary_revisions',f:[{n:'id',t:'uuid',pk:1},{n:'user_id',t:'uuid',fk:'users'},{n:'salary_structure_id',t:'uuid',fk:'salary_structures'},{n:'effective_from',t:'date'},{n:'effective_to',t:'date',nl:1},{n:'revision_reason',t:"varchar · joining|annual_hike|promotion|correction"},{n:'revised_by',t:'uuid',fk:'users'},{n:'approved_by',t:'uuid',fk:'users',nl:1},{n:'created_at',t:'timestamptz'}]},
+  {n:'shifts',f:[{n:'id',t:'uuid',pk:1},{n:'name',t:"varchar · Morning|Evening|Night|General"},{n:'start_time',t:'time'},{n:'end_time',t:'time'},{n:'break_minutes',t:'int'},{n:'is_night_shift',t:'boolean'},{n:'night_allowance',t:'decimal DEFAULT 0'}]},
+  {n:'duty_roster',f:[{n:'id',t:'uuid',pk:1},{n:'user_id',t:'uuid',fk:'users'},{n:'shift_id',t:'uuid',fk:'shifts'},{n:'duty_date',t:'date'},{n:'ward_or_station',t:"varchar · ICU|OT|Pharmacy…",nl:1},{n:'status',t:"varchar · scheduled|completed|swapped|on_leave|no_show"},{n:'swapped_with_user_id',t:'uuid',fk:'users',nl:1},{n:'notes',t:'text',nl:1},{n:'created_by',t:'uuid',fk:'users'}]},
+  {n:'attendance',f:[{n:'id',t:'uuid',pk:1},{n:'user_id',t:'uuid',fk:'users'},{n:'attendance_date',t:'date'},{n:'check_in_ts',t:'timestamptz',nl:1},{n:'check_out_ts',t:'timestamptz',nl:1},{n:'hours_worked',t:'decimal'},{n:'shift_id',t:'uuid',fk:'shifts',nl:1},{n:'status',t:"varchar · present|absent|half_day|leave|week_off|holiday|on_duty_outdoor"},{n:'late_minutes',t:'int DEFAULT 0'},{n:'overtime_minutes',t:'int DEFAULT 0'},{n:'source',t:"varchar · biometric|web|mobile_geo|manual"},{n:'location',t:'jsonb · geo',nl:1},{n:'remarks',t:'text',nl:1},{n:'approved_by',t:'uuid',fk:'users',nl:1}]},
+  {n:'leave_balances',f:[{n:'id',t:'uuid',pk:1},{n:'user_id',t:'uuid',fk:'users'},{n:'leave_year',t:'int · 2026'},{n:'leave_type',t:"varchar · casual|sick|earned|maternity|paternity|lop"},{n:'opening',t:'decimal'},{n:'accrued',t:'decimal'},{n:'availed',t:'decimal'},{n:'encashed',t:'decimal DEFAULT 0'},{n:'lapsed',t:'decimal DEFAULT 0'},{n:'closing',t:'decimal'}]},
+  {n:'leave_requests',f:[{n:'id',t:'uuid',pk:1},{n:'user_id',t:'uuid',fk:'users'},{n:'leave_type',t:'varchar'},{n:'from_date',t:'date'},{n:'to_date',t:'date'},{n:'days',t:'decimal · half-day allowed'},{n:'reason',t:'text'},{n:'attachment_url',t:'text',nl:1},{n:'status',t:"varchar · pending|approved|rejected|cancelled|withdrawn"},{n:'approved_by',t:'uuid',fk:'users',nl:1},{n:'approved_at',t:'timestamptz',nl:1},{n:'rejection_reason',t:'text',nl:1},{n:'applied_at',t:'timestamptz'}]},
+  {n:'holidays',f:[{n:'id',t:'uuid',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'holiday_date',t:'date'},{n:'name',t:'varchar'},{n:'type',t:"varchar · national|regional|restricted|hospital"},{n:'is_paid',t:'boolean'}]},
+]},
+{nm:'Payroll',p2:1,cl:'#3D7AA0',bg:'#0c1822',lbg:'#E2EBF4',tb:[
+  {n:'payroll_runs',f:[{n:'id',t:'uuid',pk:1},{n:'tenant_id',t:'uuid',fk:'tenants'},{n:'period_month',t:'int · 1-12'},{n:'period_year',t:'int'},{n:'status',t:"varchar · draft|locked|approved|paid|closed"},{n:'cutoff_date',t:'date'},{n:'run_by',t:'uuid',fk:'users'},{n:'approved_by',t:'uuid',fk:'users',nl:1},{n:'paid_on',t:'date',nl:1},{n:'total_gross',t:'decimal'},{n:'total_deductions',t:'decimal'},{n:'total_net',t:'decimal'},{n:'total_employer_contrib',t:'decimal'},{n:'remarks',t:'text',nl:1},{n:'created_at',t:'timestamptz'}]},
+  {n:'payslips',f:[{n:'id',t:'uuid',pk:1},{n:'payroll_run_id',t:'uuid',fk:'payroll_runs'},{n:'user_id',t:'uuid',fk:'users'},{n:'salary_structure_snapshot',t:'jsonb · frozen'},{n:'days_in_month',t:'int'},{n:'days_present',t:'decimal'},{n:'days_lop',t:'decimal'},{n:'days_paid_leave',t:'decimal'},{n:'days_holiday',t:'decimal'},{n:'overtime_hours',t:'decimal DEFAULT 0'},{n:'gross_earnings',t:'decimal'},{n:'total_deductions',t:'decimal'},{n:'employer_contributions',t:'decimal'},{n:'net_payable',t:'decimal'},{n:'earnings',t:'jsonb · line items'},{n:'deductions',t:'jsonb · line items'},{n:'bank_account_snapshot',t:'jsonb'},{n:'payment_status',t:"varchar · pending|paid|failed|hold"},{n:'payment_ref',t:'varchar',nl:1},{n:'payment_date',t:'date',nl:1},{n:'payslip_pdf_url',t:'text',nl:1}]},
+  {n:'reimbursements',f:[{n:'id',t:'uuid',pk:1},{n:'user_id',t:'uuid',fk:'users'},{n:'claim_type',t:"varchar · travel|mobile|medical|books|training"},{n:'amount',t:'decimal'},{n:'bill_date',t:'date'},{n:'attachment_url',t:'text',nl:1},{n:'status',t:"varchar · pending|approved|rejected|paid"},{n:'approved_by',t:'uuid',fk:'users',nl:1},{n:'paid_in_payroll_run_id',t:'uuid',fk:'payroll_runs',nl:1},{n:'created_at',t:'timestamptz'}]},
+  {n:'advances_loans',f:[{n:'id',t:'uuid',pk:1},{n:'user_id',t:'uuid',fk:'users'},{n:'type',t:"varchar · advance|loan"},{n:'principal',t:'decimal'},{n:'interest_pct',t:'decimal DEFAULT 0'},{n:'emi_amount',t:'decimal'},{n:'total_emis',t:'int'},{n:'emis_paid',t:'int DEFAULT 0'},{n:'balance',t:'decimal'},{n:'status',t:"varchar · active|closed|written_off"},{n:'sanctioned_by',t:'uuid',fk:'users'},{n:'disbursed_on',t:'date'}]},
+  {n:'tds_declarations',f:[{n:'id',t:'uuid',pk:1},{n:'user_id',t:'uuid',fk:'users'},{n:'financial_year',t:"varchar · '2026-27'"},{n:'regime',t:"varchar · 'old'|'new'"},{n:'declarations',t:"jsonb · {80C,80D,hra_rent…}"},{n:'proofs_uploaded_url',t:'text[]',nl:1},{n:'status',t:"varchar · declared|verified"},{n:'verified_by',t:'uuid',fk:'users',nl:1}]},
+]},
+];;
+
+// Brief about each table — its purpose in one line. Rendered in each card under the table header.
+const TABLE_DESC = {
+  // Core / Platform
+  'tenants': 'Hospital identity — top-level organization. Every other row partitions on tenant_id.',
+  'users': 'All staff accounts — doctors, nurses, receptionists, pharmacists, admins. One row per employee.',
+  'departments': 'Functional units (Ortho, Derma, Lab, Pharmacy…). Drives routing, fees, and reporting splits.',
+  'doctor_profiles': 'Doctor-only attributes — specialization, fees, slot duration, signature. Extends users for clinical staff.',
+  'roles': 'Named role definitions (admin, receptionist, doctor…) used for permission grouping.',
+  'user_roles': 'Many-to-many user↔role assignments. A user can hold multiple roles with one default landing role.',
+  'permissions': 'Atomic permission keys (e.g. pharmacy.stock.edit). The catalog of every gated action.',
+  'role_permissions': 'Grants — which permissions a role carries. Joining table for role↔permission.',
+  'user_sessions': 'Active login sessions. Token hash, device, expiry — used by the auth middleware.',
+  'audit_logs': 'Append-only log of every sensitive write. Captures old/new values, user, IP for compliance.',
+  'domain_events': 'Append-only event stream — BillFinalized, AdmissionCreated… Subscribers fan out async work.',
+  'notifications': 'In-app alerts to users or roles. Supports priority, ACK SLA, and an escalation chain.',
+  'notification_acknowledgments': 'Records who ACKed a high-priority alert and whether the ACK met its SLA.',
+  'system_config': 'Tenant-scoped key/value settings. Toggleable behavior without a code deploy.',
+  'user_preferences': 'Per-user UI settings — theme, language, default landing role/path, notification channels.',
+  'uhid_sequences': 'Per-tenant, per-year UHID counter. Source of truth for the next sequence number.',
+  'patients': 'Master patient identity. UHID, demographics, allergies — referenced by every clinical & billing row.',
+  'patient_merges': 'Audit of duplicate-record consolidations. Source patient is hidden, child rows repointed to target.',
+  'patient_states': 'Catalog of every state in the patient journey (100..710). Drives the state machine and analytics.',
+  'stations': 'Physical service points (front desk, billing, vitals, doctor rooms). Patients move between stations.',
+  'document_templates': 'Reusable templates — consultation notes, discharge summaries, prescriptions. Versioned per edit.',
+  'file_attachments': 'All uploaded files (scans, reports, photos) attached to a patient and a source module row.',
+
+  // Scheduling
+  'appointment_slots': 'Bookable time slots per doctor per date. Status flips to booked once reserved.',
+  'appointments': "A patient's reservation for a future visit. Source (walk-in/phone/online) and lifecycle status.",
+
+  // Patient Encounters
+  'op_visits': 'One outpatient visit. OP number, doctor, chief complaint, current state — entry point for OP workflow.',
+  'patient_queue': 'Live queue rows — where every active patient is right now. Drives the queue dashboard.',
+  'tokens': 'Token-issuance ledger. Display number (D-04), service, sequence — never reused after cancellation.',
+  'patient_journey_events': 'Append-only state-transition log per patient. Source of truth for journey analytics.',
+  'ip_admissions': 'One IP stay. IP number, bed, admit/discharge dates, state — ties together the inpatient stay.',
+  'mlc_records': 'Medico-legal case file. Incident details, police info, closure status — required for RTA/assault.',
+
+  // Clinical
+  'consultations': 'One doctor encounter — complaint, exam, diagnoses, advice, next action. Anchor of the clinical record.',
+  'diagnosis_templates': 'Pre-built diagnosis bundles — exam, common meds, common tests. Speeds up frequent presentations.',
+  'prescriptions': 'Prescription header per consultation. Tracks dispensing status across pharmacy.',
+  'prescription_items': 'One drug per row — dosage, frequency, duration, qty prescribed vs dispensed.',
+  'doctor_recommendations': 'Doctor-issued referrals — physio, surgery, admission, follow-up. Polymorphic to the target.',
+  'consultation_drafts': 'Auto-saved in-progress consultation data. Restores work if the browser/session is lost.',
+
+  // Billing
+  'services': 'Service catalog — consultations, procedures, room charges. Pricing source for invoice items.',
+  'invoices': 'One bill. Subtotal, discounts, taxes, payment status. OP / IP_INTERIM / IP_FINAL / PHARMACY / LAB_DIRECT.',
+  'invoice_items': 'Line items on a bill — consultation, drug, lab, room, procedure. Carries the CGST/SGST/IGST split.',
+  'payments': 'Money-movement event — cash, card, UPI, cheque, insurance. Direction in (collection) or out (refund).',
+  'payees': 'Who paid or received money — patient, walk-in, vendor, employee, insurance. Decouples payment from UHID.',
+  'payment_allocations': 'How a payment was split across invoices, advances, refunds. One payment → many allocations.',
+  'service_billing_policies': 'Per-service-type rules — pre-pay, post-pay, advance %, emergency override.',
+  'credit_notes': 'Refund credits issued (returns, cancellations). Apply against future invoices or refund as cash.',
+  'payment_item_types': 'Discriminator catalog for polymorphic payment lines (xray, pharmacy, consultation, lab, cafeteria).',
+  'payment_items': 'Bridge between a payment and its source detail row. Supports multi-service single payments.',
+  'payment_xray': 'Per-X-ray line on a payment — procedure, modality, rate, discount, amount.',
+  'payment_pharmacy': 'Per-medicine line on a payment — name, batch, qty, unit price, discount, amount.',
+  'payment_consultation': 'Per-consultation line on a payment — doctor, visit type (new/follow-up), fee.',
+  'payment_lab': 'Per-test line on a payment — test name, sample type, rate, discount, amount.',
+  'payment_cafeteria': 'Per-cafeteria line on a payment — external POS reference, item, qty, price.',
+  'service_price_history': 'Effective-dated price audit for services. Powers re-billing at historical rates.',
+
+  // Cash & Closure
+  'cash_counters': 'Physical cash collection points (Front Desk, Pharmacy, IP Billing). Cashier sessions open per counter.',
+  'business_sessions': 'One cashier shift on one counter. Tracks float, expected vs counted cash, variance, closure.',
+  'session_movements': 'Non-payment cash movements during a session — expense payouts, refunds, deposits, handovers.',
+  'session_closure_audit': 'Audit of every session lifecycle action (open/close/reopen/adjust/lock). Forensics trail.',
+
+  // Inpatient
+  'rooms': 'Physical hospital rooms — type (general/private/ICU…), floor, ward, capacity, daily rate.',
+  'beds': 'Individual bed positions inside rooms. Status drives the bed-board and assignment.',
+  'bed_assignments': 'Time-ranged history of patient↔bed mappings. NULL to_ts means currently occupied.',
+  'ward_orders': 'Doctor-issued ward instructions — meds, diet, procedure, monitoring, investigation.',
+  'interim_bills': 'Mid-stay snapshot bills issued before discharge. Used for attender pharmacy or mid-stay settlements.',
+
+  // Surgery
+  'surgery_types': 'Procedure catalog — name, code, default duration/price, equipment list.',
+  'ot_rooms': 'Operating theatres — name, equipment, current status.',
+  'surgery_schedules': 'One scheduled surgery — patient, surgeon, OT, times, lifecycle status, op notes.',
+  'surgery_team': 'Roster row per surgery — surgeon, assistant, scrub nurse, anesthetist roles.',
+  'surgery_consumables': 'Items consumed during surgery (with batch link to inventory). Drives surgery costing.',
+
+  // Lab
+  'lab_tests': 'Test catalog — code, name, category, sample type, reference ranges, critical thresholds.',
+  'lab_test_panels': 'Bundled test groups (CBC, LFT, Diabetes Panel) priced as a package.',
+  'lab_orders': 'Test order header — patient, doctor, priority, payment gate, lifecycle status.',
+  'lab_order_items': 'One test per row inside an order. Each links to its sample.',
+  'lab_samples': 'Physical sample tracking — barcode, type, status (collected→received→processed). Re-collection chain.',
+  'lab_results': 'Per-test result — value, unit, flag (normal/high/low/critical), method, verifier.',
+
+  // Radiology
+  'radiology_procedures': 'Procedure catalog — code, name, modality (xray/ct/mri/ultrasound), body part, default price.',
+  'radiology_orders': 'Imaging order header — patient, doctor, procedure, priority, payment gate, lifecycle status.',
+  'radiology_studies': 'Captured study record — DICOM UID, image URLs, technician, completion time.',
+  'radiology_reports': "Radiologist's findings & impression for a study. PDF and structured fields.",
+
+  // Pharmacy & Inventory
+  'vendors': 'Pharma supplier directory — contact, GST, payment terms.',
+  'medicines': 'Drug master — name, schedule, form, strength, GST, reorder level, narcotic flag.',
+  'medicine_batches': 'Per-batch stock — batch no, expiry, MRP, qty available. The inventory unit-of-account.',
+  'purchase_orders': 'PO header to a vendor — status (draft/sent/received…), totals, approver.',
+  'purchase_order_items': 'Lines on a PO — medicine, qty ordered/received, price, GST split.',
+  'stock_movements': 'Append-only stock change log — purchase_in, sale_out, return, writeoff, surgery/ward use.',
+  'pharmacy_sales': 'One pharmacy bill — OP / IP / walk-in. Items, discounts, GST, session, idempotency.',
+  'pharmacy_sale_items': 'One drug per row on a pharmacy sale — batch, qty, price, discount.',
+  'pharmacy_returns': 'Customer return event — reason, refund mode, credit-note link, approver.',
+  'pharmacy_return_items': 'One drug per row on a return — qty, condition (good/damaged/expired), restock qty.',
+  'narcotic_register': 'NDPS-compliant narcotic ledger — every transaction with running balance, prescriber, recipient.',
+
+  // Nursing & Ward
+  'nursing_notes': 'Free-form nursing observations during an IP stay. Vitals snapshot, intake/output.',
+  'medication_administrations': 'Each dose given to a ward patient — drug, route, time, by whom.',
+  'physio_sessions': 'Therapist visits — date, duration, notes, status. OP or IP.',
+  'discharge_summaries': 'Final IP narrative — diagnosis, procedure, course, advice, follow-up. Generated at discharge.',
+  'shift_handovers': 'Outgoing→incoming nurse handover record per ward per shift.',
+  'patient_handover_notes': 'Per-patient handover line items inside a shift handover. Pending meds, watch points.',
+  'vitals': 'Vitals readings — temp, BP, SpO2, pulse, RR, sugar. OP visit, IP, or standalone.',
+
+  // HR · Attendance
+  'employee_profiles': 'HR record per user — joining/exit, reporting line, bank, statutory IDs (PAN, PF, ESI, UAN).',
+  'salary_structures': 'Named pay structures with earning/deduction component rules. Reusable across employees.',
+  'employee_salary_revisions': 'Effective-dated salary changes per employee — joining, hike, promotion, correction.',
+  'shifts': 'Named shift definitions — start/end, break, night flag, allowance.',
+  'duty_roster': 'Daily duty assignment — user, shift, ward, status (scheduled/swapped/leave…).',
+  'attendance': 'Per-day attendance — check-in/out, hours, status, late/overtime, source (biometric/web/mobile).',
+  'leave_balances': 'Per-employee, per-year leave bucket — opening, accrued, availed, encashed, lapsed, closing.',
+  'leave_requests': 'Leave application — type, dates, reason, status, approver.',
+  'holidays': 'Tenant holiday calendar — date, type (national/regional/restricted/hospital), paid flag.',
+
+  // Payroll
+  'payroll_runs': 'One monthly payroll execution — period, status, totals, approval, payment date.',
+  'payslips': 'Per-employee payslip in a run — earnings, deductions, contributions, net, frozen structure snapshot.',
+  'reimbursements': 'Expense claims — type, amount, attachment, status, payroll-run linkage.',
+  'advances_loans': 'Advances and loans to employees — principal, EMI schedule, balance, status.',
+  'tds_declarations': 'Per-FY income-tax declarations — regime, 80C/80D/HRA proofs, verification status.',
+
+  // Admin & Insights
+  'revenue_targets': 'Department monthly revenue targets. Drives variance dashboards.',
+  'announcements': 'Hospital-wide announcements with audience scoping (all/role/dept) and pin/schedule.',
+  'alert_rules': 'Configurable rules over domain events — condition, audience, channels, severity. Drives ops alerts.',
+  'mv_revenue_daily': 'Materialized view — daily revenue by segment & department for dashboards.',
+  'mv_revenue_by_doctor': 'Materialized view — daily consultation/procedure revenue attributed per doctor.',
+  'mv_outstanding_dues': 'Materialized view — open invoice balances with ageing buckets.',
+  'mv_bed_occupancy_daily': 'Materialized view — daily bed-night occupancy by room type.',
+  'mv_pharmacy_expiry_loss': 'Materialized view — monthly expired-stock value by medicine.',
+  'mv_payroll_cost_monthly': 'Materialized view — monthly payroll cost and headcount per department.',
+};
+
+// Strip the trailing "🆕v8" / "🆕v7" marker some table names carry, for clean lookup.
+function tableDescKey(name){return (name||'').replace(/\s*🆕v\d+\s*$/, '').trim();}
+function tableDesc(name){return TABLE_DESC[tableDescKey(name)] || '';}
+
+let cur=0,light=false;
+
+function dot(f){
+  if(f.pk)return'<div class="dot dpk"></div>';
+  if(f.fk)return'<div class="dot dfk"></div>';
+  if(f.uk)return'<div class="dot duk"></div>';
+  return'<div class="dot dnl"></div>';
+}
+function bgs(f){
+  const b=[];
+  if(f.pk)b.push('<span class="bg bpk">PK</span>');
+  if(f.fk)b.push(`<span class="bg bfk">→ ${f.fk}</span>`);
+  if(f.uk&&!f.pk)b.push('<span class="bg buk">UQ</span>');
+  if(f.nl)b.push('<span class="bg bnl">null</span>');
+  if(f.nw)b.push('<span class="bg bnew">NEW</span>');
+  if(f.ud)b.push('<span class="bg bupd">UPDATED</span>');
+  return b.join('');
+}
+
+// =============================================================
+// FIELD HELP — descriptions, parsed values, and page usage
+// =============================================================
+
+// Curated descriptions for important fields. Anything not here gets an
+// auto-generated description from the field name + type.
+const FIELD_DESC = {
+  'patients.id': 'Internal UUID primary key. The link target for every clinical, financial, and operational table. Never shown in the UI.',
+  'patients.uhid': 'Unique Health ID — the business identifier shown to staff and patients on every screen, prescription, and bill. Stays the same forever, even across UHID format changes (UHID is a column, not a key).',
+  'patients.registration_status': 'Tracks how complete the patient identity is. Three values cover normal registration, emergency partial registration, and post-merge cleanup.',
+  'patients.merged_into_patient_id': 'Self-referencing FK. When a duplicate is found and consolidated, this column points to the surviving patient row. The old row is kept for referential integrity — clinical writes made under the merged UUID are not orphaned.',
+  'patients.is_active': 'Soft-delete flag. Inactive patients are excluded from default queries but retained for audit, historical lookup, and data retention compliance.',
+  'patients.tenant_id': 'Multi-tenancy partition. Every row in the system carries a tenant_id from day 1 — even single-tenant deployments — so a future SaaS rollout requires zero migration.',
+
+  'op_visits.id': 'PK for one OP encounter. A patient may have many op_visits over years — each row is one visit on one date with one doctor.',
+  'op_visits.op_number': 'Human-readable visit identifier (e.g. OP-2026-58821). Shown on bills and prescriptions. Sequential per tenant per year.',
+  'op_visits.current_state_code': 'Denormalized FK to patient_states.code — the visit\'s current state in the 100..602 catalog. Updated on every transition; let us answer "where is this visit?" without joining patient_journey_events.',
+  'op_visits.status': 'DEPRECATED legacy column. Old enum kept for back-compat; new code reads current_state_code instead.',
+  'op_visits.is_emergency': 'True when the visit was created via Emergency Entry and bypassed normal registration/billing gates. Affects billing rules, triage, and reporting.',
+  'op_visits.emergency_triage': 'Triage classification at intake. Red = immediate, yellow = urgent, green = standard. Set by the ER doctor on first contact.',
+
+  'ip_admissions.id': 'PK for one inpatient admission. One per IP stay; an IP discharge plus readmission is two rows.',
+  'ip_admissions.ip_number': 'Human-readable IP number (e.g. IP-2026-00521). Shown across the entire admission lifecycle.',
+  'ip_admissions.current_state_code': 'Denormalized FK to patient_states.code — typically 701..710 (admission_pending → discharged_ip).',
+  'ip_admissions.status': 'DEPRECATED legacy column kept for back-compat. New code uses current_state_code.',
+
+  'patient_states.code': 'Numeric code 100..710. Phase 0 = ER, 1-6 = OP lifecycle, 7 = IP lifecycle. Stable identifier referenced by every state-bearing table.',
+  'patient_states.phase': 'Groups states into 8 phases for analytics and UI grouping. Same phase = same physical part of the patient journey.',
+  'patient_states.slug': 'Programmer-friendly identifier (reg_paid, consult_finalized). Use in code; never shown to staff.',
+  'patient_states.is_blocking': 'True when the patient cannot proceed to the next state until this one resolves. All "_pending" payment states are blocking — patient stays at billing until paid.',
+  'patient_states.sla_minutes': 'Target time before patient should leave this state. Used by State Analytics to flag SLA breaches and surface bottlenecks.',
+  'patient_states.next_possible_codes': 'Allowed transitions for state-machine validation. Application enforces this on every journey event INSERT to prevent invalid jumps.',
+  'patient_states.derived_from': 'Documents which underlying layer this state primarily reflects — patients (identity), op_visits (visit lifecycle), patient_queue (location), or invoices (payment).',
+  'patient_states.owning_dept': 'Which department is responsible for moving the patient out of this state. Used for routing alerts when SLA is breached.',
+
+  'stations.code': 'Numeric station identifier. Replaces the legacy free-text station slug on patient_queue. Multi-tenant safe via tenant_id.',
+  'stations.slug': 'Programmer-friendly slug (front_desk, billing, doctor:naveen). Old free-text values map to these; kept for log compatibility.',
+  'stations.avg_service_time_minutes': 'Used to compute ETA on the live queue ("estimated wait: 12 min" = remaining_patients × avg_min).',
+
+  'patient_journey_events.id': 'Append-only PK. Rows are never updated or deleted — every state transition writes a new row.',
+  'patient_journey_events.from_state_code': 'Previous state. Null on the first event of a visit (registration). FK to patient_states.code for join-friendly reporting.',
+  'patient_journey_events.to_state_code': 'New state after transition. Required. Used as the GROUP BY key in State Analytics for bottleneck detection.',
+  'patient_journey_events.station_id': 'Where the transition physically happened. Lets us answer "billing counter is slow" vs "vitals room is slow" separately.',
+  'patient_journey_events.duration_in_prev_state_seconds': 'Precomputed on insert (one extra UPDATE on the previous row for this patient). Makes "average wait at vitals" an instant AVG() instead of a window function over the whole table.',
+  'patient_journey_events.metadata': 'JSONB freeform: snapshot of relevant fields at transition (e.g. invoice_id when transitioning to billed, return_to_provider_id when starting a side trip).',
+  'patient_journey_events.triggered_by_user_id': 'Who caused the state change — receptionist, nurse, doctor, system (NULL for automated transitions).',
+  'patient_journey_events.occurred_at': 'Indexed for time-window queries. Combined with patient_id for "all events on date X" lookups.',
+
+  'patient_queue.station_id': 'Where the patient physically is right now. FK to stations table — replaces legacy station varchar.',
+  'patient_queue.state_code': 'Patient\'s current state code per the catalog. Updated on every queue movement.',
+  'patient_queue.parent_queue_id': 'Self-ref for side trips. When a doctor sends patient out for X-ray during a consult, the new queue row points back to the doctor row via parent_queue_id.',
+  'patient_queue.return_to_station_id': 'Where the patient should go after a side trip. Set when the side-trip queue row is created.',
+  'patient_queue.return_to_provider_id': 'For Phase 5 review queue (501) — which doctor to return to. Lets the doctor see "returned for review" patients in their own queue, not pooled.',
+  'patient_queue.priority': 'Normal | urgent | emergency. Affects ordering in the queue display — emergency patients jump to the top.',
+
+  'tokens.id': 'PK for a single token issuance. Tokens are never deleted; cancelled tokens stay forever with status=cancelled for audit.',
+  'tokens.token_number': 'Display string like D-04, L-12, P-08. Service-type prefix + sequence within (provider, date).',
+  'tokens.token_sequence': 'Sequential number per (tenant, service_type, provider, date). Combined with the UNIQUE constraint, this is what makes "token D-04 cannot be reused after cancellation" enforceable at the database level.',
+  'tokens.slot_id': 'When a token is issued for an appointment, this locks it to the specific slot. Reschedule cancels the old token and frees the old slot together — no orphans.',
+  'tokens.context_table': 'Polymorphic — names which table holds the source row (appointments | lab_orders | pharmacy_sales | invoices). Combined with context_id forms the polymorphic FK.',
+  'tokens.context_id': 'Polymorphic FK target. Resolves through context_table. App-level enforced (no DB FK).',
+  'tokens.status': 'active = waiting to be called. called = at counter. completed = service done. cancelled = no-show or reschedule. no_show = patient didn\'t arrive.',
+
+  'appointments.id': 'PK for one appointment. Independent from the eventual op_visit — an appointment may be cancelled before the visit happens.',
+  'appointments.status': 'Tracks visit lifecycle from booking to completion. State enum mirrors the patient_states phases for UI display.',
+  'appointments.source': 'Walk_in, phone, or online. Used for marketing analytics and to differentiate same-day walk-ins from advance bookings.',
+
+  'invoices.id': 'PK for one bill. A patient may have multiple invoices in one visit (consultation, X-ray side-trip, pharmacy).',
+  'invoices.invoice_type': 'OP / IP_INTERIM / IP_FINAL / PHARMACY / LAB_DIRECT. Drives different payment rules and templates.',
+  'invoices.payment_status': 'draft (in progress) → finalized (issued, awaiting payment) → paid / partially_paid / cancelled.',
+
+  'payments.id': 'PK for one payment event — cash received, card swiped, UPI confirmed.',
+  'payments.payee_id': 'FK to payees table — works for patients, vendors (refunds), employees (advances), walk-ins (no UHID), and insurance.',
+  'payments.payment_direction': 'in = received from payee. out = paid to payee (refunds, vendor settlements).',
+  'payments.session_id': 'Cash session this payment belongs to. Drives cashier reconciliation at end-of-shift.',
+
+  'payment_allocations.allocation_type': 'invoice | pharmacy_sale | ip_advance | interim_bill | refund | on_account. One payment can have multiple allocations (split across invoices, partial advance + refund).',
+
+  'payees.payee_type': 'patient / walk_in / vendor / employee / insurance / other. Decouples payment from UHID — vendors and walk-ins don\'t have UHIDs but still need a payment record.',
+
+  'payment_item_types.id': 'Numeric PK referenced by payment_items.payment_type_id (1=xray, 2=pharmacy, 3=consultation, 4=lab, 5=cafeteria…). Stable across deploys; never re-number.',
+  'payment_item_types.code': 'Programmer-friendly slug — used in app code instead of the integer id when readability matters.',
+  'payment_item_types.detail_table': 'Name of the per-type detail table this row points to (payment_xray / payment_pharmacy / …). App code uses it to dispatch reads of payment_items.item_record_id to the correct table — no DB FK is possible because the target table varies per row.',
+
+  'payment_items.id': 'PK for one payment line — the bridge row tying a payment to one specific source detail row.',
+  'payment_items.payment_id': 'FK to the parent payment header. One payment has many payment_items when the patient pays for multiple services in one transaction.',
+  'payment_items.payment_type_id': 'Discriminator — tells you which detail table item_record_id resolves to. The (payment_type_id, item_record_id) pair is indexed for reverse lookup ("was this xray paid?").',
+  'payment_items.item_record_id': 'Polymorphic — points to the PK in the detail table named by payment_item_types.detail_table for this row\'s payment_type_id. App-level enforced (no DB FK possible).',
+
+  'payment_xray.radiology_order_id': 'Link back to the actual service order in radiology_orders. Lets you answer "was this xray paid?" by joining payment_xray → payment_items → payments.',
+  'payment_xray.modality': 'xray / ct / mri / ultrasound. Snapshot of modality at billing time — does not change if the source procedure record is later edited.',
+  'payment_pharmacy.pharmacy_sale_id': 'Link to the pharmacy_sales row this line was billed for. One pharmacy_sale typically maps to one payment_pharmacy line, but a partial-pay scenario can produce multiple.',
+  'payment_consultation.consultation_id': 'Link to the consultations row this fee covers. NULL only for legacy/imported data — should always be set going forward.',
+  'payment_consultation.visit_type': 'new = first visit fee. follow_up = reduced follow-up fee within follow_up_window_days. Drives which fee from doctor_profiles is charged.',
+  'payment_lab.lab_order_id': 'Link to the lab_orders row this test charge covers. Use this to reconcile lab revenue against ordered tests.',
+  'payment_cafeteria.order_ref': 'External cafeteria POS reference. Cafeteria has no in-system order table — this string is the only link back to the source receipt.',
+
+  // ─── v8 LOCKED · operational safety + compliance ─────────────────────────
+
+  'patient_merges.source_patient_id': 'The duplicate that disappears. Typically a TEMP-KH-* UHID created by emergency entry, later reconciled to a permanent record. Source patient is marked is_active=false and merged_into_patient_id=target.',
+  'patient_merges.target_patient_id': 'The surviving record. All child rows (op_visits, payments, lab_orders, prescriptions, journey_events) get repointed here in the merge transaction.',
+  'patient_merges.rows_repointed': 'JSONB count of rows moved per child table — e.g. {"op_visits":3,"payments":5,"patient_journey_events":12}. Used to verify the merge completed and to compute unmerge effort if reversal is needed.',
+  'patient_merges.unmerged_at': 'Set only if the merge is later reversed. Unmerge is a privileged operation (founder approval) — rare but legally important if duplicate identity was wrongly assumed.',
+
+  'mlc_records.mlc_number': 'Hospital-assigned MLC number (format MLC-YYYY-NNNNN). Indian regulatory requirement for trauma, assault, suicide, poisoning, burns, sexual assault, animal bites, industrial accidents.',
+  'mlc_records.incident_type': 'Drives reporting categorization. rta = road traffic accident. self_harm includes suicide attempts. sexual_assault triggers special privacy + chain-of-evidence handling.',
+  'mlc_records.police_intimated_at': 'NULL means police haven\'t been notified yet. Hospital cannot discharge the patient if closure_status is open and this is NULL — UI must enforce.',
+  'mlc_records.closure_status': 'open → intimated (police notified) → documented (FIR/statement on file) → closed (case complete). Patient discharge blocked until closed.',
+
+  'notifications.ack_required': 'TRUE for critical clinical alerts (lab criticals, drug interactions, vitals breaches). When set, the notification cannot be silently ignored — UI surfaces it until acked. SLA tracked via ack_sla_minutes.',
+  'notifications.ack_sla_minutes': 'Target acknowledgment time in minutes. After this elapses, escalation worker reads escalation_chain and routes to the next role (e.g. doctor → HOD → on-call).',
+  'notifications.escalation_chain': 'Ordered jsonb array like ["doctor:doc1","hod:doc_hod","oncall:doc_emrg"]. If ack_sla breaches, the escalation worker promotes to the next entry and writes escalated_at + escalated_to.',
+
+  'notification_acknowledgments.action_taken': 'Free text describing what the acker did about the alert. Required for audit — "saw it" is not enough. Critical in malpractice defense.',
+  'notification_acknowledgments.breached_sla': 'Computed on insert: (acked_at - notification.created_at) > ack_sla_minutes. Surfaces in admin compliance reports for SLA tracking and trend analysis.',
+
+  'lab_samples.status': 'collected → received (at lab) → processed (analyzer ran it) → disposed. rejected branches off — see replaces_sample_id for the recollection link.',
+  'lab_samples.replaces_sample_id': 'Self-FK. Points from a recollected sample back to the rejected one it replaces. Lets you trace the rejection reason from the new sample without joining via lab_orders.',
+  'lab_samples.rejection_reason': 'Hemolyzed | clotted | insufficient | wrong_tube | mislabeled | contaminated. Triggers UI prompt to recollect; replaces_sample_id captures the link.',
+
+  'medicines.drug_schedule': 'H = prescription required · H1 = prescription + register entry · X = NDPS (narcotic register required) · G = OTC narcotic-track · OTC = over the counter. Drives dispense workflow strictness.',
+  'medicines.is_narcotic': 'When TRUE, every transaction (purchase, dispense, wastage) MUST write a narcotic_register row with prescriber + recipient + ID proof + witness — NDPS Act compliance.',
+
+  'narcotic_register.balance_after': 'Running balance computed at insert time. Each row is a new register entry; the balance must reconcile with physical stock at audit. Drug Inspector verifies during quarterly visits.',
+  'narcotic_register.recipient_id_proof': 'Aadhaar last 4 digits, voter ID, or DL. Required for dispense_out. Without this, the dispense is illegal under NDPS Act.',
+  'narcotic_register.witnessed_by': 'Second pharmacist who witnessed the dispense. Two-person rule — single-pharmacist dispense of Schedule X is non-compliant.',
+
+  'invoice_items.cgst_pct': 'Central GST percentage (intra-state supplies). Healthcare services are typically GST-exempt; pharmacy/lab products are 5%/12%/18% depending on HSN.',
+  'invoice_items.sgst_pct': 'State GST percentage. Equal to cgst_pct for intra-state supplies. Combined cgst+sgst = total GST when supplier and recipient are in the same state.',
+  'invoice_items.igst_pct': 'Integrated GST. Used for inter-state supplies (rare for hospital — patient typically same state). When IGST applies, cgst_pct and sgst_pct are 0.',
+
+  'services.sac_code': 'Services Accounting Code per GST law. Healthcare services use 9993xx range. Required for GSTR-1 filing. HSN is for goods (medicines).',
+
+  'service_price_history.effective_from': 'Start date for this price (inclusive). When services.default_price changes, the existing open row gets effective_to=yesterday and a new row with effective_from=today is inserted by trigger fn_log_price_change.',
+  'service_price_history.effective_to': 'End date for this price. NULL means currently active. At most one row per service has effective_to=NULL.',
+
+  'invoices.version': 'Optimistic lock counter. App reads version, then UPDATE … WHERE id=:id AND version=:v RETURNING version+1. If 0 rows updated, another transaction beat you to it — retry or surface conflict.',
+  'payments.version': 'Same optimistic-lock pattern as invoices.version. Critical for two-cashier scenarios where both might try to receive the same invoice payment.',
+  'payments.idempotency_key': 'Client-supplied UUID for deduplication. UNIQUE partial index. If the same key is submitted twice (e.g. mobile app retries), the second insert fails fast — no double-charge.',
+
+  'op_visits.is_mlc': 'TRUE if this visit is medico-legal. Locks down certain workflows (cannot LAMA, cannot finalize bill before MLC closure, audit trail tightened).',
+  'ip_admissions.is_mlc': 'Same as op_visits.is_mlc but for inpatient. Discharge UI checks closure_status on the linked mlc_records row before allowing.',
+
+  'medicine_batches.version': 'Optimistic lock for stock decrement. Trigger fn_decrement_stock writes UPDATE … SET quantity_available=quantity_available-:n, version=version+1 WHERE id=:id. RAISE EXCEPTION if qty goes negative.',
+
+  'lab_tests.normal_range_male': 'Display string shown on report (e.g. "13.5 – 17.5 g/dL"). Used for printing only — the numeric ref_min_male/ref_max_male columns drive auto-flag.',
+  'lab_tests.ref_min_male': 'Numeric lower bound for adult males. Result < this value → flag=\'low\'. Nullable for tests that have only an upper bound (e.g. cholesterol).',
+  'lab_tests.ref_max_male': 'Numeric upper bound for adult males. Result > this value → flag=\'high\'. Nullable for tests that have only a lower bound.',
+  'lab_tests.ref_min_female': 'Numeric lower bound for adult females. Some tests share male values; nullable when ranges are gender-neutral and only the male columns are populated.',
+  'lab_tests.ref_max_female': 'Numeric upper bound for adult females.',
+  'lab_tests.critical_low': 'Critical-low threshold. Value < this triggers an alerts/notifications row with severity=\'critical\' (oncoming doctor + admin notified).',
+  'lab_tests.critical_high': 'Critical-high threshold. Value > this triggers an alerts/notifications row.',
+
+  'lab_results.value_numeric': 'Parsed numeric value. Separate from the display string (which may include "<5" or "Reactive") so trending charts can plot a real number.',
+  'lab_results.flag': 'normal | high | low | critical. Used for visual alerting and to drive automated alerts when a critical result comes in.',
+
+  'medicine_batches.quantity_available': 'Live stock count. Updated by trigger fn_decrement_stock on pharmacy_sale_items insert. FEFO (First Expiry First Out) sort uses this + expiry_date.',
+
+  'consultations.diagnoses': 'JSONB array of {icd10, desc, type}. type is provisional/final/working. Multiple diagnoses per consultation (comorbidities).',
+  'consultations.next_action': 'prescription_only / lab_ordered / admit_ip / surgery_referral / follow_up. Drives what state the patient transitions to after consult.',
+};
+
+// Page usage map — which screens read or write each table
+// (used by drawer to show "Where it's used" list)
+const TABLE_USAGE = {
+  'patients': [
+    {role:'Front Desk', page:'Register patient', op:'WRITE'},
+    {role:'Front Desk', page:'Live queue', op:'READ'},
+    {role:'Doctor', page:'Console (queue)', op:'READ'},
+    {role:'Doctor', page:'Patient file', op:'READ'},
+    {role:'Doctor', page:'Consultation', op:'READ'},
+    {role:'Pharmacy', page:'Dispense', op:'READ'},
+    {role:'Lab', page:'Worklist', op:'READ'},
+    {role:'Admin', page:'Patient search', op:'READ'},
+  ],
+  'op_visits': [
+    {role:'Front Desk', page:'Live queue', op:'WRITE'},
+    {role:'Front Desk', page:'Billing', op:'WRITE'},
+    {role:'Doctor', page:'Console', op:'READ'},
+    {role:'Doctor', page:'Consultation', op:'WRITE'},
+    {role:'Doctor', page:'Encounter detail', op:'READ'},
+    {role:'Admin', page:'Revenue analysis', op:'READ'},
+  ],
+  'ip_admissions': [
+    {role:'Front Desk', page:'New admission', op:'WRITE'},
+    {role:'Ward Nurse', page:'Active patients', op:'READ/WRITE'},
+    {role:'Doctor', page:'Discharge summary', op:'WRITE'},
+    {role:'Front Desk', page:'Final IP bill', op:'READ'},
+    {role:'Admin', page:'Bed occupancy', op:'READ'},
+  ],
+  'appointments': [
+    {role:'Front Desk', page:'Book appointment', op:'WRITE'},
+    {role:'Front Desk', page:"Today's schedule", op:'READ'},
+    {role:'Front Desk', page:'Reschedule', op:'WRITE'},
+    {role:'Doctor', page:'Console', op:'READ'},
+  ],
+  'appointment_slots': [
+    {role:'Front Desk', page:'Book appointment', op:'READ/WRITE'},
+    {role:'Front Desk', page:'Reschedule', op:'READ/WRITE'},
+  ],
+  'tokens': [
+    {role:'Front Desk', page:'Register/Book', op:'WRITE'},
+    {role:'Front Desk', page:'Live queue', op:'READ'},
+    {role:'Doctor', page:'Console', op:'READ'},
+    {role:'Pharmacy', page:'Dispense', op:'READ/WRITE'},
+    {role:'Lab', page:'Worklist', op:'READ'},
+    {role:'All', page:'Token display board', op:'READ'},
+  ],
+  'patient_queue': [
+    {role:'Front Desk', page:'Live queue', op:'READ/WRITE'},
+    {role:'Doctor', page:'Console', op:'READ/WRITE'},
+    {role:'Front Desk', page:'Vitals', op:'READ/WRITE'},
+    {role:'Lab', page:'Worklist', op:'READ/WRITE'},
+    {role:'Pharmacy', page:'Dispense', op:'READ/WRITE'},
+  ],
+  'patient_journey_events': [
+    {role:'All', page:'(every state transition)', op:'WRITE'},
+    {role:'Doctor', page:'Patient file timeline', op:'READ'},
+    {role:'Doctor', page:'Encounter detail', op:'READ'},
+    {role:'Admin', page:'State analytics', op:'READ'},
+    {role:'Admin', page:'Operational reports', op:'READ'},
+  ],
+  'patient_states': [
+    {role:'Admin', page:'State catalog (config)', op:'READ/WRITE'},
+    {role:'Admin', page:'State analytics', op:'READ'},
+    {role:'All', page:'(state pill rendering everywhere)', op:'READ'},
+  ],
+  'stations': [
+    {role:'Admin', page:'System config', op:'READ/WRITE'},
+    {role:'All', page:'Live queue display', op:'READ'},
+    {role:'Admin', page:'State analytics', op:'READ'},
+  ],
+  'vitals': [
+    {role:'Front Desk', page:'Vitals', op:'WRITE'},
+    {role:'Doctor', page:'Consultation', op:'READ'},
+    {role:'Doctor', page:'Patient trends', op:'READ'},
+    {role:'Doctor', page:'Encounter detail', op:'READ'},
+  ],
+  'consultations': [
+    {role:'Doctor', page:'Consultation', op:'WRITE'},
+    {role:'Doctor', page:'Encounter detail', op:'READ'},
+    {role:'Doctor', page:'Patient file', op:'READ'},
+  ],
+  'consultation_drafts': [
+    {role:'Doctor', page:'Consultation (autosave)', op:'WRITE'},
+    {role:'Doctor', page:'Resume draft on reload', op:'READ'},
+  ],
+  'prescriptions': [
+    {role:'Doctor', page:'Consultation', op:'WRITE'},
+    {role:'Pharmacy', page:'Dispense', op:'READ/WRITE'},
+    {role:'Doctor', page:'Patient file', op:'READ'},
+  ],
+  'prescription_items': [
+    {role:'Doctor', page:'Consultation', op:'WRITE'},
+    {role:'Pharmacy', page:'Dispense', op:'READ/WRITE'},
+  ],
+  'lab_orders': [
+    {role:'Doctor', page:'Consultation', op:'WRITE'},
+    {role:'Lab', page:'Worklist', op:'READ/WRITE'},
+    {role:'Front Desk', page:'Billing', op:'READ'},
+  ],
+  'lab_order_items': [
+    {role:'Doctor', page:'Consultation', op:'WRITE'},
+    {role:'Lab', page:'Worklist', op:'READ/WRITE'},
+  ],
+  'lab_results': [
+    {role:'Lab', page:'Result entry', op:'WRITE'},
+    {role:'Doctor', page:'Consultation', op:'READ'},
+    {role:'Doctor', page:'Patient trends', op:'READ'},
+    {role:'Doctor', page:'Encounter detail', op:'READ'},
+  ],
+  'radiology_orders': [
+    {role:'Doctor', page:'Consultation', op:'WRITE'},
+    {role:'Radiologist', page:'Worklist', op:'READ/WRITE'},
+    {role:'Front Desk', page:'Billing', op:'READ'},
+  ],
+  'radiology_reports': [
+    {role:'Radiologist', page:'Report', op:'WRITE'},
+    {role:'Doctor', page:'Consultation', op:'READ'},
+    {role:'Doctor', page:'Encounter detail', op:'READ'},
+  ],
+  'invoices': [
+    {role:'Front Desk', page:'New bill', op:'WRITE'},
+    {role:'Pharmacy', page:'Dispense', op:'WRITE'},
+    {role:'Front Desk', page:'Recent bills', op:'READ'},
+    {role:'Admin', page:'Revenue analysis', op:'READ'},
+    {role:'Admin', page:'Dues / outstanding', op:'READ'},
+    {role:'Patient', page:'Payment 360', op:'READ'},
+  ],
+  'invoice_items': [
+    {role:'Front Desk', page:'New bill', op:'WRITE'},
+    {role:'Admin', page:'Revenue by segment', op:'READ'},
+  ],
+  'payments': [
+    {role:'Front Desk', page:'Billing', op:'WRITE'},
+    {role:'Pharmacy', page:'Dispense', op:'WRITE'},
+    {role:'Patient', page:'Payment 360', op:'READ'},
+    {role:'Admin', page:'Cash session reconciliation', op:'READ'},
+  ],
+  'payment_allocations': [
+    {role:'Front Desk', page:'Billing', op:'WRITE'},
+    {role:'Pharmacy', page:'Dispense', op:'WRITE'},
+    {role:'Patient', page:'Payment 360', op:'READ'},
+  ],
+  'payment_item_types': [
+    {role:'Admin', page:'Payment types config', op:'READ/WRITE'},
+    {role:'Front Desk', page:'Billing', op:'READ'},
+    {role:'Patient', page:'Payment 360', op:'READ'},
+  ],
+  'payment_items': [
+    {role:'Front Desk', page:'Billing', op:'WRITE'},
+    {role:'Pharmacy', page:'Dispense', op:'WRITE'},
+    {role:'Cafeteria', page:'POS', op:'WRITE'},
+    {role:'Patient', page:'Payment 360', op:'READ'},
+    {role:'Admin', page:'Revenue by source', op:'READ'},
+  ],
+  'payment_xray': [
+    {role:'Front Desk', page:'Billing', op:'WRITE'},
+    {role:'Radiologist', page:'Worklist', op:'READ'},
+    {role:'Patient', page:'Payment 360', op:'READ'},
+    {role:'Admin', page:'Revenue by source', op:'READ'},
+  ],
+  'payment_pharmacy': [
+    {role:'Pharmacy', page:'Dispense', op:'WRITE'},
+    {role:'Patient', page:'Payment 360', op:'READ'},
+    {role:'Admin', page:'Pharmacy revenue', op:'READ'},
+  ],
+  'payment_consultation': [
+    {role:'Front Desk', page:'Billing', op:'WRITE'},
+    {role:'Doctor', page:'Encounter detail', op:'READ'},
+    {role:'Patient', page:'Payment 360', op:'READ'},
+    {role:'Admin', page:'Doctor revenue', op:'READ'},
+  ],
+  'payment_lab': [
+    {role:'Front Desk', page:'Billing', op:'WRITE'},
+    {role:'Lab', page:'Worklist', op:'READ'},
+    {role:'Patient', page:'Payment 360', op:'READ'},
+    {role:'Admin', page:'Lab revenue', op:'READ'},
+  ],
+  'payment_cafeteria': [
+    {role:'Cafeteria', page:'POS', op:'WRITE'},
+    {role:'Patient', page:'Payment 360', op:'READ'},
+    {role:'Admin', page:'Cafeteria revenue', op:'READ'},
+  ],
+  'payees': [
+    {role:'Front Desk', page:'Billing', op:'WRITE (UPSERT)'},
+    {role:'Pharmacy', page:'OTC sale', op:'WRITE'},
+    {role:'Admin', page:'Vendor refunds', op:'WRITE'},
+  ],
+  'medicines': [
+    {role:'Pharmacy', page:'Inventory', op:'READ/WRITE'},
+    {role:'Doctor', page:'Consultation (autocomplete)', op:'READ'},
+  ],
+  'medicine_batches': [
+    {role:'Pharmacy', page:'Purchase entry', op:'WRITE'},
+    {role:'Pharmacy', page:'Dispense', op:'READ/WRITE (FEFO sort)'},
+    {role:'Pharmacy', page:'Expiry alerts', op:'READ'},
+  ],
+  'pharmacy_sales': [
+    {role:'Pharmacy', page:'Dispense', op:'WRITE'},
+    {role:'Pharmacy', page:'OTC sale', op:'WRITE'},
+    {role:'Admin', page:'Pharmacy revenue', op:'READ'},
+  ],
+  'beds': [
+    {role:'Front Desk', page:'Bed availability', op:'READ'},
+    {role:'Front Desk', page:'New admission', op:'READ/WRITE'},
+    {role:'Ward Nurse', page:'Active patients', op:'READ'},
+  ],
+  'business_sessions': [
+    {role:'Front Desk', page:'Open/close session', op:'WRITE'},
+    {role:'Pharmacy', page:'Open/close session', op:'WRITE'},
+    {role:'Admin', page:'Cash reconciliation', op:'READ'},
+  ],
+  'service_billing_policies': [
+    {role:'Admin', page:'Billing policies (config)', op:'READ/WRITE'},
+    {role:'Front Desk', page:'Billing (rules engine)', op:'READ'},
+  ],
+  'document_templates': [
+    {role:'Doctor', page:'Templates manager', op:'READ/WRITE'},
+    {role:'Doctor', page:'Consultation (apply template)', op:'READ'},
+  ],
+  'interim_bills': [
+    {role:'Front Desk', page:'Interim bill', op:'WRITE'},
+    {role:'Ward Nurse', page:'Patient charges', op:'READ'},
+  ],
+  'tenants': [
+    {role:'Admin', page:'(every read implicitly filters by tenant)', op:'READ'},
+  ],
+  'users': [
+    {role:'Admin', page:'Users & roles', op:'READ/WRITE'},
+    {role:'HR', page:'Directory', op:'READ'},
+    {role:'All', page:'(login + all writes capture user_id)', op:'READ'},
+  ],
+  'roles': [
+    {role:'Admin', page:'Users & roles', op:'READ/WRITE'},
+  ],
+  'user_preferences': [
+    {role:'All', page:'Settings', op:'READ/WRITE'},
+  ],
+  'uhid_sequences': [
+    {role:'System', page:'Auto-incremented on patient INSERT', op:'WRITE'},
+  ],
+};
+
+// Auto-generate description if not curated
+function autoDesc(tableName, field) {
+  const n = field.n;
+  const t = (field.t || '').toLowerCase();
+  if (field.pk) return `Primary key for the ${tableName} table. Synthetic UUID — never shown in UI, only used for joins.`;
+  if (n === 'tenant_id') return 'Multi-tenancy partition. Every row carries a tenant_id from day 1 — even single-tenant deployments — so SaaS expansion requires zero migration.';
+  if (n === 'created_at') return 'Audit timestamp set on row creation. Never updated.';
+  if (n === 'updated_at') return 'Last modification time. Auto-updated by trigger on every UPDATE.';
+  if (n === 'created_by') return 'User who created this row. FK to users.id. Required for audit.';
+  if (n.endsWith('_at') && t.includes('timestamp')) return 'Timestamp recording when this event occurred. Indexed for time-window queries.';
+  if (field.fk) return `Foreign key to the ${field.fk} table. ${field.nl ? 'Nullable — optional relationship.' : 'Required relationship.'}`;
+  if (n === 'is_active') return 'Soft-delete flag. False rows are excluded from default queries but retained for audit.';
+  if (n.startsWith('is_')) return `Boolean flag — ${n.slice(3).replace(/_/g, ' ')}.`;
+  if (t.includes('jsonb')) return 'JSONB structured field — see type column for shape. Indexed via GIN if queried frequently.';
+  if (t.includes('text')) return 'Free-form text. ' + (field.nl ? 'Optional.' : 'Required.');
+  return 'Field on the ' + tableName + ' table.';
+}
+
+// Parse allowed values from the type string ("varchar · 'a'|'b'|'c'")
+function parseValues(typeStr) {
+  if (!typeStr) return [];
+  // match 'value' tokens separated by |
+  const after = typeStr.split('·')[1] || typeStr;
+  const matches = after.match(/'([^']+)'/g);
+  if (!matches || matches.length < 2) return [];
+  return matches.map(m => m.replace(/'/g, ''));
+}
+
+function parseConstraints(field) {
+  const c = [];
+  if (field.pk) c.push(['Primary key', 'PK']);
+  if (field.uk) c.push(['Unique', 'UK']);
+  if (field.fk) c.push(['Foreign key', '→ ' + field.fk]);
+  if (field.nl) c.push(['Nullable', 'YES']);
+  else if (!field.pk) c.push(['Nullable', 'NO']);
+  // detect DEFAULT in type string
+  const defMatch = (field.t || '').match(/DEFAULT\s+(\S+)/i);
+  if (defMatch) c.push(['Default', defMatch[1]]);
+  return c;
+}
+
+function pageUsageList(tableName) {
+  return TABLE_USAGE[tableName] || [];
+}
+
+// Open drawer
+function openFieldDrawer(tableName, fieldIdx) {
+  const table = M.flatMap(m => m.tb).find(t => t.n === tableName);
+  if (!table) return;
+  const f = table.f[fieldIdx];
+  if (!f) return;
+
+  const key = tableName + '.' + f.n;
+  const desc = FIELD_DESC[key] || autoDesc(tableName, f);
+  const vals = parseValues(f.t);
+  const constraints = parseConstraints(f);
+  const pages = pageUsageList(tableName);
+
+  const tags = [];
+  if (f.pk) tags.push(['PK', 'pk']);
+  if (f.fk) tags.push(['FK → ' + f.fk, 'fk']);
+  if (f.uk) tags.push(['UNIQUE', 'uk']);
+  if (f.nl) tags.push(['NULLABLE', 'nl']);
+  if (f.nw) tags.push(['NEW IN v7.1', 'new']);
+  if (f.ud) tags.push(['UPDATED', 'upd']);
+
+  document.getElementById('drHead').innerHTML = `
+    <div class="dr-eyebrow">Field detail</div>
+    <div class="dr-title"><span class="dr-table">${tableName}</span><span class="dr-dot">.</span><span class="dr-field">${f.n}</span></div>
+    <div class="dr-tags">${tags.map(([txt,cls]) => `<span class="dr-tag dr-tag-${cls}">${txt}</span>`).join('')}</div>
+  `;
+
+  document.getElementById('drBody').innerHTML = `
+    <div class="dr-section">
+      <div class="dr-section-label">Type</div>
+      <div class="dr-typebox">${f.t || '—'}</div>
+    </div>
+
+    <div class="dr-section">
+      <div class="dr-section-label">Description</div>
+      <div class="dr-desc">${desc}</div>
+    </div>
+
+    ${vals.length > 0 ? `
+      <div class="dr-section">
+        <div class="dr-section-label">Allowed values · ${vals.length}</div>
+        <div class="dr-vals">
+          ${vals.map((v,i) => `<div class="dr-val"><span>${v}</span><span class="dr-val-tag">option ${i+1}</span></div>`).join('')}
+        </div>
+      </div>
+    ` : ''}
+
+    ${constraints.length > 0 ? `
+      <div class="dr-section">
+        <div class="dr-section-label">Constraints</div>
+        <div class="dr-meta-grid">
+          ${constraints.map(([k,v]) => `<div class="dr-meta-k">${k}</div><div class="dr-meta-v">${v}</div>`).join('')}
+        </div>
+      </div>
+    ` : ''}
+
+    <div class="dr-section">
+      <div class="dr-section-label">Where it's used · ${pages.length} screen${pages.length !== 1 ? 's' : ''}</div>
+      ${pages.length === 0 ? `<div class="dr-empty">Not yet mapped to specific screens. Pages that touch the ${tableName} table will reference this field.</div>` :
+        pages.map(p => `
+          <div class="dr-page">
+            <div style="display:flex;flex-direction:column;gap:3px;min-width:0;flex:1">
+              <span class="dr-page-name">${p.page}</span>
+              <span class="dr-page-role">${p.role}</span>
+            </div>
+            <span class="dr-page-op ${p.op.includes('WRITE') ? 'write' : 'read'}">${p.op}</span>
+          </div>
+        `).join('')
+      }
+    </div>
+  `;
+
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('drawer').setAttribute('aria-hidden', 'false');
+  document.getElementById('drOverlay').classList.add('open');
+}
+
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('drawer').setAttribute('aria-hidden', 'true');
+  document.getElementById('drOverlay').classList.remove('open');
+}
+
+document.getElementById('drClose').addEventListener('click', closeDrawer);
+document.getElementById('drOverlay').addEventListener('click', closeDrawer);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+function buildTotals(){
+  const el=document.getElementById('totals');
+  let totalT=0,totalF=0,totalNewT=0,totalNewF=0,totalUpdT=0,totalUpdF=0;
+  M.forEach(m=>{
+    m.tb.forEach(t=>{
+      totalT++;
+      if(t.nw)totalNewT++;
+      else if(t.ud)totalUpdT++;
+      t.f.forEach(f=>{
+        totalF++;
+        if(f.nw)totalNewF++;
+        else if(f.ud)totalUpdF++;
+      });
+    });
+  });
+  let changeChips='';
+  if(totalNewT>0)changeChips+=`<span class="chip chip-new" style="font-size:9.5px">+${totalNewT} new table${totalNewT>1?'s':''}</span>`;
+  if(totalNewF>0)changeChips+=`<span class="chip chip-new" style="font-size:9.5px">+${totalNewF} new field${totalNewF>1?'s':''}</span>`;
+  if(totalUpdT>0)changeChips+=`<span class="chip chip-upd" style="font-size:9.5px">${totalUpdT} updated table${totalUpdT>1?'s':''}</span>`;
+  el.innerHTML=`
+    <span class="totals-label">HMS Schema</span>
+    <div class="totals-divider"></div>
+    <div class="totals-stat"><span class="totals-num">${M.length}</span><span class="totals-cap">modules</span></div>
+    <div class="totals-stat"><span class="totals-num">${totalT}</span><span class="totals-cap">tables</span></div>
+    <div class="totals-stat"><span class="totals-num">${totalF}</span><span class="totals-cap">fields</span></div>
+    <div style="display:flex;gap:5px;flex-wrap:wrap;margin-left:4px">${changeChips}</div>
+    <span class="totals-version">v7.1</span>
+  `;
+}
+
+function buildTabs(){
+  const el=document.getElementById('tabbar');
+  el.innerHTML='';
+  M.forEach((m,i)=>{
+    const t=document.createElement('button');
+    t.className='tab'+(i===cur?' on':'')+(m.p2?' p2':'');
+    t.style.color=i===cur?m.cl:'';
+    t.style.borderColor=i===cur?m.cl+'33':'transparent';
+    if(i===cur)t.style.background=light?'#ffffff':'#181820';
+    t.textContent=m.nm;
+    t.onclick=()=>{cur=i;buildTabs();buildBody();};
+    el.appendChild(t);
+  });
+}
+
+function buildBody(){
+  const m=M[cur];
+  const hdrBg=light?m.lbg:m.bg;
+  const totalF=m.tb.reduce((s,t)=>s+t.f.length,0);
+  const newF=m.tb.reduce((s,t)=>s+t.f.filter(f=>f.nw).length,0);
+  const updF=m.tb.reduce((s,t)=>s+t.f.filter(f=>f.ud).length,0);
+  const newT=m.tb.filter(t=>t.nw).length;
+  const updT=m.tb.filter(t=>t.ud&&!t.nw).length;
+
+  let chips='';
+  if(newT>0)chips+=`<span class="chip chip-new">${newT} new table${newT>1?'s':''}</span>`;
+  if(updT>0)chips+=`<span class="chip chip-upd">${updT} updated table${updT>1?'s':''}</span>`;
+  if(newF>0)chips+=`<span class="chip chip-new">${newF} new field${newF>1?'s':''}</span>`;
+  if(updF>0)chips+=`<span class="chip chip-upd">${updF} updated</span>`;
+
+  const cards=m.tb.map(t=>{
+    const changed=t.f.filter(f=>f.nw||f.ud).length;
+    const isNewTable=t.nw;
+    const isUpdatedTable=t.ud&&!t.nw;
+    let hdExtras='';
+    if(isNewTable)hdExtras+='<span class="ntag ntag-new">NEW TABLE</span>';
+    else if(isUpdatedTable)hdExtras+='<span class="ntag ntag-upd">UPDATED</span>';
+    else if(changed>0)hdExtras+=`<span class="ntag ntag-new">${changed} changed</span>`;
+    const desc=tableDesc(t.n);
+    const descBlock=desc?`<div class="tdesc">${desc}</div>`:'';
+    const hd=`<div class="chd" style="background:${hdrBg}">${hdExtras}<span class="tn">${t.n}</span><span class="tc">${t.f.length} fields</span></div>${descBlock}`;
+    const rows=t.f.map((f,i)=>`<div class="row${f.nw?' nw':f.ud?' ud':''}" data-tbl="${t.n}" data-fld="${i}">${dot(f)}<span class="fn">${f.n}</span><span class="ft">${f.t||''}</span>${bgs(f)}</div>`).join('');
+    return`<div class="card">${hd}${rows}</div>`;
+  }).join('');
+
+  const p2Banner = m.p2 ? `<div class="p2-banner"><strong>Phase 2</strong>Out of scope for v1 — implementation deferred. Tables shown here for reference and forward planning.</div>` : '';
+  document.getElementById('body').innerHTML=`
+    ${p2Banner}
+    <div class="sbar">
+      <div><div class="sn" style="color:${m.cl}">${m.tb.length}</div><div class="sl">TABLES</div></div>
+      <div><div class="sn" style="color:${m.cl}">${totalF}</div><div class="sl">FIELDS</div></div>
+      <div style="margin-left:4px;font-size:10px;color:var(--t3);align-self:center;font-family:sans-serif">${m.nm}</div>
+      <div class="chips">${chips}</div>
+    </div>
+    <div class="grid">${cards}</div>`;
+  // Wire field-row clicks for the help drawer
+  document.querySelectorAll('#body .row[data-tbl]').forEach(el => {
+    el.addEventListener('click', () => {
+      openFieldDrawer(el.dataset.tbl, parseInt(el.dataset.fld));
+    });
+  });
+}
+
+function toggleTheme(){
+  light=!light;
+  document.getElementById('root').classList.toggle('L',light);
+  document.getElementById('togi').textContent=light?'☾':'☀';
+  buildTotals();buildTabs();buildBody();
+}
+
+buildTotals();buildTabs();buildBody();
+</script>

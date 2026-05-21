@@ -1,0 +1,244 @@
+import type {
+  DiscountInput,
+  DispenseRxInput,
+  DispenseRxResult,
+  OtcSaleInput,
+  OtcSaleResult,
+  RxQueueEntry,
+  RxQueueListParams,
+  RxQueueStatus,
+} from './pharmacyTypes';
+import { mockRxQueue } from './__mocks__/pharmacyMocks';
+import { consumeStockFefo, mockMedicineBatches } from '@/features/inventory/__mocks__/inventoryMocks';
+
+/**
+ * Resolve a discount input against a positive base amount, clamped so we
+ * never go below zero. Centralised so the dispense-side total and any
+ * downstream consumer (line totals, post-tax bill) agree on the math.
+ */
+export const resolveDiscount = (
+  d: DiscountInput | undefined,
+  base: number,
+): number => {
+  if (!d || base <= 0 || d.value <= 0) return 0;
+  const raw = d.kind === 'pct' ? base * (d.value / 100) : d.value;
+  return Math.min(Math.max(raw, 0), base);
+};
+
+const delay = <T>(value: T, ms = 250): Promise<T> =>
+  new Promise((resolve) => setTimeout(() => resolve(value), ms));
+
+/**
+ * Pharmacy API surface. Mocked today; signatures match the planned
+ * backend contract (TSD-10 §4.4 prescription_dispenses + cross-feature
+ * call into billing.createInvoice).
+ *
+ * Wire points (lists honour ?page=&limit=&sort= per CLAUDE.md §3.4):
+ *  GET   /api/pharmacy/rx?status=&q=        → fetchRxQueue
+ *  GET   /api/pharmacy/rx/:id               → fetchRx
+ *  POST  /api/pharmacy/rx/:id/pickup        → pickupRx (rx_pending → rx_in_progress)
+ *  POST  /api/pharmacy/rx/:id/dispense      → dispenseRx (creates billing invoice + dispense rows)
+ */
+
+// IMPORTANT: this is the same reference as `mockRxQueue` (NOT a shallow
+// copy) so that cross-feature mutations — consultation.lockConsultation
+// calling `appendRxToQueue` from the pharmacy mock helper — are visible
+// here on the next fetch. Using a shadow copy was the prior bug: the
+// doctor’s Rx never reached the pharmacist’s queue.
+const mockState: RxQueueEntry[] = mockRxQueue;
+
+export const fetchRxQueue = async (
+  params: RxQueueListParams = {},
+): Promise<RxQueueEntry[]> => {
+  void params.page;
+  void params.limit;
+  void params.sort;
+  let rows = mockState;
+  if (params.statuses && params.statuses.length > 0) {
+    const set = new Set(params.statuses);
+    rows = rows.filter((r) => set.has(r.status));
+  } else if (params.status && params.status !== 'all') {
+    rows = rows.filter((r) => r.status === params.status);
+  }
+  if (params.q) {
+    const q = params.q.toLowerCase();
+    rows = rows.filter(
+      (r) =>
+        r.prescriptionNumber.toLowerCase().includes(q) ||
+        r.opNumber.toLowerCase().includes(q) ||
+        r.patient.fullName.toLowerCase().includes(q) ||
+        r.patient.uhid.toLowerCase().includes(q),
+    );
+  }
+  return delay(rows);
+};
+
+export const fetchRx = async (id: string): Promise<RxQueueEntry | null> => {
+  const found = mockState.find((r) => r.id === id) ?? null;
+  return delay(found);
+};
+
+const updateRx = (id: string, patch: Partial<RxQueueEntry>): RxQueueEntry => {
+  const idx = mockState.findIndex((r) => r.id === id);
+  if (idx < 0) throw new Error(`Rx ${id} not found`);
+  const updated = { ...mockState[idx], ...patch };
+  // In-place splice (NOT array reassignment) so the shared
+  // mockRxQueue reference stays valid for cross-feature mutators.
+  mockState[idx] = updated;
+  return updated;
+};
+
+/** Pharmacist claims an Rx — moves from rx_pending to rx_in_progress. */
+export const pickupRx = async (id: string): Promise<RxQueueEntry> =>
+  delay(updateRx(id, { status: 'rx_in_progress', pickedUpAt: new Date().toISOString() }), 100);
+
+/**
+ * Dispense the Rx. Updates each item’s effective dispensed quantity
+ * (mock side-effect: deducts availableQty), flips Rx status, and
+ * returns the totals so the caller can hand off to billing.
+ *
+ * Real backend: writes prescription_dispenses rows, deducts
+ * medicine_batches stock with FEFO, calls services_catalog to compute
+ * line totals, and creates an `invoices` row in one transaction.
+ */
+/* ---------- Walk-in: refill lookup + anonymous OTC sale ---------- */
+
+/**
+ * Patient’s recent prescription history — sorted newest first. Powers the
+ * pharmacy walk-in "Repeat last Rx" path: the pharmacist enters the
+ * patient’s mobile number, the receptionist app surfaces matching
+ * patients, and clicking one shows their prescription timeline so the
+ * pharmacist can re-dispense without going back to the doctor.
+ *
+ * Real backend: `GET /api/pharmacy/patients/:uhid/prescriptions?limit=`
+ * Mock scans the in-memory Rx queue by patient UHID.
+ */
+export const fetchPatientPrescriptionHistory = async (
+  uhid: string,
+  limit = 10,
+): Promise<RxQueueEntry[]> => {
+  const matches = mockState
+    .filter((r) => r.patient.uhid === uhid)
+    .sort(
+      (a, b) =>
+        new Date(b.prescribedAt).getTime() - new Date(a.prescribedAt).getTime(),
+    )
+    .slice(0, limit);
+  return delay(matches, 120);
+};
+
+/**
+ * Look up the cheapest active batch’s unit price for a medicine. Real
+ * backend would price from `medicines` or `services_catalog`; mock walks
+ * the batches array and picks the lowest-priced active batch (FEFO would
+ * pick by expiry — for OTC the customer-facing price is uniform per
+ * medicine in a real pharmacy anyway).
+ */
+export const getOtcUnitPrice = (medicineId: string): number => {
+  const candidates = mockMedicineBatches.filter(
+    (b) => b.medicineId === medicineId && b.isActive,
+  );
+  if (candidates.length === 0) return 0;
+  return Math.min(...candidates.map((b) => b.unitPrice));
+};
+
+let mockOtcSeq = 5000;
+
+/**
+ * Record an anonymous OTC counter sale. No patient link, no prescription.
+ * Decrements stock FEFO, generates a synthetic sale number + invoice id,
+ * and reports any line that couldn’t be fulfilled in full so the
+ * pharmacist can collect the reduced amount and inform the customer.
+ *
+ * Real backend: writes a `prescription_dispenses` row with
+ * `prescription_id = NULL` (per TSD-10 §4.4 OTC variant) + `invoices`
+ * row in one transaction.
+ */
+export const dispenseOtcSale = async (
+  input: OtcSaleInput,
+): Promise<OtcSaleResult> => {
+  const shortfalls: OtcSaleResult['shortfalls'] = [];
+  let total = 0;
+  for (const line of input.lines) {
+    if (line.quantity <= 0) continue;
+    const fulfilled = consumeStockFefo(line.medicineId, line.quantity);
+    if (fulfilled < line.quantity) {
+      shortfalls.push({
+        medicineId: line.medicineId,
+        requested: line.quantity,
+        fulfilled,
+      });
+    }
+    const gross = line.unitPrice * fulfilled;
+    const gst = gross * (line.gstPct / 100);
+    total += gross + gst;
+  }
+
+  mockOtcSeq += 1;
+  const saleNumber = `OTC-${new Date().getFullYear()}-${String(mockOtcSeq).padStart(6, '0')}`;
+  return delay(
+    {
+      saleNumber,
+      invoiceId: `inv-otc-${mockOtcSeq}`,
+      invoiceTotal: Number(total.toFixed(2)),
+      shortfalls: shortfalls.length > 0 ? shortfalls : undefined,
+    },
+    200,
+  );
+};
+
+export const dispenseRx = async (
+  input: DispenseRxInput,
+): Promise<DispenseRxResult> => {
+  const rx = mockState.find((r) => r.id === input.rxId);
+  if (!rx) throw new Error(`Rx ${input.rxId} not found`);
+
+  const newItems = rx.items.map((it) => {
+    const decision = input.lines.find((l) => l.rxItemId === it.id);
+    if (!decision || decision.decision !== 'dispense') return it;
+    const qty = Math.min(decision.quantityDispensed ?? 0, it.availableQty);
+    // Mock side-effect: deduct from inventory batches FEFO so the
+    // back-office Inventory app sees the stock movement.
+    if (qty > 0) consumeStockFefo(it.medicineId, qty);
+    return {
+      ...it,
+      availableQty: Math.max(0, it.availableQty - qty),
+      notes: decision.notes ?? it.notes,
+    };
+  });
+
+  const preBillTotal = input.lines
+    .filter((l) => l.decision === 'dispense' && l.quantityDispensed && l.quantityDispensed > 0)
+    .reduce((acc, l) => {
+      const item = rx.items.find((i) => i.id === l.rxItemId);
+      if (!item) return acc;
+      const gross = item.unitPrice * (l.quantityDispensed ?? 0);
+      const lineDisc = resolveDiscount(l.lineDiscount, gross);
+      const lineNet = gross - lineDisc;
+      const lineGst = lineNet * (item.gstPct / 100);
+      return acc + lineNet + lineGst;
+    }, 0);
+  const billDisc = resolveDiscount(input.billDiscount, preBillTotal);
+  const dispensedTotal = preBillTotal - billDisc;
+
+  const dispensedAny = input.lines.some((l) => l.decision === 'dispense' && (l.quantityDispensed ?? 0) > 0);
+  const declinedAny = input.lines.some((l) => l.decision === 'decline');
+  let nextStatus: RxQueueStatus = 'rx_dispensed';
+  if (dispensedAny && declinedAny) nextStatus = 'rx_partially_dispensed';
+  if (!dispensedAny) nextStatus = 'rx_cancelled';
+
+  const updated = updateRx(input.rxId, {
+    items: newItems,
+    status: nextStatus,
+    dispensedAt: new Date().toISOString(),
+  });
+
+  return delay(
+    {
+      rx: updated,
+      invoiceId: dispensedTotal > 0 ? `inv-rx-${input.rxId}-${Date.now()}` : undefined,
+      invoiceTotal: Number(dispensedTotal.toFixed(2)),
+    },
+    200,
+  );
+};
