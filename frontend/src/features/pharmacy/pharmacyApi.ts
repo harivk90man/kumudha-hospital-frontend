@@ -169,7 +169,15 @@ export const fetchRxQueue = async (
   return rows;
 };
 
+const RX_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const fetchRx = async (id: string): Promise<RxQueueEntry | null> => {
+  // Mock/synthetic ids (`rx-801`, `rx-OP-…`) are not valid UUIDs. PostgREST
+  // would reject them with 400 ("invalid input syntax for type uuid"), so
+  // short-circuit to the local mock state for those.
+  if (!RX_UUID_RE.test(id)) {
+    return mockState.find((r) => r.id === id) ?? null;
+  }
   try {
     const { supabase } = await import('@/lib/supabase/supabaseClient');
     const { data, error } = await supabase
@@ -666,6 +674,9 @@ const persistDispenseToDb = async (
   input: DispenseRxInput,
   rx: RxQueueEntry,
 ): Promise<{ saleId: string; invoiceTotal: number; nextDbStatus: string } | null> => {
+  // Mock Rx (id like 'rx-801' or 'rx-OP-XXX') has no DB row to update.
+  // Skip the full persistence path; the caller falls back to mock-only.
+  if (!RX_UUID_RE.test(input.rxId)) return null;
   try {
     const { supabase, DEMO_USER_ID } = await import('@/lib/supabase/supabaseClient');
     const bs = DEMO_USER_ID;

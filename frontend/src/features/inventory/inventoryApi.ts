@@ -277,27 +277,168 @@ export const fetchSuppliers = async (): Promise<Supplier[]> => {
   }
 };
 
-/** Single-supplier lookup — returns `null` when the id doesn't resolve. */
-export const fetchSupplier = async (id: string): Promise<Supplier | null> => {
-  const found = mockSuppliersState.find((s) => s.id === id) ?? null;
-  return delay(found);
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Build a stable vendor_code from a supplier name.
+ * 3–6 letters uppercased + a 3-digit random suffix → keeps the DB
+ * unique constraint happy without burdening the UI with another field.
+ */
+const buildVendorCode = (name: string): string => {
+  const slug = name.replace(/[^A-Za-z0-9]/g, '').slice(0, 6).toUpperCase() || 'VEN';
+  return `${slug}${String(Math.floor(Math.random() * 900) + 100)}`;
 };
 
-/** Insert a new supplier; mock generates a stable id and returns the row. */
+interface SbVendorRow {
+  id: string; vendor_code: string; vendor_name: string;
+  gstin: string | null;
+  address: { line1?: string; city?: string } | null;
+}
+
+const mapVendorRowToSupplier = (
+  r: SbVendorRow,
+  contact: { contact_name: string | null; mobile: string | null; email: string | null } | null,
+): Supplier => ({
+  id: r.id,
+  name: r.vendor_name,
+  gstin: r.gstin ?? undefined,
+  contactPerson: contact?.contact_name ?? undefined,
+  phone: contact?.mobile ?? undefined,
+  email: contact?.email ?? undefined,
+  address: r.address ? `${r.address.line1 ?? ''}${r.address.city ? ', ' + r.address.city : ''}`.trim() || undefined : undefined,
+  isActive: true,
+});
+
+const fetchPrimaryContact = async (
+  vendorId: string,
+): Promise<{ contact_name: string | null; mobile: string | null; email: string | null } | null> => {
+  try {
+    const { data } = await supabase
+      .from('vendor_contacts')
+      .select('contact_name, mobile, email, is_primary')
+      .eq('vendor_id', vendorId).is('deleted_at', null)
+      .order('is_primary', { ascending: false }).limit(1).maybeSingle();
+    return (data as { contact_name: string | null; mobile: string | null; email: string | null } | null) ?? null;
+  } catch { return null; }
+};
+
+/** Single-supplier lookup — returns `null` when the id doesn't resolve. */
+export const fetchSupplier = async (id: string): Promise<Supplier | null> => {
+  if (UUID_RE.test(id)) {
+    try {
+      const { data, error } = await supabase
+        .from('vendors')
+        .select('id, vendor_code, vendor_name, gstin, address')
+        .eq('id', id).is('deleted_at', null).maybeSingle();
+      if (error || !data) {
+        const fallback = mockSuppliersState.find((s) => s.id === id) ?? null;
+        return fallback;
+      }
+      const contact = await fetchPrimaryContact(id);
+      return mapVendorRowToSupplier(data as SbVendorRow, contact);
+    } catch {
+      return mockSuppliersState.find((s) => s.id === id) ?? null;
+    }
+  }
+  return mockSuppliersState.find((s) => s.id === id) ?? null;
+};
+
+/**
+ * Insert a new supplier. Writes a row to `vendors` and — when the form
+ * carried contactPerson/phone/email — a primary vendor_contacts row so
+ * later GRN flows can pick a default recipient. Falls back to the mock
+ * store on DB failure so the form still completes.
+ */
 export const createSupplier = async (
   input: CreateSupplierInput,
 ): Promise<Supplier> => {
-  supplierSeq += 1;
-  const created: Supplier = { id: `sup-${supplierSeq}`, ...input };
-  mockSuppliersState = [created, ...mockSuppliersState];
-  return delay(created, 200);
+  try {
+    const { DEMO_USER_ID } = await import('@/lib/supabase/supabaseClient');
+    const bs = DEMO_USER_ID;
+    const vendorCode = buildVendorCode(input.name);
+    const addressJsonb = input.address ? { line1: input.address } : null;
+    const { data, error } = await supabase
+      .from('vendors')
+      .insert({
+        vendor_code:  vendorCode,
+        vendor_name:  input.name,
+        gstin:        input.gstin ?? null,
+        address:      addressJsonb,
+        created_by:   bs,
+      })
+      .select('id, vendor_code, vendor_name, gstin, address')
+      .maybeSingle();
+    if (error || !data) throw new Error(error?.message ?? 'vendor insert failed');
+    const vendorRow = data as SbVendorRow;
+    let contactRow: { contact_name: string | null; mobile: string | null; email: string | null } | null = null;
+    if (input.contactPerson || input.phone || input.email) {
+      const { data: cIns } = await supabase
+        .from('vendor_contacts')
+        .insert({
+          vendor_id:     vendorRow.id,
+          contact_name:  input.contactPerson ?? input.name,
+          role:          'sales_rep',
+          mobile:        input.phone ?? null,
+          email:         input.email ?? null,
+          is_primary:    true,
+          created_by:    bs,
+        })
+        .select('contact_name, mobile, email').maybeSingle();
+      contactRow = (cIns as typeof contactRow) ?? null;
+    }
+    return mapVendorRowToSupplier(vendorRow, contactRow);
+  } catch {
+    supplierSeq += 1;
+    const created: Supplier = { id: `sup-${supplierSeq}`, ...input };
+    mockSuppliersState = [created, ...mockSuppliersState];
+    return created;
+  }
 };
 
-/** Patch supplier — throws when the id doesn't resolve so the caller surfaces it. */
+/** Patch supplier — updates `vendors` + upserts the primary contact. */
 export const updateSupplier = async (
   id: string,
   input: UpdateSupplierInput,
 ): Promise<Supplier> => {
+  if (UUID_RE.test(id)) {
+    try {
+      const { DEMO_USER_ID } = await import('@/lib/supabase/supabaseClient');
+      const bs = DEMO_USER_ID;
+      const patch: Record<string, unknown> = { updated_by: bs };
+      if (input.name !== undefined)    patch.vendor_name = input.name;
+      if (input.gstin !== undefined)   patch.gstin = input.gstin || null;
+      if (input.address !== undefined) patch.address = input.address ? { line1: input.address } : null;
+      const { data, error } = await supabase
+        .from('vendors').update(patch).eq('id', id)
+        .select('id, vendor_code, vendor_name, gstin, address').maybeSingle();
+      if (error || !data) throw new Error(error?.message ?? 'vendor update failed');
+
+      // Upsert primary contact when any contact field is set.
+      if (input.contactPerson !== undefined || input.phone !== undefined || input.email !== undefined) {
+        const { data: existingContact } = await supabase
+          .from('vendor_contacts')
+          .select('id').eq('vendor_id', id).eq('is_primary', true).is('deleted_at', null).maybeSingle();
+        const contactPayload = {
+          vendor_id:    id,
+          contact_name: input.contactPerson ?? input.name ?? '',
+          role:         'sales_rep',
+          mobile:       input.phone ?? null,
+          email:        input.email ?? null,
+          is_primary:   true,
+        };
+        if (existingContact) {
+          await supabase.from('vendor_contacts').update({ ...contactPayload, updated_by: bs })
+            .eq('id', (existingContact as { id: string }).id);
+        } else if (input.phone || input.email || input.contactPerson) {
+          await supabase.from('vendor_contacts').insert({ ...contactPayload, created_by: bs });
+        }
+      }
+      const contact = await fetchPrimaryContact(id);
+      return mapVendorRowToSupplier(data as SbVendorRow, contact);
+    } catch {
+      // fall through to mock
+    }
+  }
   const idx = mockSuppliersState.findIndex((s) => s.id === id);
   if (idx === -1) throw new Error('Unknown supplier');
   const merged: Supplier = { ...mockSuppliersState[idx], ...input, id };
@@ -306,7 +447,7 @@ export const updateSupplier = async (
     merged,
     ...mockSuppliersState.slice(idx + 1),
   ];
-  return delay(merged, 200);
+  return merged;
 };
 
 export const fetchGrns = async (): Promise<Grn[]> => delay(mockGrnsState);

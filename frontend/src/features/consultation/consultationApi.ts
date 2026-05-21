@@ -484,8 +484,12 @@ interface SbVisitHistoryRow {
   closed_at: string | null;
   users: { full_name: string;
     departments: { dept_name: string } | null } | null;
-  consultations: Array<{ diagnoses: Array<{ icd10?: string; desc?: string; type?: string }> | null }>;
-  prescriptions: Array<{ prescription_items: Array<{ id: string }> }>;
+  // prescriptions live under consultations.consultation_id (no direct FK
+  // from op_visits to prescriptions), so the embed nests them there.
+  consultations: Array<{
+    diagnoses: Array<{ icd10?: string; desc?: string; type?: string }> | null;
+    prescriptions: Array<{ prescription_items: Array<{ id: string }> }>;
+  }>;
   lab_orders: Array<{ id: string }>;
   radiology_orders: Array<{ id: string }>;
 }
@@ -493,7 +497,8 @@ interface SbVisitHistoryRow {
 const sbRowToVisitHistory = (r: SbVisitHistoryRow): VisitHistoryItem => {
   const cons = r.consultations[0];
   const primary = cons?.diagnoses?.find((d) => d.type === 'primary') ?? cons?.diagnoses?.[0];
-  const rxItemCount = r.prescriptions.reduce((acc, p) => acc + (p.prescription_items?.length ?? 0), 0);
+  const rxItemCount = (cons?.prescriptions ?? [])
+    .reduce((acc, p) => acc + (p.prescription_items?.length ?? 0), 0);
   return {
     opNumber:            r.op_number,
     visitDate:           r.closed_at ?? r.created_at ?? r.visit_date,
@@ -531,8 +536,7 @@ export const fetchVisitHistory = async (
         .select(`
           op_number, visit_date, chief_complaint, created_at, closed_at,
           users:users!op_visits_doctor_id_fkey ( full_name, departments!fk_users_department ( dept_name ) ),
-          consultations ( diagnoses ),
-          prescriptions ( prescription_items ( id ) ),
+          consultations ( diagnoses, prescriptions ( prescription_items ( id ) ) ),
           lab_orders ( id ),
           radiology_orders ( id )
         `)
