@@ -12,6 +12,7 @@ export {
   getOtcUnitPrice,
   fetchOtcUnitPrice,
   dispenseOtcSale,
+  fetchOtcSales,
 } from './pharmacyApi';
 export type {
   RxQueueEntry,

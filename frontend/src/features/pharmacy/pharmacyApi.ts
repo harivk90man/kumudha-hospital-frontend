@@ -494,6 +494,82 @@ const persistOtcSaleToDb = async (
   }
 };
 
+interface SbOtcSaleRow {
+  id: string; sale_number: string; created_at: string;
+  customer_name: string | null; customer_mobile: string | null;
+  subtotal: number; total_tax: number; net_amount: number; status: string;
+  pharmacy_sale_items: Array<{
+    id: string; quantity: number; unit_price: number; total_price: number;
+    igst_pct: number;
+    drug_catalogue: { generic_name: string; brand_name: string | null; strength: string | null } | null;
+  }>;
+}
+
+/**
+ * Pull the latest OTC counter sales straight from `pharmacy_sales`
+ * (sale_type='walkin_otc'). One row per sale with the line items
+ * embedded; the page builds OtcSaleRecord objects from these so the
+ * existing UI components keep working unchanged.
+ */
+export const fetchOtcSales = async (
+  params: { q?: string; limit?: number } = {},
+): Promise<import('./otcSalesStore').OtcSaleRecord[]> => {
+  const { q, limit = 100 } = params;
+  try {
+    const { supabase } = await import('@/lib/supabase/supabaseClient');
+    const { data, error } = await supabase
+      .from('pharmacy_sales')
+      .select(`
+        id, sale_number, created_at, customer_name, customer_mobile,
+        subtotal, total_tax, net_amount, status,
+        pharmacy_sale_items (
+          id, quantity, unit_price, total_price, igst_pct,
+          drug_catalogue ( generic_name, brand_name, strength )
+        )
+      `)
+      .eq('sale_type', 'walkin_otc')
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error || !data) return [];
+    const rows = (data as unknown as SbOtcSaleRow[]).map((r): import('./otcSalesStore').OtcSaleRecord => {
+      const lines = r.pharmacy_sale_items.map((it) => {
+        const d = it.drug_catalogue;
+        const name = d ? (d.brand_name && d.brand_name.trim() ? d.brand_name : d.generic_name) : '—';
+        return {
+          medicineId:  '',  // not surfaced for the list view; not needed by the row UI
+          medicineName: name,
+          strength:    d?.strength ?? '',
+          quantity:    it.quantity,
+          unitPrice:   it.unit_price,
+          gstPct:      it.igst_pct,
+          lineTotal:   it.total_price,
+        };
+      });
+      return {
+        saleNumber:     r.sale_number,
+        soldAt:         r.created_at,
+        invoiceId:      r.id,
+        invoiceTotal:   r.net_amount,
+        lines,
+        customerName:   r.customer_name ?? undefined,
+        customerPhone:  r.customer_mobile ?? undefined,
+        shortfalls:     undefined,
+      };
+    });
+    if (!q) return rows;
+    const needle = q.toLowerCase();
+    return rows.filter((s) =>
+      s.saleNumber.toLowerCase().includes(needle) ||
+      (s.customerName ?? '').toLowerCase().includes(needle) ||
+      (s.customerPhone ?? '').toLowerCase().includes(needle) ||
+      s.lines.some((l) => l.medicineName.toLowerCase().includes(needle)),
+    );
+  } catch {
+    return [];
+  }
+};
+
 export const dispenseOtcSale = async (
   input: OtcSaleInput,
 ): Promise<OtcSaleResult> => {

@@ -1,12 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronDown, ChevronRight, Plus, Receipt, Search } from 'lucide-react';
 import { Breadcrumb, LiveIndicator, StatusPill, TablePagination } from '@/components/data-display';
 import { Card } from '@/components/layout';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/feedback/EmptyState';
+import { Spinner } from '@/components/feedback/Spinner';
 import { cn } from '@/utils/cn';
-import { useOtcSalesStore, type OtcSaleRecord } from '@/features/pharmacy';
+import { fetchOtcSales, useOtcSalesStore, type OtcSaleRecord } from '@/features/pharmacy';
 import { formatCurrency } from '@/utils/formatCurrency';
 import { PharmacyQueueTabs } from '../components/PharmacyQueueTabs';
 import { PrintableOtcReceipt } from '../components/PrintableOtcReceipt';
@@ -29,8 +30,8 @@ const formatDateTime = (iso: string): string =>
   });
 
 export function OtcInvoicesPage(): JSX.Element {
-  const sales = useOtcSalesStore((s) => s.sales);
-  const listSales = useOtcSalesStore((s) => s.listSales);
+  const localSales = useOtcSalesStore((s) => s.sales);
+  const listLocalSales = useOtcSalesStore((s) => s.listSales);
   const [params, setParams] = useSearchParams();
   const q = params.get('q') ?? '';
   const focusedSale = params.get('sale') ?? '';
@@ -53,7 +54,34 @@ export function OtcInvoicesPage(): JSX.Element {
     });
   };
 
-  const filtered = useMemo<OtcSaleRecord[]>(() => listSales(q), [listSales, q, sales]);
+  // Pull from Supabase (real persisted OTC sales). Falls back to the
+  // local Zustand mirror when the DB has nothing yet — the store is
+  // also updated as each sale completes, so newly recorded sales appear
+  // instantly without waiting for the next fetch.
+  const [dbSales, setDbSales] = useState<OtcSaleRecord[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    fetchOtcSales({ q: q || undefined, limit: 200 })
+      .then((rows) => {
+        if (alive) setDbSales(rows);
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [q]);
+
+  const filtered = useMemo<OtcSaleRecord[]>(() => {
+    if (dbSales.length > 0) return dbSales;
+    return listLocalSales(q);
+  }, [dbSales, listLocalSales, q, localSales]);
+
+  const sales = filtered;
 
   /** Client-side pagination — OTC sales are stored locally and are
    *  unlikely to exceed a few hundred per terminal, so slicing client-
@@ -126,7 +154,11 @@ export function OtcInvoicesPage(): JSX.Element {
         />
       </div>
 
-      {sales.length === 0 ? (
+      {loading && sales.length === 0 ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Spinner size="sm" /> Loading OTC sales...
+        </div>
+      ) : sales.length === 0 ? (
         <EmptyState
           icon={Receipt}
           title="No OTC sales yet."
