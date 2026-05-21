@@ -152,13 +152,96 @@ export const placeRadiologyOrder = async (
 
 /* ---------- Radiology-tech actor flows ---------- */
 
+interface SbRadOrderRow {
+  id: string; order_number: string; priority: string; status: string;
+  created_at: string; imaging_completed_at: string | null; released_at: string | null;
+  op_visits: { op_number: string } | null;
+  patients: {
+    id: string; uhid: string; first_name: string; last_name: string;
+    gender: string; date_of_birth: string | null; mobile: string | null;
+    blood_group: string | null;
+  } | null;
+  radiology_procedures: { procedure_code: string; procedure_name: string; modality: string; body_part: string } | null;
+  radiology_reports: Array<{ findings: string | null; impression: string | null; release_status: string }>;
+}
+
+const ageFromDobR = (dob: string | null): number => {
+  if (!dob) return 0;
+  const d = new Date(dob); const n = new Date();
+  return Math.max(0, n.getFullYear() - d.getFullYear() -
+    (n < new Date(n.getFullYear(), d.getMonth(), d.getDate()) ? 1 : 0));
+};
+
+const DB_TO_FE_RAD_STATUS: Record<string, RadiologyOrderQueueEntry['status']> = {
+  ordered:              'ordered',
+  awaiting_payment:     'ordered',
+  paid:                 'paid',
+  imaging_pending:      'paid',
+  imaging_in_progress:  'in_progress',
+  imaging_completed:    'in_progress',
+  reporting_pending:    'in_progress',
+  reported:             'reported',
+  released:             'released',
+  cancelled:            'cancelled',
+};
+
+const mapRadOrderRow = (r: SbRadOrderRow): RadiologyOrderQueueEntry => {
+  const p = r.patients;
+  const rpt = r.radiology_reports[0];
+  return {
+    id: r.id,
+    opNumber: r.op_visits?.op_number ?? '—',
+    patient: p ? {
+      id: p.id, uhid: p.uhid,
+      firstName: p.first_name, lastName: p.last_name,
+      fullName: `${p.first_name} ${p.last_name}`.trim(),
+      gender: p.gender as 'm' | 'f' | 'o',
+      ageYears: ageFromDobR(p.date_of_birth),
+      mobile: p.mobile ?? undefined,
+      bloodGroup: p.blood_group ?? undefined,
+      allergies: [], chronicConditions: [],
+    } : { id: '', uhid: '', firstName: '', lastName: '', fullName: '—', gender: 'o', ageYears: 0, allergies: [], chronicConditions: [] },
+    testCode: r.radiology_procedures?.procedure_code ?? '—',
+    testName: r.radiology_procedures?.procedure_name ?? '—',
+    modality: (r.radiology_procedures?.modality ?? 'other') as RadiologyOrderQueueEntry['modality'],
+    bodyPart: r.radiology_procedures?.body_part ?? '',
+    clinicalPriority: r.priority as ClinicalPriority,
+    status: DB_TO_FE_RAD_STATUS[r.status] ?? 'ordered',
+    orderedAt: r.created_at,
+    capturedAt: r.imaging_completed_at ?? undefined,
+    reportedAt: r.imaging_completed_at ?? undefined,
+    releasedAt: r.released_at ?? undefined,
+    resultSummary: rpt?.impression ?? undefined,
+    notes: rpt?.findings ?? undefined,
+  } satisfies RadiologyOrderQueueEntry;
+};
+
 export const fetchRadiologyOrderQueue = async (
   params: RadiologyOrdersListParams = {},
 ): Promise<RadiologyOrderQueueEntry[]> => {
   void params.page;
   void params.limit;
   void params.sort;
-  let rows = mockQueueState;
+  let rows: RadiologyOrderQueueEntry[];
+  try {
+    const { supabase } = await import('@/lib/supabase/supabaseClient');
+    const { data, error } = await supabase
+      .from('radiology_orders')
+      .select(`
+        id, order_number, priority, status, created_at, imaging_completed_at, released_at,
+        op_visits!radiology_orders_op_visit_id_fkey ( op_number ),
+        patients!radiology_orders_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
+        radiology_procedures ( procedure_code, procedure_name, modality, body_part ),
+        radiology_reports ( findings, impression, release_status )
+      `)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(200);
+    if (error) throw new Error(error.message);
+    rows = ((data ?? []) as unknown as SbRadOrderRow[]).map(mapRadOrderRow);
+  } catch {
+    rows = mockQueueState;
+  }
   if (params.statuses && params.statuses.length > 0) {
     const set = new Set(params.statuses);
     rows = rows.filter((r) => set.has(r.status));
