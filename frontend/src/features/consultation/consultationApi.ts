@@ -158,6 +158,77 @@ const blankContextFromQueue = (opNumber: string): ConsultationContext | null => 
   };
 };
 
+/**
+ * Build a fresh consultation context from a Supabase op_visit lookup.
+ * Used when the opNumber comes from the Supabase-backed doctor queue
+ * (live op_visits with no mockQueue entry).
+ */
+const blankContextFromSupabase = async (
+  opNumber: string,
+): Promise<ConsultationContext | null> => {
+  try {
+    const { supabase } = await import('@/lib/supabase/supabaseClient');
+    const { data, error } = await supabase
+      .from('op_visits')
+      .select(`
+        id, op_number, chief_complaint, visit_date, closed_at,
+        patients!op_visits_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group )
+      `)
+      .eq('op_number', opNumber)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (error || !data) return null;
+    const row = data as unknown as {
+      id: string; op_number: string; chief_complaint: string | null;
+      visit_date: string; closed_at: string | null;
+      patients: { id: string; uhid: string; first_name: string; last_name: string;
+                  gender: string; date_of_birth: string | null;
+                  mobile: string | null; blood_group: string | null } | null;
+    };
+    const p = row.patients;
+    if (!p) return null;
+    const ageFromDob = (dob: string | null): number => {
+      if (!dob) return 0;
+      const d = new Date(dob); const n = new Date();
+      return Math.max(0, n.getFullYear() - d.getFullYear() -
+        (n < new Date(n.getFullYear(), d.getMonth(), d.getDate()) ? 1 : 0));
+    };
+    return {
+      opNumber,
+      status: { code: 0, name: 'in_consultation' },
+      startedAt: new Date().toISOString(),
+      patient: {
+        id: p.id, uhid: p.uhid,
+        firstName: p.first_name, lastName: p.last_name,
+        fullName: `${p.first_name} ${p.last_name}`.trim(),
+        gender: p.gender as 'm' | 'f' | 'o',
+        ageYears: ageFromDob(p.date_of_birth),
+        mobile: p.mobile ?? undefined,
+        bloodGroup: p.blood_group ?? undefined,
+        allergies: [],
+        chronicConditions: [],
+      },
+      latestVitals: seedVitals(opNumber),
+      notes: {
+        chiefComplaint: row.chief_complaint ?? '',
+        historyOfPresentIllness: '',
+        examinationFindings: '',
+        clinicalImpression: '',
+        advice: '',
+      },
+      diagnoses: [],
+      prescriptionItems: [],
+      labOrders: [],
+      radiologyOrders: [],
+      recommendations: [],
+      recommendationsNotes: '',
+      criticalNotifications: [],
+    };
+  } catch {
+    return null;
+  }
+};
+
 export const fetchConsultation = async (opNumber: string): Promise<ConsultationContext> => {
   // Past visits live in mockPastEncounters and are read-only.
   const past = mockPastEncounters[opNumber];
@@ -173,6 +244,13 @@ export const fetchConsultation = async (opNumber: string): Promise<ConsultationC
   if (fresh) {
     liveConsultations[opNumber] = fresh;
     return delay(fresh);
+  }
+  // Supabase fallback — try to build a fresh context from the real op_visit
+  // row (this is the case for live queue patients in the seeded DB).
+  const fromDb = await blankContextFromSupabase(opNumber);
+  if (fromDb) {
+    liveConsultations[opNumber] = fromDb;
+    return fromDb;
   }
 
   // Last-resort fallback: the opNumber came from the patient history
