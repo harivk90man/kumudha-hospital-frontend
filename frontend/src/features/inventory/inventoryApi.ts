@@ -5,8 +5,10 @@ import type {
   Grn,
   Medicine,
   MedicineBatch,
+  MedicineForm,
   MedicinesListParams,
   PharmacyAlert,
+  StockSeverity,
   Supplier,
   UpdateGrnInput,
   UpdateSupplierInput,
@@ -18,6 +20,36 @@ import {
   mockPharmacyAlerts,
   mockSuppliers,
 } from './__mocks__/inventoryMocks';
+import { supabase } from '@/lib/supabase/supabaseClient';
+
+/* ---------- DB form/severity helpers ---------- */
+
+const DB_FORM_TO_FE: Record<string, MedicineForm> = {
+  tablet:        'tab',
+  capsule:       'cap',
+  injection:     'inj',
+  syrup:         'syrup',
+  drops:         'drops',
+  inhaler:       'inj',
+  cream:         'oint',
+  ointment:      'oint',
+  powder:        'syrup',
+};
+
+const computeSeverity = (
+  availableQty: number,
+  thresholdQty: number,
+  earliestExpiry: string | null,
+): StockSeverity => {
+  if (earliestExpiry) {
+    const exp = new Date(earliestExpiry).getTime();
+    if (exp <= Date.now()) return 'expired';
+    if (exp <= Date.now() + 30 * 24 * 60 * 60 * 1000) return 'near_expiry';
+  }
+  if (availableQty <= 0) return 'out_of_stock';
+  if (availableQty < thresholdQty) return 'low';
+  return 'ok';
+};
 
 const delay = <T>(value: T, ms = 250): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), ms));
@@ -35,18 +67,92 @@ const delay = <T>(value: T, ms = 250): Promise<T> =>
  *  POST  /api/inventory/grns                  → createGrn (writes batches + GRN row)
  */
 
-export const searchMedicines = async (query: string): Promise<Medicine[]> => {
-  const q = query.trim().toLowerCase();
-  const filtered = q
-    ? mockMedicines.filter(
-        (m) => m.name.toLowerCase().includes(q) || m.genericName.toLowerCase().includes(q),
-      )
-    : mockMedicines;
-  return delay(filtered.slice(0, 20));
+/**
+ * Load every drug from the catalogue + aggregate stock across batches.
+ * Returns the FE-shape Medicine list with availableQty / threshold /
+ * earliestExpiry / severity computed from drug_stock rows.
+ */
+const loadCatalogueWithStock = async (): Promise<Medicine[]> => {
+  const { data: drugs, error: dErr } = await supabase
+    .from('drug_catalogue')
+    .select('id, drug_code, generic_name, brand_name, strength, form, drug_class, is_narcotic, requires_prescription, low_stock_threshold')
+    .is('deleted_at', null);
+  if (dErr) throw new Error(dErr.message);
+  const drugRows = (drugs ?? []) as Array<{
+    id: string; drug_code: string; generic_name: string; brand_name: string | null;
+    strength: string | null; form: string; drug_class: string | null;
+    is_narcotic: boolean; requires_prescription: boolean; low_stock_threshold: number;
+  }>;
+  if (drugRows.length === 0) return [];
+
+  const { data: stock, error: sErr } = await supabase
+    .from('drug_stock')
+    .select('drug_id, quantity_available, expiry_date, is_blocked');
+  if (sErr) throw new Error(sErr.message);
+  const stockRows = (stock ?? []) as Array<{ drug_id: string; quantity_available: number; expiry_date: string; is_blocked: boolean }>;
+
+  const agg = new Map<string, { qty: number; earliest: string | null }>();
+  for (const r of stockRows) {
+    if (r.is_blocked) continue;
+    const cur = agg.get(r.drug_id) ?? { qty: 0, earliest: null };
+    if (r.quantity_available > 0) {
+      cur.qty += r.quantity_available;
+      if (!cur.earliest || r.expiry_date < cur.earliest) cur.earliest = r.expiry_date;
+    }
+    agg.set(r.drug_id, cur);
+  }
+
+  return drugRows.map((d) => {
+    const a = agg.get(d.id) ?? { qty: 0, earliest: null };
+    const severity = computeSeverity(a.qty, d.low_stock_threshold, a.earliest);
+    return {
+      id: d.id,
+      name: d.brand_name ?? d.generic_name,
+      genericName: d.generic_name,
+      strength: d.strength ?? '',
+      form: DB_FORM_TO_FE[d.form] ?? 'tab',
+      availableQty: a.qty,
+      thresholdQty: d.low_stock_threshold,
+      earliestExpiry: a.earliest ?? undefined,
+      severity,
+      requiresPrescription: d.requires_prescription || undefined,
+      isNarcotic: d.is_narcotic || undefined,
+      drugClass: d.drug_class ?? undefined,
+    } satisfies Medicine;
+  });
 };
 
-export const fetchPharmacyAlerts = async (): Promise<PharmacyAlert[]> =>
-  delay(mockPharmacyAlerts);
+export const searchMedicines = async (query: string): Promise<Medicine[]> => {
+  try {
+    const all = await loadCatalogueWithStock();
+    const q = query.trim().toLowerCase();
+    const filtered = q
+      ? all.filter(
+          (m) => m.name.toLowerCase().includes(q) || m.genericName.toLowerCase().includes(q),
+        )
+      : all;
+    return filtered.slice(0, 20);
+  } catch {
+    return mockMedicines.slice(0, 20);
+  }
+};
+
+export const fetchPharmacyAlerts = async (): Promise<PharmacyAlert[]> => {
+  try {
+    const all = await loadCatalogueWithStock();
+    return all.filter((m) => m.severity !== 'ok').map((m) => ({
+      medicineId: m.id,
+      medicineName: m.name,
+      strength: m.strength,
+      availableQty: m.availableQty,
+      thresholdQty: m.thresholdQty,
+      expiry: m.earliestExpiry,
+      severity: m.severity,
+    } satisfies PharmacyAlert));
+  } catch {
+    return mockPharmacyAlerts;
+  }
+};
 
 /* ---------- Back-office: catalog / batches / suppliers / GRN ---------- */
 
@@ -62,7 +168,12 @@ export const fetchMedicines = async (
   void params.page;
   void params.limit;
   void params.sort;
-  let rows = mockMedicines;
+  let rows: Medicine[];
+  try {
+    rows = await loadCatalogueWithStock();
+  } catch {
+    rows = mockMedicines;
+  }
   if (params.severities && params.severities.length > 0) {
     const set = new Set(params.severities);
     rows = rows.filter((m) => set.has(m.severity));
@@ -78,7 +189,7 @@ export const fetchMedicines = async (
         (m.drugClass ?? '').toLowerCase().includes(q),
     );
   }
-  return delay(rows);
+  return rows;
 };
 
 export const fetchMedicineBatches = async (
@@ -87,7 +198,45 @@ export const fetchMedicineBatches = async (
   void params.page;
   void params.limit;
   void params.sort;
-  let rows = mockBatchesState;
+  let rows: MedicineBatch[];
+  try {
+    const { data, error } = await supabase
+      .from('drug_stock')
+      .select(`
+        id, batch_number, mfg_date, expiry_date, purchase_price, selling_price,
+        quantity_received, quantity_available, received_date, is_blocked,
+        drug_catalogue!drug_stock_drug_id_fkey ( id, brand_name, generic_name, strength ),
+        vendors!drug_stock_vendor_id_fkey ( id, vendor_name )
+      `)
+      .order('expiry_date', { ascending: true });
+    if (error) throw new Error(error.message);
+    const dbRows = (data ?? []) as unknown as Array<{
+      id: string; batch_number: string; mfg_date: string | null; expiry_date: string;
+      purchase_price: string | number; selling_price: string | number;
+      quantity_received: number; quantity_available: number; received_date: string;
+      is_blocked: boolean;
+      drug_catalogue: { id: string; brand_name: string | null; generic_name: string; strength: string | null } | null;
+      vendors: { id: string; vendor_name: string } | null;
+    }>;
+    rows = dbRows.map((r) => ({
+      id: r.id,
+      medicineId: r.drug_catalogue?.id ?? '',
+      medicineName: r.drug_catalogue?.brand_name ?? r.drug_catalogue?.generic_name ?? '—',
+      strength: r.drug_catalogue?.strength ?? '',
+      batchNumber: r.batch_number,
+      mfgDate: r.mfg_date ?? undefined,
+      expiryDate: r.expiry_date,
+      quantityOnHand: r.quantity_available,
+      unitCost: Number(r.purchase_price),
+      unitPrice: Number(r.selling_price),
+      supplierId: r.vendors?.id ?? '',
+      supplierName: r.vendors?.vendor_name ?? '—',
+      receivedAt: r.received_date,
+      isActive: !r.is_blocked,
+    } satisfies MedicineBatch));
+  } catch {
+    rows = mockBatchesState;
+  }
   if (params.expiringBefore) {
     const cutoff = new Date(params.expiringBefore).getTime();
     rows = rows.filter((b) => new Date(b.expiryDate).getTime() <= cutoff);
@@ -101,11 +250,32 @@ export const fetchMedicineBatches = async (
         b.supplierName.toLowerCase().includes(q),
     );
   }
-  return delay(rows);
+  return rows;
 };
 
-export const fetchSuppliers = async (): Promise<Supplier[]> =>
-  delay(mockSuppliersState);
+export const fetchSuppliers = async (): Promise<Supplier[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('vendors')
+      .select('id, vendor_code, vendor_name, gstin, address, deleted_at')
+      .is('deleted_at', null)
+      .order('vendor_name', { ascending: true });
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as Array<{
+      id: string; vendor_code: string; vendor_name: string;
+      gstin: string | null; address: { line1?: string; city?: string } | null;
+    }>;
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.vendor_name,
+      gstin: r.gstin ?? undefined,
+      address: r.address ? `${r.address.line1 ?? ''}${r.address.city ? ', ' + r.address.city : ''}`.trim() : undefined,
+      isActive: true,
+    } satisfies Supplier));
+  } catch {
+    return mockSuppliersState;
+  }
+};
 
 /** Single-supplier lookup — returns `null` when the id doesn't resolve. */
 export const fetchSupplier = async (id: string): Promise<Supplier | null> => {
