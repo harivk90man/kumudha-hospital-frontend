@@ -678,6 +678,110 @@ export const updateInvoice = async (
 
 /* ---------- Payments ---------- */
 
+const PAY_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const FE_TO_DB_PAYMENT_MODE: Record<PaymentMethod, string> = {
+  cash:       'cash',
+  card:       'card',
+  upi:        'upi',
+  netbanking: 'net_banking',
+  insurance:  'other',
+};
+
+/**
+ * Persist a payment + its allocation + invoice status update to Supabase.
+ *
+ * Looks up the active cash_sessions row for the resolved counter (the
+ * payments.cash_session_id FK is NOT NULL — every payment must be tied
+ * to an open session). Returns null when:
+ *  - the invoiceId isn't a real UUID (mock-only invoice → fall back), or
+ *  - no open session exists on the counter (mirrors the FE shift lock,
+ *    but coming from a different layer of defence).
+ */
+const persistPaymentToDb = async (
+  input: RecordPaymentInput,
+  feCounterId: string,
+): Promise<{ paymentId: string; nextDbStatus: string; amountPaid: number; total: number } | null> => {
+  if (!PAY_UUID_RE.test(input.invoiceId)) return null;
+  try {
+    // Resolve counter → open cash session
+    const counterUuid = await resolveCounterUuid(feCounterId);
+    if (!counterUuid) return null;
+    const { data: openSess } = await supabase
+      .from('cash_sessions')
+      .select('id')
+      .eq('counter_id', counterUuid)
+      .eq('status', 'open')
+      .is('deleted_at', null)
+      .maybeSingle();
+    const cashSessionId = (openSess as { id: string } | null)?.id;
+    if (!cashSessionId) return null;
+
+    // Resolve invoice to confirm + read patient_id + current totals.
+    const { data: invRow, error: invErr } = await supabase
+      .from('invoices')
+      .select('id, patient_id, total_amount, amount_paid, payment_status')
+      .eq('id', input.invoiceId)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (invErr || !invRow) return null;
+    const inv = invRow as {
+      id: string; patient_id: string;
+      total_amount: number; amount_paid: number; payment_status: string;
+    };
+
+    // Insert the payment.
+    const { data: payIns, error: payErr } = await supabase
+      .from('payments')
+      .insert({
+        patient_id:        inv.patient_id,
+        payment_direction: 'in',
+        payment_mode:      FE_TO_DB_PAYMENT_MODE[input.method] ?? 'other',
+        amount:            input.amount,
+        transaction_ref:   input.referenceNo ?? null,
+        received_by:       DEMO_USER_ID,
+        cash_session_id:   cashSessionId,
+        notes:             input.notes ?? null,
+        created_by:        DEMO_USER_ID,
+      })
+      .select('id')
+      .maybeSingle();
+    if (payErr || !payIns) return null;
+    const paymentId = (payIns as { id: string }).id;
+
+    // Insert the allocation against the invoice.
+    await supabase.from('payment_allocations').insert({
+      payment_id:      paymentId,
+      allocation_type: 'invoice',
+      invoice_id:      input.invoiceId,
+      amount:          input.amount,
+      created_by:      DEMO_USER_ID,
+    });
+
+    // Bump the invoice's amount_paid + payment_status. balance is generated.
+    const newAmountPaid = Number((Number(inv.amount_paid) + input.amount).toFixed(2));
+    const newPaymentStatus = newAmountPaid >= Number(inv.total_amount) ? 'paid' : 'partially_paid';
+    await supabase.from('invoices')
+      .update({
+        amount_paid:    newAmountPaid,
+        payment_status: newPaymentStatus,
+        updated_by:     DEMO_USER_ID,
+      })
+      .eq('id', input.invoiceId);
+
+    return {
+      paymentId,
+      nextDbStatus: newPaymentStatus,
+      amountPaid: newAmountPaid,
+      total: Number(inv.total_amount),
+    };
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[recordPayment] DB persistence failed; mock-only:', e);
+    return null;
+  }
+};
+
 export const recordPayment = async (input: RecordPaymentInput): Promise<{
   invoice: Invoice;
   payment: Payment;
@@ -705,15 +809,58 @@ export const recordPayment = async (input: RecordPaymentInput): Promise<{
     );
   }
 
+  // Best-effort DB persistence. Mock invoices (synthetic ids) silently
+  // skip the DB path; the local mock state below stays authoritative for
+  // those. Real invoice UUIDs round-trip through payments +
+  // payment_allocations + invoices.amount_paid in one shot.
+  const dbResult = await persistPaymentToDb(input, counterId);
+
   const idx = mockInvoiceState.findIndex((i) => i.id === input.invoiceId);
-  if (idx < 0) throw new Error(`Invoice ${input.invoiceId} not found`);
+  if (idx < 0 && !dbResult) throw new Error(`Invoice ${input.invoiceId} not found`);
+  // DB-only invoice — synthesise a mock-shape Payment from the DB write
+  // so callers (which expect the result shape) keep working without a
+  // mockInvoiceState entry. The PaymentsPage re-reads from DB on next
+  // render so the row will show up properly.
+  if (idx < 0 && dbResult) {
+    const synthPayment: Payment = {
+      id:             dbResult.paymentId,
+      invoiceId:      input.invoiceId,
+      invoiceNumber:  '',
+      patient:        { id: '', uhid: '', firstName: '', lastName: '', fullName: '—',
+                        gender: 'o', ageYears: 0, allergies: [], chronicConditions: [] },
+      amount:         input.amount,
+      method:         input.method,
+      referenceNo:    input.referenceNo,
+      status:         'succeeded',
+      receivedBy:     DEMO_USER_ID,
+      receivedAt:     new Date().toISOString(),
+      notes:          input.notes,
+      counterId,
+    };
+    const synthInvoice: Invoice = {
+      id:             input.invoiceId,
+      invoiceNumber:  '',
+      patient:        synthPayment.patient,
+      station:        'front_desk',
+      lines:          [],
+      subtotal:       0,
+      tax:            0,
+      total:          dbResult.total,
+      balance:        Math.max(0, dbResult.total - dbResult.amountPaid),
+      status:         dbResult.nextDbStatus === 'paid' ? 'paid' : 'partially_paid',
+      createdBy:      DEMO_USER_ID,
+      createdAt:      new Date().toISOString(),
+      lastPaidAt:     synthPayment.receivedAt,
+    };
+    return { invoice: synthInvoice, payment: synthPayment };
+  }
   const inv = mockInvoiceState[idx];
   if (input.amount <= 0) throw new Error('Amount must be positive');
   if (input.amount > inv.balance) throw new Error('Amount exceeds outstanding balance');
 
   paymentSeq += 1;
   const payment: Payment = {
-    id: `pay-${paymentSeq}`,
+    id: dbResult?.paymentId ?? `pay-${paymentSeq}`,
     invoiceId: inv.id,
     invoiceNumber: inv.invoiceNumber,
     patient: inv.patient,
