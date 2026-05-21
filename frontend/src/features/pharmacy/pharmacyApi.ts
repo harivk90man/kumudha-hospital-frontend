@@ -63,7 +63,9 @@ interface SbRxRow {
     blood_group: string | null;
   } | null;
   users: { full_name: string } | null;
-  op_visits: { op_number: string } | null;
+  // prescriptions has no direct FK to op_visits — op_number is reached
+  // via the consultation_id → op_visit_id chain.
+  consultations: { op_visits: { op_number: string } | null } | null;
   prescription_items: Array<{
     id: string; medicine_id: string; medicine_name_snapshot: string;
     dosage: string; frequency: string; duration_days: number;
@@ -83,7 +85,7 @@ const mapRxRow = (r: SbRxRow): RxQueueEntry => {
   return {
     id: r.id,
     prescriptionNumber: `RX-${r.id.slice(0, 8).toUpperCase()}`,
-    opNumber: r.op_visits?.op_number ?? '—',
+    opNumber: r.consultations?.op_visits?.op_number ?? '—',
     patient: p ? {
       id: p.id, uhid: p.uhid,
       firstName: p.first_name, lastName: p.last_name,
@@ -137,7 +139,7 @@ export const fetchRxQueue = async (
         id, status, locked_at, created_at,
         patients!prescriptions_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
         users:users!prescriptions_doctor_id_fkey ( full_name ),
-        op_visits ( op_number ),
+        consultations ( op_visits ( op_number ) ),
         prescription_items ( id, medicine_id, medicine_name_snapshot, dosage, frequency, duration_days, quantity_prescribed, sequence_no )
       `)
       .is('deleted_at', null)
@@ -186,7 +188,7 @@ export const fetchRx = async (id: string): Promise<RxQueueEntry | null> => {
         id, status, locked_at, created_at,
         patients!prescriptions_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
         users:users!prescriptions_doctor_id_fkey ( full_name ),
-        op_visits ( op_number ),
+        consultations ( op_visits ( op_number ) ),
         prescription_items ( id, medicine_id, medicine_name_snapshot, dosage, frequency, duration_days, quantity_prescribed, sequence_no )
       `)
       .eq('id', id)
@@ -267,7 +269,7 @@ export const fetchPatientPrescriptionHistory = async (
           id, status, locked_at, created_at,
           patients!prescriptions_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
           users:users!prescriptions_doctor_id_fkey ( full_name ),
-          op_visits ( op_number ),
+          consultations ( op_visits ( op_number ) ),
           prescription_items ( id, medicine_id, medicine_name_snapshot, dosage, frequency, duration_days, quantity_prescribed, sequence_no )
         `)
         .eq('patient_id', patientId)

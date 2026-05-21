@@ -152,9 +152,15 @@ interface ShiftOpenDbInput {
 
 /**
  * Persist a shift-open event to Supabase as an `open` cash_sessions row.
- * Best-effort: returns the new session UUID on success, null on failure
- * (unique constraint, missing counter, etc.). Local Zustand store
- * still owns the UI state regardless.
+ *
+ * The table enforces `uq_cash_sessions_counter_active` (only one row with
+ * status='open' per counter) so we first check for an existing open
+ * session on this counter and skip the insert when one is already there
+ * — opening from another tab / a previous demo run is a no-op rather
+ * than a 409.
+ *
+ * Returns the session UUID (new or pre-existing) on success, null when
+ * the counter can't be resolved or the insert genuinely fails.
  */
 export const recordShiftOpenInDb = async (
   input: ShiftOpenDbInput,
@@ -163,6 +169,17 @@ export const recordShiftOpenInDb = async (
     const { supabase, DEMO_USER_ID } = await import('@/lib/supabase/supabaseClient');
     const counterUuid = await resolveCounterUuid(input.feCounterId);
     if (!counterUuid) return null;
+
+    // Already an open session on this counter? Return its id and bail.
+    const { data: existing } = await supabase
+      .from('cash_sessions')
+      .select('id')
+      .eq('counter_id', counterUuid)
+      .eq('status', 'open')
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (existing) return (existing as { id: string }).id;
+
     const sessionNo = `SES-${input.shiftDate.replace(/-/g, '')}-${input.shiftType.slice(0, 3).toUpperCase()}-${Date.now().toString(36).slice(-4)}`;
     const { data, error } = await supabase
       .from('cash_sessions').insert({
