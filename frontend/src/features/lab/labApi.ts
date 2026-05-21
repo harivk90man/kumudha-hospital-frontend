@@ -3,11 +3,13 @@ import type {
   LabOrder,
   LabOrderQueueEntry,
   LabOrdersListParams,
+  LabResultFlag,
   LabTestCatalogItem,
   LabTestPanel,
   OrderStatus,
   RecordLabResultInput,
 } from './labTypes';
+import { supabase } from '@/lib/supabase/supabaseClient';
 import { mockLabOrderQueue } from './__mocks__/labMocks';
 import {
   mockLabCatalog,
@@ -231,13 +233,99 @@ export const acknowledgeNotification = async (
 
 /* ---------- Lab-tech actor flows (TSD-08 §4.6 transitions) ---------- */
 
+interface SbLabOrderRow {
+  id: string;
+  order_number: string;
+  priority: string;
+  status: string;
+  created_at: string;
+  completed_at: string | null;
+  op_visits: { op_number: string } | null;
+  patients: {
+    id: string; uhid: string; first_name: string; last_name: string;
+    gender: string; date_of_birth: string | null; mobile: string | null;
+    blood_group: string | null;
+  } | null;
+  lab_order_items: Array<{
+    id: string; status: string; sequence_no: number;
+    lab_tests: { test_code: string; test_name: string; sample_type: string; requires_fasting: boolean; sample_volume_ml: number | null } | null;
+    lab_results: Array<{ value_numeric: number | string | null; value_raw: string | null; unit: string | null; flag: string | null; release_status: string }>;
+  }>;
+}
+
+const ageFromDob = (dob: string | null): number => {
+  if (!dob) return 0;
+  const d = new Date(dob); const n = new Date();
+  return Math.max(0, n.getFullYear() - d.getFullYear() -
+    (n < new Date(n.getFullYear(), d.getMonth(), d.getDate()) ? 1 : 0));
+};
+
+const mapLabOrderRow = (r: SbLabOrderRow): LabOrderQueueEntry[] => {
+  const p = r.patients;
+  const patient: import('@/features/patient').PatientSummary = p ? {
+    id: p.id, uhid: p.uhid,
+    firstName: p.first_name, lastName: p.last_name,
+    fullName: `${p.first_name} ${p.last_name}`.trim(),
+    gender: p.gender as 'm' | 'f' | 'o',
+    ageYears: ageFromDob(p.date_of_birth),
+    mobile: p.mobile ?? undefined,
+    bloodGroup: p.blood_group ?? undefined,
+    allergies: [], chronicConditions: [],
+  } : { id: '', uhid: '', firstName: '', lastName: '', fullName: '—', gender: 'o', ageYears: 0, allergies: [], chronicConditions: [] };
+
+  return r.lab_order_items.map((it) => {
+    const result = it.lab_results[0];
+    return {
+      id: `${r.id}-${it.id}`,
+      opNumber: r.op_visits?.op_number ?? '—',
+      patient,
+      testCode: it.lab_tests?.test_code ?? '—',
+      testName: it.lab_tests?.test_name ?? '—',
+      specimen: it.lab_tests?.sample_type ?? '',
+      requiresFasting: it.lab_tests?.requires_fasting,
+      sampleVolumeMl: it.lab_tests?.sample_volume_ml ?? undefined,
+      clinicalPriority: r.priority as 'routine' | 'urgent' | 'stat',
+      status: it.status as OrderStatus,
+      orderedAt: r.created_at,
+      reportedAt: r.completed_at ?? undefined,
+      releasedAt: r.completed_at ?? undefined,
+      resultSummary: result?.value_raw ?? undefined,
+      resultNumeric: result?.value_numeric != null ? Number(result.value_numeric) : undefined,
+      resultUnit: result?.unit ?? undefined,
+      flag: (result?.flag as LabResultFlag | undefined) ?? undefined,
+    } satisfies LabOrderQueueEntry;
+  });
+};
+
 export const fetchLabOrderQueue = async (
   params: LabOrdersListParams = {},
 ): Promise<LabOrderQueueEntry[]> => {
   void params.page;
   void params.limit;
   void params.sort;
-  let rows = mockQueueState;
+  let rows: LabOrderQueueEntry[];
+  try {
+    const { data, error } = await supabase
+      .from('lab_orders')
+      .select(`
+        id, order_number, priority, status, created_at, completed_at,
+        op_visits!lab_orders_op_visit_id_fkey ( op_number ),
+        patients!lab_orders_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
+        lab_order_items (
+          id, status, sequence_no,
+          lab_tests ( test_code, test_name, sample_type, requires_fasting, sample_volume_ml ),
+          lab_results ( value_numeric, value_raw, unit, flag, release_status )
+        )
+      `)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(200);
+    if (error) throw new Error(error.message);
+    rows = ((data ?? []) as unknown as SbLabOrderRow[]).flatMap(mapLabOrderRow);
+  } catch {
+    rows = mockQueueState;
+  }
+
   if (params.statuses && params.statuses.length > 0) {
     const set = new Set(params.statuses);
     rows = rows.filter((r) => set.has(r.status));
@@ -258,7 +346,7 @@ export const fetchLabOrderQueue = async (
         r.opNumber.toLowerCase().includes(q),
     );
   }
-  return delay(rows);
+  return rows;
 };
 
 /**
