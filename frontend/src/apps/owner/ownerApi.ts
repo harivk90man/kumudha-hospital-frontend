@@ -1,49 +1,30 @@
 /**
- * Owner-app analytics aggregations. Mocked today; signatures match
- * the planned backend contract (TSD-12 invoices + TSD-04 op_visits +
- * TSD-01 doctor_profiles join).
+ * Owner-app analytics aggregations.
+ * DEMO MODE: queries Supabase directly (via @/lib/supabase/supabaseClient).
  *
- * All reads are date-range bounded — the caller resolves a preset
- * (`utils/dateRange.resolveDateRange`) into absolute from/to and we
- * filter on `Invoice.createdAt` (day precision). Δ-vs-prior is not
- * computed here; the caller pulls current + previous separately and
- * derives % change with `pctChange()`.
- *
- * Real backend: every aggregate lands on a server-side SQL query
- * grouping `invoice_lines` joined with `op_visits` (for doctor/dept)
- * and `services_catalog` (for category/code). Mock joins via the
- * exported `mockOpVisitDoctor` map.
+ * Each aggregation joins `invoices → op_visits → users(doctor) → departments`
+ * and `invoices → invoice_items` server-side, then computes the rollups
+ * in JS. Real backend would push this entirely into SQL (and we may
+ * later, but this keeps the demo simple).
  */
 
-import {
-  fetchInvoices,
-  fetchPayments,
-  type Invoice,
-  type Payment,
-  type ServiceCategory,
-} from '@/features/billing';
-import { mockOpVisitDoctor } from '@/features/encounter';
-import { inRange, type DateRange } from '@/utils/dateRange';
+import type { ServiceCategory } from '@/features/billing';
+import type { DateRange } from '@/utils/dateRange';
+import { supabase } from '@/lib/supabase/supabaseClient';
 
-/* ---------- Types ---------- */
+/* ---------- Types (unchanged) ---------- */
 
 export interface RevenueOverview {
-  /** Sum of `Invoice.total` (incl. GST) issued in the period. */
   billed: number;
-  /** Sum of successful payments (positive amounts). */
   collected: number;
-  /** Sum of refunds (negative payments) as a positive figure. */
   refunded: number;
-  /** Count of invoices issued in the period. */
   invoiceCount: number;
-  /** Count of distinct patients invoiced in the period. */
   patientCount: number;
 }
 
 export interface CategoryBreakdown {
   category: ServiceCategory;
   amount: number;
-  /** Share of the period total, 0-1. */
   share: number;
 }
 
@@ -72,57 +53,125 @@ export interface TopService {
   amount: number;
 }
 
-/* ---------- Internals ---------- */
+/* ---------- DB-row shapes ---------- */
 
-const lineTotalIncGst = (lineTotal: number, gstPct: number): number =>
-  lineTotal + (lineTotal * gstPct) / 100;
+interface AggInvoiceRow {
+  id: string;
+  total_amount: string | number;
+  patient_id: string;
+  created_at: string;
+  payment_status: string;
+  op_visits: {
+    op_number: string;
+    doctor_id: string;
+    users: {
+      id: string;
+      full_name: string;
+      department_id: string | null;
+      departments: { dept_name: string } | null;
+    } | null;
+  } | null;
+}
 
-const dayOf = (iso: string): string => iso.slice(0, 10);
+interface AggInvoiceItemRow {
+  invoice_id: string;
+  item_type: string;
+  item_name: string;
+  service_id: string | null;
+  quantity: number;
+  total_price: string | number;
+  services: { service_code: string; service_name: string } | null;
+}
 
-const filterInvoicesByRange = (invoices: Invoice[], range: DateRange): Invoice[] =>
-  invoices.filter((i) => inRange(dayOf(i.createdAt), range));
+interface AggPaymentRow {
+  amount: string | number;
+  created_at: string;
+  payment_allocations: { invoice_id: string | null }[];
+}
 
-const filterPaymentsByRange = (payments: Payment[], range: DateRange): Payment[] =>
-  payments.filter((p) => inRange(dayOf(p.receivedAt), range));
+const ITEM_TYPE_TO_CATEGORY: Record<string, ServiceCategory> = {
+  consultation: 'consultation',
+  lab_test:     'lab',
+  lab_panel:    'lab',
+  radiology:    'radiology',
+  drug:         'pharmacy',
+  procedure:    'procedure',
+  room_charge:  'admission',
+  nursing:      'admission',
+  consumable:   'other',
+  ambulance:    'other',
+  other:        'other',
+};
+
+const dayLo = (d: string): string => `${d}T00:00:00`;
+const dayHi = (d: string): string => `${d}T23:59:59`;
 
 /* ---------- Public aggregates ---------- */
 
 export const fetchRevenueOverview = async (
   range: DateRange,
 ): Promise<RevenueOverview> => {
-  const [allInvoices, allPayments] = await Promise.all([
-    fetchInvoices({}),
-    fetchPayments({}),
-  ]);
-  const invs = filterInvoicesByRange(allInvoices, range);
-  const pays = filterPaymentsByRange(allPayments, range).filter(
-    (p) => p.status === 'succeeded',
-  );
+  const { data: invs, error: e1 } = await supabase
+    .from('invoices')
+    .select('id, total_amount, patient_id, created_at')
+    .gte('created_at', dayLo(range.from))
+    .lte('created_at', dayHi(range.to))
+    .is('deleted_at', null);
+  if (e1) throw new Error(e1.message);
 
-  const collected = pays.reduce((s, p) => s + Math.max(p.amount, 0), 0);
-  const refunded = pays.reduce((s, p) => s + Math.max(-p.amount, 0), 0);
-  const billed = invs.reduce((s, i) => s + i.total, 0);
-  const patientCount = new Set(invs.map((i) => i.patient.uhid)).size;
+  const { data: pays, error: e2 } = await supabase
+    .from('payments')
+    .select('amount, created_at, payment_direction')
+    .gte('created_at', dayLo(range.from))
+    .lte('created_at', dayHi(range.to))
+    .is('deleted_at', null);
+  if (e2) throw new Error(e2.message);
+
+  const invRows = (invs ?? []) as { id: string; total_amount: string | number; patient_id: string }[];
+  const payRows = (pays ?? []) as { amount: string | number; payment_direction: string }[];
+
+  const billed = invRows.reduce((s, r) => s + Number(r.total_amount), 0);
+  const collected = payRows
+    .filter((p) => p.payment_direction === 'in')
+    .reduce((s, p) => s + Number(p.amount), 0);
+  const refunded = payRows
+    .filter((p) => p.payment_direction === 'out')
+    .reduce((s, p) => s + Number(p.amount), 0);
 
   return {
     billed,
     collected,
     refunded,
-    invoiceCount: invs.length,
-    patientCount,
+    invoiceCount: invRows.length,
+    patientCount: new Set(invRows.map((r) => r.patient_id)).size,
   };
 };
 
 export const fetchRevenueByCategory = async (
   range: DateRange,
 ): Promise<CategoryBreakdown[]> => {
-  const all = await fetchInvoices({});
-  const invs = filterInvoicesByRange(all, range);
+  // Pull invoice_items joined to invoices for date filtering.
+  const { data, error } = await supabase
+    .from('invoice_items')
+    .select(`
+      invoice_id, item_type, total_price,
+      invoices!inner ( id, created_at, deleted_at )
+    `)
+    .gte('invoices.created_at', dayLo(range.from))
+    .lte('invoices.created_at', dayHi(range.to))
+    .is('invoices.deleted_at', null)
+    .is('deleted_at', null);
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as unknown as {
+    item_type: string;
+    total_price: string | number;
+  }[];
+
   const totals: Partial<Record<ServiceCategory, number>> = {};
-  for (const inv of invs) {
-    for (const l of inv.lines) {
-      totals[l.category] = (totals[l.category] ?? 0) + lineTotalIncGst(l.lineTotal, l.gstPct);
-    }
+  for (const r of rows) {
+    const cat = ITEM_TYPE_TO_CATEGORY[r.item_type] ?? 'other';
+    totals[cat] = (totals[cat] ?? 0) + Number(r.total_price);
   }
   const grand = Object.values(totals).reduce<number>((s, v) => s + (v ?? 0), 0);
   return Object.entries(totals)
@@ -137,24 +186,27 @@ export const fetchRevenueByCategory = async (
 export const fetchRevenueByDepartment = async (
   range: DateRange,
 ): Promise<DepartmentBreakdown[]> => {
-  const all = await fetchInvoices({});
-  const invs = filterInvoicesByRange(all, range);
-  const acc = new Map<
-    string,
-    { amount: number; invoiceCount: number; doctors: Set<string> }
-  >();
-  for (const inv of invs) {
-    const join = inv.opNumber ? mockOpVisitDoctor[inv.opNumber] : undefined;
-    if (!join) continue; // walk-in without doctor join — exclude from dept rollup
-    const cur = acc.get(join.department) ?? {
-      amount: 0,
-      invoiceCount: 0,
-      doctors: new Set<string>(),
-    };
-    cur.amount += inv.total;
+  const { data, error } = await supabase
+    .from('invoices')
+    .select(`
+      id, total_amount, created_at, op_visit_id,
+      op_visits!inner ( doctor_id, users!op_visits_doctor_id_fkey ( id, full_name, department_id, departments!fk_users_department ( dept_name ) ) )
+    `)
+    .gte('created_at', dayLo(range.from))
+    .lte('created_at', dayHi(range.to))
+    .is('deleted_at', null);
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as unknown as AggInvoiceRow[];
+  const acc = new Map<string, { amount: number; invoiceCount: number; doctors: Set<string> }>();
+  for (const r of rows) {
+    const dept = r.op_visits?.users?.departments?.dept_name ?? 'Unknown';
+    const docId = r.op_visits?.doctor_id ?? '';
+    const cur = acc.get(dept) ?? { amount: 0, invoiceCount: 0, doctors: new Set<string>() };
+    cur.amount += Number(r.total_amount);
     cur.invoiceCount += 1;
-    cur.doctors.add(join.doctorId);
-    acc.set(join.department, cur);
+    if (docId) cur.doctors.add(docId);
+    acc.set(dept, cur);
   }
   const grand = Array.from(acc.values()).reduce((s, v) => s + v.amount, 0);
   return Array.from(acc.entries())
@@ -171,32 +223,34 @@ export const fetchRevenueByDepartment = async (
 export const fetchRevenueByDoctor = async (
   range: DateRange,
 ): Promise<DoctorBreakdown[]> => {
-  const all = await fetchInvoices({});
-  const invs = filterInvoicesByRange(all, range);
-  const acc = new Map<
-    string,
-    {
-      doctorName: string;
-      department: string;
-      amount: number;
-      invoiceCount: number;
-      patients: Set<string>;
-    }
-  >();
-  for (const inv of invs) {
-    const join = inv.opNumber ? mockOpVisitDoctor[inv.opNumber] : undefined;
-    if (!join) continue;
-    const cur = acc.get(join.doctorId) ?? {
-      doctorName: join.doctorName,
-      department: join.department,
-      amount: 0,
-      invoiceCount: 0,
-      patients: new Set<string>(),
+  const { data, error } = await supabase
+    .from('invoices')
+    .select(`
+      id, total_amount, patient_id, created_at,
+      op_visits!inner ( doctor_id, users!op_visits_doctor_id_fkey ( id, full_name, departments!fk_users_department ( dept_name ) ) )
+    `)
+    .gte('created_at', dayLo(range.from))
+    .lte('created_at', dayHi(range.to))
+    .is('deleted_at', null);
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as unknown as AggInvoiceRow[];
+  const acc = new Map<string, {
+    doctorName: string; department: string;
+    amount: number; invoiceCount: number; patients: Set<string>;
+  }>();
+  for (const r of rows) {
+    const doc = r.op_visits?.users;
+    if (!doc) continue;
+    const cur = acc.get(doc.id) ?? {
+      doctorName: doc.full_name,
+      department: doc.departments?.dept_name ?? '—',
+      amount: 0, invoiceCount: 0, patients: new Set<string>(),
     };
-    cur.amount += inv.total;
+    cur.amount += Number(r.total_amount);
     cur.invoiceCount += 1;
-    cur.patients.add(inv.patient.uhid);
-    acc.set(join.doctorId, cur);
+    cur.patients.add(r.patient_id);
+    acc.set(doc.id, cur);
   }
   return Array.from(acc.entries())
     .map(([doctorId, v]) => ({
@@ -214,24 +268,35 @@ export const fetchTopServices = async (
   range: DateRange,
   limit = 10,
 ): Promise<TopService[]> => {
-  const all = await fetchInvoices({});
-  const invs = filterInvoicesByRange(all, range);
-  const acc = new Map<
-    string,
-    { serviceName: string; category: ServiceCategory; quantity: number; amount: number }
-  >();
-  for (const inv of invs) {
-    for (const l of inv.lines) {
-      const cur = acc.get(l.serviceCode) ?? {
-        serviceName: l.serviceName,
-        category: l.category,
-        quantity: 0,
-        amount: 0,
-      };
-      cur.quantity += l.quantity;
-      cur.amount += lineTotalIncGst(l.lineTotal, l.gstPct);
-      acc.set(l.serviceCode, cur);
-    }
+  const { data, error } = await supabase
+    .from('invoice_items')
+    .select(`
+      item_type, item_name, quantity, total_price,
+      services ( service_code, service_name ),
+      invoices!inner ( id, created_at, deleted_at )
+    `)
+    .gte('invoices.created_at', dayLo(range.from))
+    .lte('invoices.created_at', dayHi(range.to))
+    .is('invoices.deleted_at', null)
+    .is('deleted_at', null);
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as unknown as AggInvoiceItemRow[];
+  const acc = new Map<string, {
+    serviceName: string; category: ServiceCategory;
+    quantity: number; amount: number;
+  }>();
+  for (const r of rows) {
+    const code = r.services?.service_code ?? r.item_type.toUpperCase();
+    const cat  = ITEM_TYPE_TO_CATEGORY[r.item_type] ?? 'other';
+    const cur = acc.get(code) ?? {
+      serviceName: r.services?.service_name ?? r.item_name,
+      category: cat,
+      quantity: 0, amount: 0,
+    };
+    cur.quantity += r.quantity;
+    cur.amount += Number(r.total_price);
+    acc.set(code, cur);
   }
   return Array.from(acc.entries())
     .map(([serviceCode, v]) => ({
@@ -244,3 +309,6 @@ export const fetchTopServices = async (
     .sort((a, b) => b.amount - a.amount)
     .slice(0, limit);
 };
+
+/* Mark unused imports to satisfy strict tsc */
+export type _AggPaymentRow = AggPaymentRow;

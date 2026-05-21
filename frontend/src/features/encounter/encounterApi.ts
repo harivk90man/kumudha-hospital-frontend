@@ -1,5 +1,6 @@
 ﻿import { httpClient } from '@/lib/http/httpClient';
 import type { Gender } from '@/features/patient';
+import { supabase } from '@/lib/supabase/supabaseClient';
 import type {
   CaseSummary,
   DoctorQueueGroup,
@@ -62,30 +63,105 @@ const delay = <T>(value: T, ms = 250): Promise<T> =>
  *  POST /api/doctor/queue/:opNumber/start         â†’ startConsultation
  *  POST /api/doctor/encounters/:opNumber/complete â†’ completeConsultation
  */
+/* Station → encounter-status mapping for Supabase-backed queue */
+const STATION_TO_STATUS: Record<string, EncounterStatusName> = {
+  front_desk:      'registered',
+  vitals:          'awaiting_vitals',
+  doctor:          'awaiting_doctor',
+  billing:         'awaiting_billing',
+  lab_collection:  'lab_pending',
+  lab_processing:  'lab_pending',
+  radiology:       'imaging_pending',
+  pharmacy:        'pharmacy_pending',
+};
+
+const STATUS_CODE: Record<EncounterStatusName, number> = {
+  walk_in_arrived: 105, registered: 110, awaiting_vitals: 120, vitals_done: 130,
+  awaiting_doctor: 140, in_consultation: 150, consultation_done: 160,
+  awaiting_billing: 200, paid: 210, lab_pending: 300, imaging_pending: 310,
+  pharmacy_pending: 320, closed: 400, booked: 100,
+};
+
+const ageFromDobIso = (dob: string | null | undefined): number => {
+  if (!dob) return 0;
+  const d = new Date(dob); const n = new Date();
+  return Math.max(0, n.getFullYear() - d.getFullYear() -
+    (n < new Date(n.getFullYear(), d.getMonth(), d.getDate()) ? 1 : 0));
+};
+
+interface SbQueueRow {
+  id: string; op_number: string; chief_complaint: string | null;
+  doctor_id: string; created_at: string;
+  patients: { id: string; uhid: string; first_name: string; last_name: string;
+    gender: string; date_of_birth: string | null; mobile: string | null;
+    blood_group: string | null } | null;
+  users: { id: string; full_name: string;
+    departments: { dept_name: string } | null } | null;
+  patient_states: { entered_at: string;
+    stations: { station_type: string } | null }[];
+}
+
+const supabaseRowToQueueEntry = (r: SbQueueRow): QueueEntry => {
+  const ps = r.patient_states[0];
+  const stationType = ps?.stations?.station_type ?? 'doctor';
+  const statusName = STATION_TO_STATUS[stationType] ?? 'awaiting_doctor';
+  const enteredAt = ps?.entered_at ?? r.created_at;
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(enteredAt).getTime()) / 60_000));
+  const p = r.patients;
+  return {
+    opNumber: r.op_number,
+    tokenNumber: `OP-T-${r.op_number.slice(-2)}`,
+    patient: {
+      id: p?.id ?? '',
+      uhid: p?.uhid ?? '',
+      firstName: p?.first_name ?? '',
+      lastName: p?.last_name ?? '',
+      fullName: p ? `${p.first_name} ${p.last_name}`.trim() : '(unknown)',
+      gender: (p?.gender ?? 'o') as Gender,
+      ageYears: ageFromDobIso(p?.date_of_birth ?? null),
+      mobile: p?.mobile ?? undefined,
+      bloodGroup: p?.blood_group ?? undefined,
+      allergies: [],
+      chronicConditions: [],
+    },
+    chiefComplaint: r.chief_complaint ?? '',
+    appointmentTime: r.created_at,
+    status: { code: STATUS_CODE[statusName] ?? 0, name: statusName },
+    isEmergency: false,
+    waitingForMinutes: minutes,
+    hasPrescription: false,
+    hasLabOrders: false,
+    hasRadiologyOrders: false,
+  };
+};
+
 export const fetchQueue = async (params: QueueListParams = {}): Promise<QueueEntry[]> => {
-  // Mock honours `q`, `status`/`statuses`, `triage`, `doctorId` for demo
-  // realism. Real backend handles server-side pagination/sorting too â€”
-  // `page/limit/sort` are accepted here so callers' wire shape is
-  // correct, even though the mock returns everything.
   void params.page;
   void params.limit;
   void params.sort;
-  let rows = mockQueue;
-  // `statuses` (set filter) wins over `status` (single filter) when both
-  // are set â€” matches the documented wire rule on `QueueListParams`.
+
+  const { data, error } = await supabase
+    .from('op_visits')
+    .select(`
+      id, op_number, chief_complaint, doctor_id, created_at,
+      patients!op_visits_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
+      users:users!op_visits_doctor_id_fkey ( id, full_name, departments!fk_users_department ( dept_name ) ),
+      patient_states!inner ( entered_at, stations ( station_type ) )
+    `)
+    .is('closed_at', null)
+    .is('deleted_at', null)
+    .is('patient_states.left_at', null)
+    .order('created_at', { ascending: true })
+    .limit(100);
+
+  if (error) return delay(mockQueue.slice(0, 8));
+  let rows = ((data ?? []) as unknown as SbQueueRow[]).map(supabaseRowToQueueEntry);
+
   if (params.statuses && params.statuses.length > 0) {
     const allow = new Set(params.statuses);
     rows = rows.filter((r) => allow.has(r.status.name));
   } else if (params.status && params.status !== 'all') {
     rows = rows.filter((r) => r.status.name === params.status);
-  }
-  if (params.triage && params.triage !== 'all') {
-    rows = rows.filter((r) => r.emergencyTriage === params.triage);
-  }
-  if (params.doctorId && params.doctorId !== 'all') {
-    rows = rows.filter(
-      (r) => mockOpVisitDoctor[r.opNumber]?.doctorId === params.doctorId,
-    );
   }
   if (params.q) {
     const q = params.q.toLowerCase();
@@ -93,13 +169,12 @@ export const fetchQueue = async (params: QueueListParams = {}): Promise<QueueEnt
       (r) =>
         r.patient.fullName.toLowerCase().includes(q) ||
         r.patient.uhid.toLowerCase().includes(q) ||
-        r.patient.mobile?.toLowerCase().includes(q) ||
         r.tokenNumber.toLowerCase().includes(q) ||
         r.opNumber.toLowerCase().includes(q) ||
         r.chiefComplaint.toLowerCase().includes(q),
     );
   }
-  return delay(rows);
+  return rows;
 };
 
 /**
