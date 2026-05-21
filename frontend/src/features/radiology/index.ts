@@ -11,6 +11,7 @@ export {
   transitionRadiologyOrder,
   recordRadiologyResult,
   releaseRadiologyOrder,
+  updateRadiologyOrderPriority,
 } from './radiologyApi';
 export type {
   RadiologyOrder,

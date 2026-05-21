@@ -4,6 +4,7 @@ import { cn } from '@/utils/cn';
 import {
   fetchLabCatalog,
   placeLabOrder,
+  updateLabOrderPriority,
   type ClinicalPriority,
   type LabOrder,
   type LabTestCatalogItem,
@@ -11,6 +12,7 @@ import {
 import {
   fetchRadiologyCatalog,
   placeRadiologyOrder,
+  updateRadiologyOrderPriority,
   type RadiologyOrder,
   type RadiologyTestCatalogItem,
 } from '@/features/radiology';
@@ -225,10 +227,16 @@ export function OrdersPanel({
     if (!PRIORITY_OPTIONS.some((p) => p.value === trimmed)) return cancelEdit();
     if (order.clinicalPriority === trimmed) return cancelEdit();
 
+    // Optimistic UI: update the consultation context immediately so the
+    // pill repaints without waiting for the round-trip. Persist to
+    // Supabase in the background — a synthetic (mock) id silently no-ops
+    // inside the API helper, so doctor-side drafts still behave.
     if (kind === 'lab') {
       onUpdateLab({ ...(order as LabOrder), clinicalPriority: trimmed });
+      void updateLabOrderPriority(order.id, trimmed);
     } else {
       onUpdateRadiology({ ...(order as RadiologyOrder), clinicalPriority: trimmed });
+      void updateRadiologyOrderPriority(order.id, trimmed);
     }
     cancelEdit();
   };

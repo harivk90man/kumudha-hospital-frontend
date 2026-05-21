@@ -356,6 +356,30 @@ const updateQueue = (
   return updated;
 };
 
+/**
+ * Patch radiology_orders.priority on Supabase. Doctor-side ad-hoc orders
+ * may not be persisted yet (synthetic ids); only attempt the write when
+ * the id looks like a real UUID. Returns false on no-op / failure so
+ * the caller still owns the in-memory consultation update.
+ */
+export const updateRadiologyOrderPriority = async (
+  id: string,
+  priority: ClinicalPriority,
+): Promise<boolean> => {
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(id)) return false;
+  try {
+    const { supabase } = await import('@/lib/supabase/supabaseClient');
+    const { error } = await supabase
+      .from('radiology_orders')
+      .update({ priority })
+      .eq('id', id);
+    return !error;
+  } catch {
+    return false;
+  }
+};
+
 // FE OrderStatus -> DB radiology_orders.status mapping (DB has more states)
 const FE_TO_DB_RAD_STATUS: Record<string, string> = {
   ordered:       'ordered',

@@ -15,6 +15,7 @@ export {
   transitionLabOrder,
   recordLabResult,
   releaseLabOrder,
+  updateLabOrderPriority,
 } from './labApi';
 export { ResultFlagChip } from './components/ResultFlagChip';
 export { LabResultReadOnlyView } from './components/LabResultReadOnlyView';

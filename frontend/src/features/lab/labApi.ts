@@ -438,6 +438,33 @@ const DB_ORDER_STATUSES: ReadonlySet<string> = new Set([
   'ordered','paid','sample_collection','sample_collected','in_progress','partially_reported','reported','released','cancelled',
 ]);
 
+/**
+ * Patch lab_orders.priority on Supabase. Accepts both the FE synthetic
+ * id (`<orderUuid>-<itemUuid>`, 73 chars) used by the lab-tech worklist
+ * AND the raw lab_order UUID written from the doctor's consultation
+ * panel. Returns false silently when the id is purely synthetic (e.g.
+ * a doctor-side mock order that hasn't been persisted yet) so the
+ * caller can still update the in-memory consultation context.
+ */
+export const updateLabOrderPriority = async (
+  id: string,
+  priority: ClinicalPriority,
+): Promise<boolean> => {
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const split = splitLabSyntheticId(id);
+  const targetUuid = split?.orderId ?? (UUID_RE.test(id) ? id : null);
+  if (!targetUuid) return false;
+  try {
+    const { error } = await supabase
+      .from('lab_orders')
+      .update({ priority })
+      .eq('id', targetUuid);
+    return !error;
+  } catch {
+    return false;
+  }
+};
+
 /** Persist a transition to the lab_order_items row AND to lab_orders if applicable. */
 export const transitionLabOrder = async (
   id: string,
