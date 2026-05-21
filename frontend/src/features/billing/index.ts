@@ -18,6 +18,8 @@ export {
   fetchPaymentsPaged,
   fetchCounters,
   resolveLineDiscount,
+  recordShiftOpenInDb,
+  recordShiftCloseInDb,
 } from './billingApi';
 export { InvoicePaymentPanel } from './components/InvoicePaymentPanel';
 export { PaymentPage } from './PaymentPage';

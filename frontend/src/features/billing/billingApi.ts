@@ -120,6 +120,125 @@ export const fetchCounters = async (): Promise<Counter[]> => {
   return delay(mockCounters.filter((c) => c.isActive));
 };
 
+/* ---------- Cash session (shift open / close) ---------- */
+
+/**
+ * Resolve the DB counter UUID for a FE counterId. Mock counter ids
+ * ('cnt-001' etc.) don't exist in cash_counters, so we fall back to
+ * the first active counter (single-tenant demo: there's only TILL-1).
+ */
+const resolveCounterUuid = async (
+  feCounterId: string,
+): Promise<string | null> => {
+  try {
+    const { supabase } = await import('@/lib/supabase/supabaseClient');
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (UUID_RE.test(feCounterId)) return feCounterId;
+    const { data } = await supabase
+      .from('cash_counters').select('id').is('deleted_at', null).limit(1).maybeSingle();
+    return (data as { id: string } | null)?.id ?? null;
+  } catch {
+    return null;
+  }
+};
+
+interface ShiftOpenDbInput {
+  feCounterId:   string;
+  shiftType:     'morning' | 'evening';
+  shiftDate:     string;       // yyyy-mm-dd
+  openingFloat:  number;
+  openedByName:  string;
+}
+
+/**
+ * Persist a shift-open event to Supabase as an `open` cash_sessions row.
+ * Best-effort: returns the new session UUID on success, null on failure
+ * (unique constraint, missing counter, etc.). Local Zustand store
+ * still owns the UI state regardless.
+ */
+export const recordShiftOpenInDb = async (
+  input: ShiftOpenDbInput,
+): Promise<string | null> => {
+  try {
+    const { supabase, DEMO_USER_ID } = await import('@/lib/supabase/supabaseClient');
+    const counterUuid = await resolveCounterUuid(input.feCounterId);
+    if (!counterUuid) return null;
+    const sessionNo = `SES-${input.shiftDate.replace(/-/g, '')}-${input.shiftType.slice(0, 3).toUpperCase()}-${Date.now().toString(36).slice(-4)}`;
+    const { data, error } = await supabase
+      .from('cash_sessions').insert({
+        counter_id:     counterUuid,
+        session_number: sessionNo,
+        session_label:  input.shiftType,
+        business_date:  input.shiftDate,
+        opened_by:      DEMO_USER_ID,
+        status:         'open',
+        opening_float:  input.openingFloat,
+        created_by:     DEMO_USER_ID,
+      })
+      .select('id').maybeSingle();
+    if (error || !data) return null;
+    return (data as { id: string }).id;
+  } catch {
+    return null;
+  }
+};
+
+interface ShiftCloseDbInput {
+  feCounterId:    string;
+  shiftType:      'morning' | 'evening';
+  shiftDate:      string;
+  countedCash:    number;
+  expectedCash:   number;
+  varianceReason?: string;
+  closureNotes?:  string;
+}
+
+/**
+ * Persist a shift-close event by updating the open cash_sessions row for
+ * this counter / date / session_label. Returns true on success; false
+ * if no matching open row exists or the update fails (table constraint
+ * etc.). The local store still drives the UI.
+ */
+export const recordShiftCloseInDb = async (
+  input: ShiftCloseDbInput,
+): Promise<boolean> => {
+  try {
+    const { supabase, DEMO_USER_ID } = await import('@/lib/supabase/supabaseClient');
+    const counterUuid = await resolveCounterUuid(input.feCounterId);
+    if (!counterUuid) return false;
+    const { data: session } = await supabase
+      .from('cash_sessions')
+      .select('id')
+      .eq('counter_id', counterUuid)
+      .eq('business_date', input.shiftDate)
+      .eq('session_label', input.shiftType)
+      .eq('status', 'open')
+      .maybeSingle();
+    const id = (session as { id: string } | null)?.id;
+    if (!id) return false;
+    // chk_cash_sessions_variance_reason: variance != 0 requires reason
+    const variance = input.countedCash - input.expectedCash;
+    const reason = (Math.abs(variance) > 0.005)
+      ? (input.varianceReason ?? 'Variance not explained by cashier')
+      : null;
+    const { error } = await supabase
+      .from('cash_sessions').update({
+        closed_by:        DEMO_USER_ID,
+        closed_at:        new Date().toISOString(),
+        status:           'closed',
+        expected_cash:    input.expectedCash,
+        counted_cash:     input.countedCash,
+        variance_reason:  reason,
+        closure_notes:    input.closureNotes ?? null,
+        updated_by:       DEMO_USER_ID,
+      })
+      .eq('id', id);
+    return !error;
+  } catch {
+    return false;
+  }
+};
+
 /* ---------- Services catalogue ---------- */
 
 export const fetchServices = async (category?: ServiceCategory): Promise<Service[]> => {

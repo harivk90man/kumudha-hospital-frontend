@@ -25,6 +25,8 @@ import {
   DEFAULT_COUNTER_ID,
   fetchInvoices,
   fetchPayments,
+  recordShiftCloseInDb,
+  recordShiftOpenInDb,
   resolveActiveShift,
   resolveShift,
   SHIFT_WINDOWS,
@@ -301,6 +303,16 @@ export function ShiftPage(): JSX.Element {
         closedByRole: user.role,
       };
       recordClose(record);
+      // Best-effort DB persistence — local store still drives the UI.
+      void recordShiftCloseInDb({
+        feCounterId:    counterId,
+        shiftType:      shift.shiftType,
+        shiftDate:      shift.shiftDate,
+        countedCash:    declared.cash,
+        expectedCash:   systemTotals.cash,
+        varianceReason: notes.trim() || undefined,
+        closureNotes:   notes.trim() || undefined,
+      });
       setJustClosed(record);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Couldn’t record the close.');
@@ -326,6 +338,13 @@ export function ShiftPage(): JSX.Element {
       openingFloat: declaredFloat,
     };
     recordOpen(record);
+    void recordShiftOpenInDb({
+      feCounterId:  counterId,
+      shiftType:    shift.shiftType,
+      shiftDate:    shift.shiftDate,
+      openingFloat: declaredFloat,
+      openedByName: user.fullName,
+    });
     setOpeningFloat(declaredFloat);
   };
 

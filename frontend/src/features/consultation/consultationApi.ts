@@ -159,9 +159,11 @@ const blankContextFromQueue = (opNumber: string): ConsultationContext | null => 
 };
 
 /**
- * Build a fresh consultation context from a Supabase op_visit lookup.
- * Used when the opNumber comes from the Supabase-backed doctor queue
- * (live op_visits with no mockQueue entry).
+ * Build the consultation context from Supabase. If a `consultations`
+ * row exists for this op_visit, its notes / diagnoses / prescription
+ * items / lab + radiology orders are hydrated; otherwise the fields
+ * stay empty and the doctor sees a fresh draft pre-filled only with
+ * the op_visit's chief_complaint.
  */
 const blankContextFromSupabase = async (
   opNumber: string,
@@ -172,19 +174,55 @@ const blankContextFromSupabase = async (
       .from('op_visits')
       .select(`
         id, op_number, chief_complaint, visit_date, closed_at,
-        patients!op_visits_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group )
+        patients!op_visits_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
+        consultations (
+          id, status, chief_complaint, history_of_present_illness,
+          examination_findings, clinical_notes, advice, diagnoses,
+          follow_up_required, follow_up_date, locked_at,
+          prescriptions ( id, status, prescription_items ( id, medicine_id, medicine_name_snapshot, dosage, frequency, duration_days, quantity_prescribed, sequence_no ) )
+        ),
+        lab_orders ( id, status, priority, created_at, lab_order_items ( id, lab_tests ( test_code, test_name ) ) ),
+        radiology_orders ( id, status, priority, created_at, imaging_completed_at, released_at, radiology_procedures ( procedure_code, procedure_name, modality, body_part ), radiology_reports ( findings, impression ) )
       `)
       .eq('op_number', opNumber)
       .is('deleted_at', null)
       .maybeSingle();
     if (error || !data) return null;
-    const row = data as unknown as {
+    interface OpVisitRow {
       id: string; op_number: string; chief_complaint: string | null;
       visit_date: string; closed_at: string | null;
       patients: { id: string; uhid: string; first_name: string; last_name: string;
-                  gender: string; date_of_birth: string | null;
-                  mobile: string | null; blood_group: string | null } | null;
-    };
+        gender: string; date_of_birth: string | null;
+        mobile: string | null; blood_group: string | null } | null;
+      consultations: Array<{
+        id: string; status: string;
+        chief_complaint: string | null; history_of_present_illness: string | null;
+        examination_findings: { text?: string } | string | null;
+        clinical_notes: string | null; advice: string | null;
+        diagnoses: Array<{ icd10?: string; desc?: string; type?: string }> | null;
+        follow_up_required: boolean | null; follow_up_date: string | null;
+        locked_at: string | null;
+        prescriptions: Array<{
+          id: string; status: string;
+          prescription_items: Array<{
+            id: string; medicine_id: string; medicine_name_snapshot: string;
+            dosage: string; frequency: string; duration_days: number;
+            quantity_prescribed: number; sequence_no: number;
+          }>;
+        }>;
+      }>;
+      lab_orders: Array<{
+        id: string; status: string; priority: string; created_at: string;
+        lab_order_items: Array<{ id: string; lab_tests: { test_code: string; test_name: string } | null }>;
+      }>;
+      radiology_orders: Array<{
+        id: string; status: string; priority: string; created_at: string;
+        imaging_completed_at: string | null; released_at: string | null;
+        radiology_procedures: { procedure_code: string; procedure_name: string; modality: string; body_part: string } | null;
+        radiology_reports: Array<{ findings: string | null; impression: string | null }>;
+      }>;
+    }
+    const row = data as unknown as OpVisitRow;
     const p = row.patients;
     if (!p) return null;
     const ageFromDob = (dob: string | null): number => {
@@ -193,10 +231,80 @@ const blankContextFromSupabase = async (
       return Math.max(0, n.getFullYear() - d.getFullYear() -
         (n < new Date(n.getFullYear(), d.getMonth(), d.getDate()) ? 1 : 0));
     };
+
+    const cons = row.consultations[0];
+    const examText = typeof cons?.examination_findings === 'string'
+      ? cons.examination_findings
+      : (cons?.examination_findings && typeof cons.examination_findings === 'object'
+        ? cons.examination_findings.text ?? ''
+        : '');
+
+    const validDxTypes: ReadonlySet<string> = new Set(['primary', 'secondary', 'provisional', 'rule_out']);
+    const diagnoses = (cons?.diagnoses ?? []).map((d, i) => ({
+      id: `dx-${cons!.id}-${i}`,
+      icd10: d.icd10,
+      description: d.desc ?? '',
+      type: (validDxTypes.has(d.type ?? '') ? d.type! : 'primary') as import('./consultationTypes').DiagnosisType,
+    }));
+
+    const rx = cons?.prescriptions[0];
+    const prescriptionItems = (rx?.prescription_items ?? [])
+      .slice()
+      .sort((a, b) => a.sequence_no - b.sequence_no)
+      .map((it): PrescriptionItem => ({
+        id: it.id,
+        medicineId: it.medicine_id,
+        medicineNameSnapshot: it.medicine_name_snapshot,
+        strength: '',
+        dosage: it.dosage,
+        frequency: it.frequency,
+        route: 'PO',
+        durationDays: it.duration_days,
+        quantityPrescribed: it.quantity_prescribed,
+        sequenceNo: it.sequence_no,
+        // severity is a UI-only stock signal — defaulted to 'ok' on reload;
+        // OrdersPanel re-derives the real value from current drug_stock.
+        severity: 'ok' as PrescriptionItem['severity'],
+      }));
+
+    const labOrders = row.lab_orders.map((o) => {
+      const item = o.lab_order_items[0];
+      const t = item?.lab_tests;
+      return {
+        id: o.id,
+        orderedAt: o.created_at,
+        status: (o.status === 'released' ? 'reported'
+              : o.status === 'reporting_pending' ? 'in_progress'
+              : o.status) as import('@/features/lab').LabOrder['status'],
+        testCode: t?.test_code ?? '—',
+        testName: t?.test_name ?? '—',
+        clinicalPriority: (o.priority ?? 'routine') as 'routine' | 'urgent' | 'stat',
+      };
+    });
+
+    const radiologyOrders = row.radiology_orders.map((o) => {
+      const rpt = o.radiology_reports[0];
+      const modality = (o.radiology_procedures?.modality ?? 'other');
+      return {
+        id: o.id,
+        orderedAt: o.created_at,
+        status: (o.status === 'imaging_in_progress' ? 'in_progress'
+              : o.status === 'imaging_completed' || o.status === 'reporting_pending' ? 'in_progress'
+              : o.status === 'released' ? 'reported'
+              : o.status) as import('@/features/radiology').RadiologyOrder['status'],
+        testCode: o.radiology_procedures?.procedure_code ?? '—',
+        testName: o.radiology_procedures?.procedure_name ?? '—',
+        modality: modality as import('@/features/radiology').RadiologyOrder['modality'],
+        clinicalPriority: (o.priority ?? 'routine') as 'routine' | 'urgent' | 'stat',
+        resultSummary: rpt?.impression ?? undefined,
+      };
+    });
+
     return {
       opNumber,
-      status: { code: 0, name: 'in_consultation' },
+      status: { code: cons?.locked_at ? 0 : 0, name: cons?.locked_at ? 'consultation_done' : 'in_consultation' },
       startedAt: new Date().toISOString(),
+      lockedAt: cons?.locked_at ?? undefined,
       patient: {
         id: p.id, uhid: p.uhid,
         firstName: p.first_name, lastName: p.last_name,
@@ -210,16 +318,16 @@ const blankContextFromSupabase = async (
       },
       latestVitals: seedVitals(opNumber),
       notes: {
-        chiefComplaint: row.chief_complaint ?? '',
-        historyOfPresentIllness: '',
-        examinationFindings: '',
-        clinicalImpression: '',
-        advice: '',
+        chiefComplaint: cons?.chief_complaint ?? row.chief_complaint ?? '',
+        historyOfPresentIllness: cons?.history_of_present_illness ?? '',
+        examinationFindings: examText,
+        clinicalImpression: cons?.clinical_notes ?? '',
+        advice: cons?.advice ?? '',
       },
-      diagnoses: [],
-      prescriptionItems: [],
-      labOrders: [],
-      radiologyOrders: [],
+      diagnoses,
+      prescriptionItems,
+      labOrders,
+      radiologyOrders,
       recommendations: [],
       recommendationsNotes: '',
       criticalNotifications: [],
@@ -230,27 +338,35 @@ const blankContextFromSupabase = async (
 };
 
 export const fetchConsultation = async (opNumber: string): Promise<ConsultationContext> => {
-  // Past visits live in mockPastEncounters and are read-only.
+  // Past visits live in mockPastEncounters and are read-only — these
+  // are the rich seeded demo encounters (Karthik etc.). Real DB visits
+  // bypass this map.
   const past = mockPastEncounters[opNumber];
   if (past) return delay(past);
 
-  // Active consultation — return the existing one, or create a fresh
-  // shell from the queue entry on first open (e.g. doctor clicking a
-  // newly-registered patient on their queue).
+  // Active draft already in memory — preserves uncommitted notes within
+  // the same session (the doctor may have started typing and navigated
+  // away).
   if (liveConsultations[opNumber]) {
     return delay(liveConsultations[opNumber]);
   }
-  const fresh = blankContextFromQueue(opNumber);
-  if (fresh) {
-    liveConsultations[opNumber] = fresh;
-    return delay(fresh);
-  }
-  // Supabase fallback — try to build a fresh context from the real op_visit
-  // row (this is the case for live queue patients in the seeded DB).
+
+  // Supabase first — hydrates saved consultation + Rx + orders so a
+  // doctor re-opening a locked visit sees everything they wrote, and
+  // a re-opened draft (no consultations row yet) just shows the patient
+  // header + chief complaint.
   const fromDb = await blankContextFromSupabase(opNumber);
   if (fromDb) {
     liveConsultations[opNumber] = fromDb;
     return fromDb;
+  }
+
+  // Mock fallback for newly-registered patients that only exist in the
+  // in-memory queue (no Supabase op_visits row yet).
+  const fresh = blankContextFromQueue(opNumber);
+  if (fresh) {
+    liveConsultations[opNumber] = fresh;
+    return delay(fresh);
   }
 
   // Last-resort fallback: the opNumber came from the patient history
