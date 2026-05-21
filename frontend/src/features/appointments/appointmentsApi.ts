@@ -448,14 +448,21 @@ export const payAppointment = async (
   return { opNumber: opVisit.op_number as string, tokenNumber: tk.number };
 };
 
-/* ---------- Out-of-scope endpoints — kept as stubs ---------- */
-
-/** Mark no-show — backend endpoint not built yet. */
-export const markNoShow = async (_id: string): Promise<Appointment> => {
-  throw new Error('No-show endpoint not yet implemented on the server.');
+/** Mark no-show — flips appointments.status to 'no_show' on Supabase. */
+export const markNoShow = async (id: string): Promise<Appointment> => {
+  const { data, error } = await supabase
+    .from('appointments')
+    .update({ status: 'no_show', updated_by: DEMO_USER_ID })
+    .eq('id', id)
+    .select(APPOINTMENT_SELECT)
+    .single();
+  if (error) throw new Error(error.message);
+  return mapRowToAppointment(data as unknown as AppointmentRowJoined);
 };
 
-/** Late arrival — backend endpoint not built yet. */
+/* ---------- Out-of-scope endpoints — kept as stubs ---------- */
+
+/** Late arrival — no DB column; UI affordance only for the demo. */
 export const markLateArrival = async (_id: string): Promise<Appointment> => {
   throw new Error('Late-arrival endpoint not yet implemented on the server.');
 };

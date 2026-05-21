@@ -329,9 +329,19 @@ const DEFAULT_AVG_CONSULT_MINUTES = 5;
 export const fetchQueueByDoctor = async (): Promise<DoctorQueueGroup[]> => {
   const groupsByDoctor = new Map<string, DoctorQueueGroup>();
 
-  // Seed every bookable doctor so the UI always shows the same column
-  // set, even when a doctorâ€™s queue is empty.
-  for (const d of sharedDoctors) {
+  // Resolve the actual doctor roster from Supabase so the column set
+  // mirrors the live cohort, not the mock seed.
+  let roster: Array<{ id: string; name: string; dept: string }> = sharedDoctors as Array<{ id: string; name: string; dept: string }>;
+  try {
+    const { fetchBookableDoctors } = await import('@/features/appointments/appointmentsApi');
+    const docs = await fetchBookableDoctors();
+    if (docs.length > 0) {
+      roster = docs.map((d) => ({ id: d.id, name: d.name, dept: d.department }));
+    }
+  } catch {
+    // keep sharedDoctors fallback
+  }
+  for (const d of roster) {
     groupsByDoctor.set(d.id, {
       doctorId: d.id,
       doctorName: d.name,
@@ -342,31 +352,52 @@ export const fetchQueueByDoctor = async (): Promise<DoctorQueueGroup[]> => {
     });
   }
 
+  // One Supabase round-trip: every open op_visit at the doctor station,
+  // joined with the patient + the live patient_states row.
+  try {
+    const { data } = await supabase
+      .from('op_visits')
+      .select(`
+        id, op_number, chief_complaint, doctor_id, created_at,
+        patients!op_visits_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
+        users:users!op_visits_doctor_id_fkey ( id, full_name, departments!fk_users_department ( dept_name ) ),
+        patient_states!inner ( entered_at, stations ( station_type ) )
+      `)
+      .is('closed_at', null)
+      .is('deleted_at', null)
+      .is('patient_states.left_at', null)
+      .order('created_at', { ascending: true })
+      .limit(200);
+    const rows = ((data ?? []) as unknown as Array<SbQueueRow & { doctor_id: string }>);
+    for (const r of rows) {
+      const entry = supabaseRowToQueueEntry(r);
+      if (entry.status.name !== 'awaiting_doctor' && entry.status.name !== 'in_consultation') continue;
+      const group = groupsByDoctor.get(r.doctor_id);
+      if (!group) continue;
+      group.entries.push(entry);
+    }
+  } catch {
+    // Fall through to the mock-only bucketing below.
+  }
+
+  // Mock fallback for rows still seeded locally (Karthik etc.).
   for (const row of mockQueue) {
     if (row.status.name !== 'awaiting_doctor' && row.status.name !== 'in_consultation') continue;
     const doc = mockOpVisitDoctor[row.opNumber];
     if (!doc) continue;
-    const group = groupsByDoctor.get(doc.doctorId) ?? {
-      doctorId: doc.doctorId,
-      doctorName: doc.doctorName,
-      department: doc.department,
-      entries: [],
-      avgConsultMinutes:
-        DOCTOR_AVG_CONSULT_MINUTES[doc.doctorId] ?? DEFAULT_AVG_CONSULT_MINUTES,
-    };
+    const group = groupsByDoctor.get(doc.doctorId);
+    if (!group) continue;
+    if (group.entries.some((e) => e.opNumber === row.opNumber)) continue;
     group.entries.push(row);
-    groupsByDoctor.set(doc.doctorId, group);
   }
 
-  const groups = Array.from(groupsByDoctor.values()).map((g) => ({
+  return Array.from(groupsByDoctor.values()).map((g) => ({
     ...g,
     entries: [...g.entries].sort(
       (a, b) =>
         new Date(a.appointmentTime).getTime() - new Date(b.appointmentTime).getTime(),
     ),
   }));
-
-  return delay(groups, 120);
 };
 
 /**
