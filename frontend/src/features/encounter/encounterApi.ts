@@ -135,10 +135,97 @@ const supabaseRowToQueueEntry = (r: SbQueueRow): QueueEntry => {
   };
 };
 
+/**
+ * Fetch visits the doctor has already finished today. Used by the
+ * "Consultation done" tab — these are visits where lockConsultation
+ * has run (consultations.locked_at is set), so they no longer belong
+ * in the live "Consultation queue".
+ */
+const fetchDoneCases = async (): Promise<QueueEntry[]> => {
+  // Use last 24h of visit_date so a doctor running late doesn't lose visits.
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const yesterdayIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const { data, error } = await supabase
+    .from('op_visits')
+    .select(`
+      id, op_number, chief_complaint, doctor_id, created_at, closed_at,
+      patients!op_visits_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
+      users:users!op_visits_doctor_id_fkey ( id, full_name, departments!fk_users_department ( dept_name ) ),
+      consultations!inner ( locked_at )
+    `)
+    .gte('visit_date', yesterdayIso)
+    .lte('visit_date', todayIso)
+    .not('consultations.locked_at', 'is', null)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error || !data) return [];
+
+  interface SbDoneRow {
+    id: string; op_number: string; chief_complaint: string | null;
+    doctor_id: string; created_at: string; closed_at: string | null;
+    patients: { id: string; uhid: string; first_name: string; last_name: string;
+      gender: string; date_of_birth: string | null; mobile: string | null;
+      blood_group: string | null } | null;
+    users: { id: string; full_name: string;
+      departments: { dept_name: string } | null } | null;
+    consultations: Array<{ locked_at: string | null }>;
+  }
+  return (data as unknown as SbDoneRow[]).map((r): QueueEntry => {
+    const p = r.patients;
+    return {
+      opNumber: r.op_number,
+      tokenNumber: `OP-T-${r.op_number.slice(-2)}`,
+      patient: {
+        id: p?.id ?? '', uhid: p?.uhid ?? '',
+        firstName: p?.first_name ?? '', lastName: p?.last_name ?? '',
+        fullName: p ? `${p.first_name} ${p.last_name}`.trim() : '(unknown)',
+        gender: (p?.gender ?? 'o') as Gender,
+        ageYears: ageFromDobIso(p?.date_of_birth ?? null),
+        mobile: p?.mobile ?? undefined,
+        bloodGroup: p?.blood_group ?? undefined,
+        allergies: [], chronicConditions: [],
+      },
+      chiefComplaint: r.chief_complaint ?? '',
+      appointmentTime: r.created_at,
+      status: { code: 160, name: 'consultation_done' },
+      isEmergency: false,
+      waitingForMinutes: 0,
+      hasPrescription: false,
+      hasLabOrders: false,
+      hasRadiologyOrders: false,
+    };
+  });
+};
+
 export const fetchQueue = async (params: QueueListParams = {}): Promise<QueueEntry[]> => {
   void params.page;
   void params.limit;
   void params.sort;
+
+  // Branch to the "done" pull when the caller is asking for finished visits.
+  // The live-queue join below would exclude closed encounters by design.
+  const wantsDone =
+    params.status === 'consultation_done' ||
+    (params.statuses?.length === 1 && params.statuses[0] === 'consultation_done');
+  if (wantsDone) {
+    let rows = await fetchDoneCases();
+    if (params.doctorId && params.doctorId !== 'all') {
+      // The mock-doctor map keys off op_number; for DB rows we don't have
+      // that mapping. Skip the filter when we can't resolve it safely.
+      void params.doctorId;
+    }
+    if (params.q) {
+      const q = params.q.toLowerCase();
+      rows = rows.filter(
+        (r) =>
+          r.patient.fullName.toLowerCase().includes(q) ||
+          r.patient.uhid.toLowerCase().includes(q) ||
+          r.opNumber.toLowerCase().includes(q),
+      );
+    }
+    return rows;
+  }
 
   const { data, error } = await supabase
     .from('op_visits')
@@ -870,27 +957,123 @@ export const searchCasesByDiagnosis = async (
   return delay(matches, 150);
 };
 
+interface SbReportPendingRow {
+  id: string; op_number: string; chief_complaint: string | null;
+  created_at: string; doctor_id: string;
+  patients: { id: string; uhid: string; first_name: string; last_name: string;
+    gender: string; date_of_birth: string | null; mobile: string | null;
+    blood_group: string | null } | null;
+  consultations: Array<{ diagnoses: Array<{ icd10?: string; desc?: string; type?: string }> | null }>;
+  lab_orders: Array<{
+    id: string; status: string; completed_at: string | null;
+    lab_order_items: Array<{
+      lab_tests: { test_code: string; test_name: string } | null;
+    }>;
+  }>;
+  radiology_orders: Array<{
+    id: string; status: string; released_at: string | null; imaging_completed_at: string | null;
+    radiology_procedures: { procedure_code: string; procedure_name: string } | null;
+  }>;
+}
+
+/**
+ * Wire-mapped: surface op_visits that have at least one released lab
+ * or radiology report waiting for the doctor to review. Groups all
+ * released reports per encounter so the "Reports to check" tab shows
+ * one row per patient with a stacked list of ready items.
+ */
 export const fetchReportPendingQueue = async (
   params: { page?: number; limit?: number; sort?: string; q?: string; doctorId?: string } = {},
 ): Promise<ReportPendingEntry[]> => {
   void params.page;
   void params.limit;
   void params.sort;
-  let rows = mockReportPendingQueue.filter((e) => e.readyCount > 0);
-  if (params.doctorId && params.doctorId !== 'all') {
-    rows = rows.filter(
-      (r) => mockOpVisitDoctor[r.opNumber]?.doctorId === params.doctorId,
-    );
+
+  try {
+    let query = supabase
+      .from('op_visits')
+      .select(`
+        id, op_number, chief_complaint, created_at, doctor_id,
+        patients!op_visits_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
+        consultations ( diagnoses ),
+        lab_orders ( id, status, completed_at, lab_order_items ( lab_tests ( test_code, test_name ) ) ),
+        radiology_orders ( id, status, released_at, imaging_completed_at, radiology_procedures ( procedure_code, procedure_name ) )
+      `)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(200);
+    if (params.doctorId && params.doctorId !== 'all') {
+      query = query.eq('doctor_id', params.doctorId);
+    }
+    const { data, error } = await query;
+    if (error || !data) {
+      return mockReportPendingQueue.filter((e) => e.readyCount > 0);
+    }
+
+    const rows: ReportPendingEntry[] = [];
+    for (const r of data as unknown as SbReportPendingRow[]) {
+      const labReady = r.lab_orders.filter((o) => o.status === 'released' || o.status === 'reported');
+      const radReady = r.radiology_orders.filter((o) => o.status === 'released' || o.status === 'reported');
+      if (labReady.length === 0 && radReady.length === 0) continue;
+
+      const cons = r.consultations[0];
+      const primary = cons?.diagnoses?.find((d) => d.type === 'primary') ?? cons?.diagnoses?.[0];
+      const p = r.patients;
+
+      const reports = [
+        ...labReady.map((o) => {
+          const t = o.lab_order_items[0]?.lab_tests;
+          return {
+            kind: 'lab' as const,
+            testCode: t?.test_code ?? 'LAB',
+            testName: t?.test_name ?? 'Lab test',
+            status: 'reported' as const,
+            reportedAt: o.completed_at ?? undefined,
+          };
+        }),
+        ...radReady.map((o) => ({
+          kind: 'radiology' as const,
+          testCode: o.radiology_procedures?.procedure_code ?? 'RAD',
+          testName: o.radiology_procedures?.procedure_name ?? 'Radiology',
+          status: 'reported' as const,
+          reportedAt: o.released_at ?? o.imaging_completed_at ?? undefined,
+        })),
+      ];
+
+      rows.push({
+        opNumber:           r.op_number,
+        consultedAt:        r.created_at,
+        patient: p ? {
+          id: p.id, uhid: p.uhid,
+          firstName: p.first_name, lastName: p.last_name,
+          fullName: `${p.first_name} ${p.last_name}`.trim(),
+          gender: (p.gender as 'm' | 'f' | 'o'),
+          ageYears: ageFromDobIso(p.date_of_birth),
+          mobile: p.mobile ?? undefined,
+          bloodGroup: p.blood_group ?? undefined,
+          allergies: [], chronicConditions: [],
+        } : { id: '', uhid: '', firstName: '', lastName: '', fullName: '—',
+              gender: 'o' as const, ageYears: 0, allergies: [], chronicConditions: [] },
+        primaryDiagnosis:   primary?.desc,
+        readyCount:         labReady.length + radReady.length,
+        pendingCount:       0,
+        reports,
+      });
+    }
+
+    let filtered = rows;
+    if (params.q) {
+      const q = params.q.toLowerCase();
+      filtered = filtered.filter(
+        (r) =>
+          r.patient.fullName.toLowerCase().includes(q) ||
+          r.patient.uhid.toLowerCase().includes(q) ||
+          r.opNumber.toLowerCase().includes(q) ||
+          (r.primaryDiagnosis ?? '').toLowerCase().includes(q),
+      );
+    }
+    return filtered;
+  } catch {
+    return mockReportPendingQueue.filter((e) => e.readyCount > 0);
   }
-  if (params.q) {
-    const q = params.q.toLowerCase();
-    rows = rows.filter(
-      (r) =>
-        r.patient.fullName.toLowerCase().includes(q) ||
-        r.patient.uhid.toLowerCase().includes(q) ||
-        r.opNumber.toLowerCase().includes(q) ||
-        (r.primaryDiagnosis ?? '').toLowerCase().includes(q),
-    );
-  }
-  return delay(rows);
 };

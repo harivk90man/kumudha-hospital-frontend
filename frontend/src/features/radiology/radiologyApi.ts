@@ -185,9 +185,36 @@ const DB_TO_FE_RAD_STATUS: Record<string, RadiologyOrderQueueEntry['status']> = 
   cancelled:            'cancelled',
 };
 
+/**
+ * Demo image set per procedure code. Real backend stores DICOM in PACS
+ * and surfaces preview/thumbnail URLs via `radiology_studies.images_url[]`;
+ * for the demo we attach a known-good Wikimedia Commons sample so the
+ * doctor can actually view an x-ray when they open a released report.
+ */
+const PROCEDURE_DEMO_IMAGES: Record<string, string[]> = {
+  'XR-CHE': [
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/Chest_Xray_PA_3-8-2010.png/640px-Chest_Xray_PA_3-8-2010.png',
+  ],
+  'XR-KNE': [
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/0/02/X-ray_of_normal_knee_-_AP.jpg/512px-X-ray_of_normal_knee_-_AP.jpg',
+  ],
+  'XR-LSP': [
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b6/Lumbar_xray.jpg/512px-Lumbar_xray.jpg',
+  ],
+  'CT-HD': [
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/4/49/Computed_tomography_of_human_brain_-_large.png/512px-Computed_tomography_of_human_brain_-_large.png',
+  ],
+  'USG-ABD': [
+    'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c2/Abdominal_ultrasound_007.jpg/512px-Abdominal_ultrasound_007.jpg',
+  ],
+};
+
 const mapRadOrderRow = (r: SbRadOrderRow): RadiologyOrderQueueEntry => {
   const p = r.patients;
   const rpt = r.radiology_reports[0];
+  const procCode = r.radiology_procedures?.procedure_code ?? '';
+  const isReleased = r.status === 'released' || r.status === 'reported';
+  const demoImages = isReleased ? PROCEDURE_DEMO_IMAGES[procCode] : undefined;
   return {
     id: r.id,
     opNumber: r.op_visits?.op_number ?? '—',
@@ -213,6 +240,7 @@ const mapRadOrderRow = (r: SbRadOrderRow): RadiologyOrderQueueEntry => {
     releasedAt: r.released_at ?? undefined,
     resultSummary: rpt?.impression ?? undefined,
     notes: rpt?.findings ?? undefined,
+    imagesUrl: demoImages,
   } satisfies RadiologyOrderQueueEntry;
 };
 
