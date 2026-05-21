@@ -334,52 +334,107 @@ export const fetchInvoice = async (id: string): Promise<Invoice | null> => {
   return delay(found);
 };
 
+/**
+ * DEMO: writes the invoice + invoice_items to Supabase so walk-in lab/
+ * radiology orders surface on the owner dashboard. Mock state is also
+ * kept in sync so the cashier's editable-line flow (still mock) reads
+ * back what the front-desk wrote.
+ */
 export const createInvoice = async (input: CreateInvoiceInput): Promise<Invoice> => {
   invoiceSeq += 1;
   const invoiceNumber = `INV-${yearShort()}-${String(invoiceSeq).padStart(6, '0')}`;
+
+  // Build FE-shape lines first so we always return a valid Invoice object.
   const lines = input.lines.map((l, idx) => {
-    // Two paths: services_catalog lookup OR ad-hoc walk-in line.
-    // Exactly one of `serviceId` / `adhoc` must be set.
-    if (l.serviceId && l.adhoc) {
-      throw new Error('Invoice line cannot specify both serviceId and adhoc');
-    }
-    if (!l.serviceId && !l.adhoc) {
-      throw new Error('Invoice line must specify serviceId or adhoc');
-    }
+    if (l.serviceId && l.adhoc) throw new Error('Invoice line cannot specify both serviceId and adhoc');
+    if (!l.serviceId && !l.adhoc) throw new Error('Invoice line must specify serviceId or adhoc');
     if (l.serviceId) {
       const svc = mockServices.find((s) => s.id === l.serviceId);
       if (!svc) throw new Error(`Unknown service ${l.serviceId}`);
       return {
         id: `inl-${invoiceSeq}-${idx + 1}`,
-        serviceId: svc.id,
-        serviceCode: svc.code,
-        serviceName: svc.name,
-        category: svc.category,
-        unitPrice: svc.unitPrice,
-        quantity: l.quantity,
-        gstPct: svc.gstPct,
-        lineTotal: Number((svc.unitPrice * l.quantity).toFixed(2)),
+        serviceId: svc.id, serviceCode: svc.code, serviceName: svc.name,
+        category: svc.category, unitPrice: svc.unitPrice, quantity: l.quantity,
+        gstPct: svc.gstPct, lineTotal: Number((svc.unitPrice * l.quantity).toFixed(2)),
         notes: l.notes,
       };
     }
-    // Ad-hoc walk-in line.
     const a = l.adhoc!;
     return {
       id: `inl-${invoiceSeq}-${idx + 1}`,
-      serviceId: `adhoc-${a.code}`,
-      serviceCode: a.code,
-      serviceName: a.name,
-      category: a.category,
-      unitPrice: a.unitPrice,
-      quantity: l.quantity,
-      gstPct: a.gstPct,
-      lineTotal: Number((a.unitPrice * l.quantity).toFixed(2)),
+      serviceId: `adhoc-${a.code}`, serviceCode: a.code, serviceName: a.name,
+      category: a.category, unitPrice: a.unitPrice, quantity: l.quantity,
+      gstPct: a.gstPct, lineTotal: Number((a.unitPrice * l.quantity).toFixed(2)),
       notes: l.notes,
     };
   });
   const totals = computeTotals(lines);
+
+  const stationToInvoiceType: Record<Invoice['station'], string> = {
+    lab:        'lab_direct',
+    radiology:  'radiology_direct',
+    pharmacy:   'pharmacy',
+    front_desk: 'op',
+    billing:    'op',
+  };
+  const feCategoryToItemType: Record<string, string> = {
+    consultation: 'consultation', lab: 'lab_test', radiology: 'radiology',
+    pharmacy: 'drug', procedure: 'procedure', admission: 'room_charge',
+    registration: 'other', other: 'other',
+  };
+
+  // Try to persist; on any failure, fall back to mock state only so the UI still works.
+  let persistedId: string | null = null;
+  try {
+    const { error: invErr, data: invRow } = await supabase
+      .from('invoices')
+      .insert({
+        invoice_number: invoiceNumber,
+        invoice_type: stationToInvoiceType[input.station] ?? 'op',
+        patient_id: input.patientId,
+        invoice_date: new Date().toISOString().slice(0, 10),
+        subtotal: totals.subtotal,
+        total_line_discount: 0,
+        bill_discount_amount: 0,
+        total_tax: totals.tax,
+        total_amount: totals.total,
+        amount_paid: 0,
+        payment_status: 'finalized',
+        approval_status: 'approved',
+        approved_by: '00000000-0000-0000-0000-000000000001',
+        approved_at: new Date().toISOString(),
+        finalized_at: new Date().toISOString(),
+        created_by: DEMO_USER_ID,
+      })
+      .select('id')
+      .single();
+    if (invErr) throw new Error(invErr.message);
+    persistedId = (invRow as { id: string }).id;
+
+    const itemRows = lines.map((l, idx) => ({
+      invoice_id: persistedId,
+      item_type: feCategoryToItemType[l.category] ?? 'other',
+      item_name: l.serviceName,
+      sequence_no: idx + 1,
+      quantity: l.quantity,
+      unit_price: l.unitPrice,
+      line_discount_pct: 0,
+      line_discount_amount: 0,
+      cgst_pct: 0, cgst_amount: 0, sgst_pct: 0, sgst_amount: 0,
+      igst_pct: 0, igst_amount: 0,
+      total_price: l.lineTotal,
+      created_by: DEMO_USER_ID,
+    }));
+    const { error: liErr } = await supabase.from('invoice_items').insert(itemRows);
+    if (liErr) throw new Error(liErr.message);
+  } catch (err) {
+    // Persistence failed (RLS / network); fall through to mock-only.
+    // eslint-disable-next-line no-console
+    console.warn('[createInvoice] persistence failed, mock-only:', err);
+  }
+
   const created: Invoice = {
-    id: `inv-${invoiceSeq}`,
+    id: persistedId ?? `inv-${invoiceSeq}`,
     invoiceNumber,
     patient: input.patientSnapshot ?? {
       id: input.patientId,
@@ -399,11 +454,11 @@ export const createInvoice = async (input: CreateInvoiceInput): Promise<Invoice>
     lines,
     ...totals,
     balance: totals.total,
-    createdBy: 'mock-user',
+    createdBy: DEMO_USER_ID,
     createdAt: new Date().toISOString(),
   };
   mockInvoiceState = [created, ...mockInvoiceState];
-  return delay(created, 200);
+  return created;
 };
 
 /**

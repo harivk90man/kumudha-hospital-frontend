@@ -44,8 +44,31 @@ const delay = <T>(value: T, ms = 250): Promise<T> =>
 
 let mockQueueState: RadiologyOrderQueueEntry[] = [...mockRadiologyOrderQueue];
 
-export const fetchRadiologyCatalog = async (): Promise<RadiologyTestCatalogItem[]> =>
-  delay(mockRadiologyCatalog);
+/**
+ * Demo: query radiology_procedures from Supabase. Falls back to mock on error.
+ */
+export const fetchRadiologyCatalog = async (): Promise<RadiologyTestCatalogItem[]> => {
+  const { supabase } = await import('@/lib/supabase/supabaseClient');
+  const { data, error } = await supabase
+    .from('radiology_procedures')
+    .select('id, procedure_code, procedure_name, modality, body_part')
+    .is('deleted_at', null)
+    .order('procedure_name', { ascending: true })
+    .limit(200);
+
+  if (error || !data || data.length === 0) return delay(mockRadiologyCatalog);
+
+  return (data as unknown as Array<{
+    id: string; procedure_code: string; procedure_name: string;
+    modality: string; body_part: string;
+  }>).map((r) => ({
+    id: r.id,
+    code: r.procedure_code,
+    name: r.procedure_name,
+    modality: r.modality as RadiologyTestCatalogItem['modality'],
+    bodyPart: r.body_part,
+  } satisfies RadiologyTestCatalogItem));
+};
 
 /**
  * Map a radiology catalogue test_code to the matching billing service code.

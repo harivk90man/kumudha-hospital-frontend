@@ -56,7 +56,59 @@ let mockQueueState: LabOrderQueueEntry[] = [...mockLabOrderQueue];
  * / Urine / Lipid / Blood Group) + standalone tests (CRP, ESR,
  * HbA1C, Glucose, BT, HIV, HCV, HBsAg, STAT Potassium).
  */
-export const fetchLabCatalog = async (): Promise<LabTestCatalogItem[]> => delay(mockLabCatalog);
+/**
+ * Demo: query lab_tests + join service (for price). Falls back to mock on error.
+ * Real backend (TSD-05): GET /api/lab/catalog returns the catalogue with
+ * panel + standalone tests folded together.
+ */
+export const fetchLabCatalog = async (): Promise<LabTestCatalogItem[]> => {
+  const { supabase } = await import('@/lib/supabase/supabaseClient');
+  const { data, error } = await supabase
+    .from('lab_tests')
+    .select(`
+      id, test_code, test_name, category, sample_type, tat_hours, result_type,
+      unit, ref_min_male, ref_max_male, ref_min_female, ref_max_female,
+      critical_low, critical_high, sample_volume_ml, requires_fasting,
+      services ( default_price )
+    `)
+    .is('deleted_at', null)
+    .order('test_name', { ascending: true })
+    .limit(200);
+
+  if (error || !data || data.length === 0) {
+    return delay(mockLabCatalog);
+  }
+
+  return (data as unknown as Array<{
+    id: string; test_code: string; test_name: string; category: string;
+    sample_type: string; tat_hours: number | null; result_type: string;
+    unit: string | null;
+    ref_min_male: number | null; ref_max_male: number | null;
+    ref_min_female: number | null; ref_max_female: number | null;
+    critical_low: number | null; critical_high: number | null;
+    sample_volume_ml: number | null; requires_fasting: boolean;
+    services: { default_price: number | string } | null;
+  }>).map((r) => ({
+    id: r.id,
+    code: r.test_code,
+    name: r.test_name,
+    fullName: r.test_name,
+    category: r.category,
+    specimen: r.sample_type,
+    tatHours: r.tat_hours ?? 24,
+    resultType: r.result_type as LabTestCatalogItem['resultType'],
+    unit: r.unit ?? undefined,
+    refMinMale: r.ref_min_male ?? undefined,
+    refMaxMale: r.ref_max_male ?? undefined,
+    refMinFemale: r.ref_min_female ?? undefined,
+    refMaxFemale: r.ref_max_female ?? undefined,
+    criticalLow: r.critical_low ?? undefined,
+    criticalHigh: r.critical_high ?? undefined,
+    defaultPrice: Number(r.services?.default_price ?? 300),
+    requiresFasting: r.requires_fasting,
+    sampleVolumeMl: r.sample_volume_ml ?? undefined,
+  } satisfies LabTestCatalogItem));
+};
 
 /** lab_test_panels — the bundle definitions (CBC, LFT, …). */
 export const fetchLabPanels = async (): Promise<LabTestPanel[]> => delay(mockLabPanels);
