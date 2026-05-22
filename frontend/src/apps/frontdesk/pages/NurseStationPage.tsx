@@ -209,22 +209,12 @@ export function NurseStationPage(): JSX.Element {
     return () => window.clearTimeout(t);
   }, [focusedOp]);
 
-  // Split rows by source/status:
-  //   bookedRows       — appointments that haven't arrived yet (Check-in CTA)
-  //   pendingPayment   — checked-in OR walk-in op_visit not yet paid (Pay CTA)
-  //   paidRows         — paid op_visits at vitals / doctor station
-  const bookedRows = useMemo(
-    () => rows.filter((r) => r.queueStatus === 'booked'),
-    [rows],
-  );
-  const pendingPayment = useMemo(
-    () => rows.filter((r) => r.queueStatus === 'pending_payment'),
-    [rows],
-  );
-  const paidRows = useMemo(
-    () => rows.filter((r) => r.queueStatus === 'awaiting_vitals' || r.queueStatus === 'awaiting_doctor'),
-    [rows],
-  );
+  const STATUS_PRIORITY: Record<LiveQueueStatus, number> = {
+    awaiting_doctor: 1,
+    awaiting_vitals: 2,
+    pending_payment: 3,
+    booked:          4,
+  };
 
   /* ---------- Appointment-row actions (Check-in / Cancel / No-show) ---------- */
   const pushNotification = useNotificationsStore((s) => s.push);
@@ -358,21 +348,24 @@ export function NurseStationPage(): JSX.Element {
     return meta;
   }, [rows]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const sortedPaidRows = useMemo(() => {
+  const sortedRows = useMemo(() => {
     const desc  = sort.startsWith('-');
     const field = desc ? sort.slice(1) : sort;
     if (field === 'queuePos') {
-      return [...paidRows].sort((a, b) => {
-        const qa = queueMeta.get(rowKey(a))?.qPos ?? null;
-        const qb = queueMeta.get(rowKey(b))?.qPos ?? null;
-        if (qa === null && qb === null) return 0;
-        if (qa === null) return 1;
-        if (qb === null) return -1;
-        return desc ? qb - qa : qa - qb;
+      return [...rows].sort((a, b) => {
+        const pa = STATUS_PRIORITY[a.queueStatus];
+        const pb = STATUS_PRIORITY[b.queueStatus];
+        if (pa !== pb) return pa - pb;
+        if (a.queueStatus === 'awaiting_doctor') {
+          const qa = queueMeta.get(rowKey(a))?.qPos ?? Infinity;
+          const qb = queueMeta.get(rowKey(b))?.qPos ?? Infinity;
+          return desc ? qb - qa : qa - qb;
+        }
+        return new Date(a.waitingSince).getTime() - new Date(b.waitingSince).getTime();
       });
     }
-    return sortRows(paidRows, sort, LIVE_QUEUE_SORT_WHITELIST);
-  }, [paidRows, sort, queueMeta]); // eslint-disable-line react-hooks/exhaustive-deps
+    return sortRows(rows, sort, LIVE_QUEUE_SORT_WHITELIST);
+  }, [rows, sort, queueMeta]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col gap-4 overflow-hidden md:h-screen md:gap-5">
@@ -591,219 +584,78 @@ export function NurseStationPage(): JSX.Element {
                   </tr>
                 </thead>
                 <tbody>
-                  {/* Booked appointments — patient hasn't arrived yet.
-                      Today's view shows them above pending-payment so the
-                      receptionist can check them in. Future-date view: this
-                      is the only band that shows. */}
-                  {bookedRows.map((row) => {
-                    const apptId = row.appointmentId;
-                    const busy = apptId ? rowBusy.has(apptId) : false;
+                  {sortedRows.map((row: LiveQueueEntry) => {
+                    const isBooked  = row.queueStatus === 'booked';
+                    const isPending = row.queueStatus === 'pending_payment';
+                    const isVitals  = row.queueStatus === 'awaiting_vitals';
+                    const apptId    = row.appointmentId;
+                    const busy      = apptId ? rowBusy.has(apptId) : false;
+                    const qMeta     = queueMeta.get(rowKey(row));
                     return (
                       <tr
                         key={rowKey(row)}
                         data-op={row.opNumber ?? ''}
                         className={cn(
-                          'border-b align-middle last:border-b-0 transition-colors hover:bg-muted/30',
-                          focusedOp && row.opNumber === focusedOp && 'animate-flash-once bg-success/10 ring-2 ring-success/40',
-                        )}
-                      >
-                        {isToday && (
-                          <td className="px-3 py-2.5 text-muted-foreground tabular-nums">—</td>
-                        )}
-                        <td className="px-3 py-2.5">
-                          <span className="font-mono text-[13px] tabular-nums font-medium">
-                            {formatSlot(row.scheduledAt)}
-                          </span>
-                          {row.appointmentNo && (
-                            <div className="font-mono text-xxs text-muted-foreground tabular-nums">
-                              {row.appointmentNo}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <div className="text-[13px] leading-tight text-foreground">{row.patient.fullName}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {row.patient.uhid} · {row.patient.gender.toUpperCase()} · {row.patient.ageYears}y
-                          </div>
-                          {row.patient.allergies.length > 0 && (
-                            <div className="inline-flex items-center gap-1 text-xxs font-medium text-danger">
-                              <ShieldAlert className="h-3 w-3" />
-                              Allergy: {row.patient.allergies.map((a) => a.allergen).join(', ')}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <div className="text-[12px] leading-tight">{row.doctorName}</div>
-                          {row.department && <div className="text-xxs text-muted-foreground">{row.department}</div>}
-                        </td>
-                        {isToday && (
-                          <td className="px-3 py-2.5 text-muted-foreground">—</td>
-                        )}
-                        <td className="px-3 py-2.5">
-                          <StatusPill tone="neutral" size="sm">Booked</StatusPill>
-                        </td>
-                        {isToday && (
-                          <td className="px-3 py-2.5 text-muted-foreground">—</td>
-                        )}
-                        <td className="px-3 py-2.5 text-right">
-                          <div className="flex items-center justify-end gap-1.5">
-                            {isToday && (
-                              <Button
-                                type="button"
-                                size="sm"
-                                className="w-20 justify-center"
-                                onClick={() => apptId && void onCheckIn(apptId)}
-                                disabled={!apptId || busy}
-                              >
-                                {busy ? <Spinner size="sm" /> : 'Check in'}
-                              </Button>
-                            )}
-                            <RowActionsMenu label={`More actions for ${row.patient.fullName}`}>
-                              <RowActionsItem asChild>
-                                <Link to={`/patient/${row.patient.uhid}`}><Eye /> View / edit patient</Link>
-                              </RowActionsItem>
-                              {isToday && (
-                                <RowActionsItem onClick={() => { if (apptId) void onMarkNoShow(apptId); }}>
-                                  Mark no-show
-                                </RowActionsItem>
-                              )}
-                              <RowActionsItem
-                                destructive
-                                onClick={() => { if (apptId) void onCancelAppt(apptId); }}
-                              >
-                                Cancel appointment
-                              </RowActionsItem>
-                            </RowActionsMenu>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-
-                  {/* Pending payment — amber band (today only) */}
-                  {isToday && pendingPayment.map((row) => (
-                    <tr
-                      key={rowKey(row)}
-                      data-op={row.opNumber ?? ''}
-                      className={cn(
-                        'border-b align-middle last:border-b-0 bg-warning/5 transition-colors hover:bg-warning/10',
-                        recentlyChanged.has(rowKey(row)) && 'animate-flash-once',
-                        focusedOp && row.opNumber === focusedOp && 'animate-flash-once bg-success/10 ring-2 ring-success/40',
-                      )}
-                    >
-                      <td className="px-3 py-2.5 text-muted-foreground tabular-nums">—</td>
-                      <td className="px-3 py-2.5">
-                        <div className="text-xxs text-muted-foreground">No token yet</div>
-                        {row.appointmentNo && (
-                          <div className="font-mono text-xxs text-muted-foreground">{row.appointmentNo}</div>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <div className="text-[13px] leading-tight text-foreground">{row.patient.fullName}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {row.patient.uhid} · {row.patient.gender.toUpperCase()} · {row.patient.ageYears}y
-                        </div>
-                        {row.patient.allergies.length > 0 && (
-                          <div className="inline-flex items-center gap-1 text-xxs font-medium text-danger">
-                            <ShieldAlert className="h-3 w-3" />
-                            Allergy: {row.patient.allergies.map((a) => a.allergen).join(', ')}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <div className="text-[12px] leading-tight">{row.doctorName}</div>
-                        {row.department && <div className="text-xxs text-muted-foreground">{row.department}</div>}
-                      </td>
-                      <td className="px-3 py-2.5 text-muted-foreground">—</td>
-                      <td className="px-3 py-2.5">
-                        <StatusPill tone="danger" size="sm" pulse="breathe">Awaiting payment</StatusPill>
-                      </td>
-                      <td className="px-3 py-2.5 text-muted-foreground">—</td>
-                      <td className="px-3 py-2.5 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="w-20 justify-center"
-                            onClick={() => {
-                              if (shiftLock.locked) return;
-                              // Prefer the appointment-payment route when the
-                              // row came from a booked appointment; fall back
-                              // to the opNumber path for walk-ins (mock-mode +
-                              // any visit that wasn't scheduled).
-                              if (row.appointmentId) {
-                                navigate(`/payment/appointment/${row.appointmentId}`);
-                              } else if (row.opNumber) {
-                                navigate(`/payment/${encodeURIComponent(row.opNumber)}`);
-                              }
-                            }}
-                            disabled={
-                              shiftLock.locked || (!row.appointmentId && !row.opNumber)
-                            }
-                            title={
-                              shiftLock.locked
-                                ? shiftLock.reason === 'no_open'
-                                  ? 'Shift not opened on this counter yet'
-                                  : 'Shift on this counter is closed'
-                                : undefined
-                            }
-                          >
-                            Payment
-                          </Button>
-                          <RowActionsMenu label={`More actions for ${row.patient.fullName}`}>
-                            <RowActionsItem asChild>
-                              <Link to={`/patient/${row.patient.uhid}`}><Eye /> View / edit patient</Link>
-                            </RowActionsItem>
-                          </RowActionsMenu>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-
-                  {/* Queue rows — today: awaiting_vitals | awaiting_doctor; future: booked */}
-                  {sortedPaidRows.map((row, idx) => {
-                    const vitalsPending = row.queueStatus === 'awaiting_vitals';
-                    return (
-                      <tr
-                        key={rowKey(row)}
-                        data-op={row.opNumber ?? ''}
-                        className={cn(
-                          'border-b align-middle last:border-b-0 transition-colors hover:bg-primary/[0.04]',
-                          idx % 2 === 1 && 'bg-muted/20',
-                          focusedOp && row.opNumber === focusedOp && 'animate-flash-once bg-success/10 ring-2 ring-success/40',
+                          'border-b align-middle last:border-b-0 transition-colors',
+                          isPending ? 'bg-warning/5 hover:bg-warning/10' : 'hover:bg-muted/30',
                           recentlyChanged.has(rowKey(row)) && 'animate-flash-once',
+                          focusedOp && row.opNumber === focusedOp && 'animate-flash-once bg-success/10 ring-2 ring-success/40',
                         )}
                       >
+                        {/* Q# */}
                         {isToday && (
                           <td className="px-3 py-2.5">
-                            {(() => {
-                              const m = queueMeta.get(rowKey(row));
-                              return m
-                                ? <span className="font-mono text-xs font-semibold tabular-nums text-primary">Q{m.qPos}</span>
-                                : <span className="text-muted-foreground">—</span>;
-                            })()}
+                            {qMeta
+                              ? <span className="font-mono text-xs font-semibold tabular-nums text-primary">{qMeta.qPos}</span>
+                              : <span className="text-muted-foreground">—</span>}
                           </td>
                         )}
+
+                        {/* Token / Slot */}
                         <td className="px-3 py-2.5">
                           {isToday ? (
-                            <>
-                              <div className="font-mono text-[13px] tabular-nums">{row.tokenNumber}</div>
-                              <div className="font-mono text-xxs text-muted-foreground tabular-nums">{row.opNumber}</div>
-                            </>
+                            row.tokenNumber ? (
+                              <>
+                                <div className="font-mono text-[13px] tabular-nums">{row.tokenNumber}</div>
+                                <div className="font-mono text-xxs text-muted-foreground tabular-nums">{row.opNumber}</div>
+                              </>
+                            ) : (
+                              <>
+                                <div className={cn('font-mono text-[13px] tabular-nums', isBooked && 'font-medium')}>
+                                  {isBooked
+                                    ? formatSlot(row.scheduledAt)
+                                    : <span className="text-xxs text-muted-foreground">No token yet</span>}
+                                </div>
+                                {row.appointmentNo && (
+                                  <div className="font-mono text-xxs text-muted-foreground tabular-nums">{row.appointmentNo}</div>
+                                )}
+                              </>
+                            )
                           ) : (
-                            <span className="font-mono text-[13px] tabular-nums font-medium">
-                              {formatSlot(row.scheduledAt)}
-                            </span>
+                            <>
+                              <span className="font-mono text-[13px] tabular-nums font-medium">
+                                {formatSlot(row.scheduledAt)}
+                              </span>
+                              {row.appointmentNo && (
+                                <div className="font-mono text-xxs text-muted-foreground tabular-nums">{row.appointmentNo}</div>
+                              )}
+                            </>
                           )}
                         </td>
+
+                        {/* Patient */}
                         <td className="px-3 py-2.5">
                           <div className="space-y-0.5">
-                            <PatientHoverPreview
-                              patient={row.patient as PatientSummary}
-                              navigateTo={`/patient/${row.patient.uhid}${row.opNumber ? `?op=${encodeURIComponent(row.opNumber)}` : ''}`}
-                            >
-                              <span className="text-[13px] leading-tight text-foreground">{row.patient.fullName}</span>
-                            </PatientHoverPreview>
+                            {row.opNumber ? (
+                              <PatientHoverPreview
+                                patient={row.patient as PatientSummary}
+                                navigateTo={`/patient/${row.patient.uhid}?op=${encodeURIComponent(row.opNumber)}`}
+                              >
+                                <span className="text-[13px] leading-tight text-foreground">{row.patient.fullName}</span>
+                              </PatientHoverPreview>
+                            ) : (
+                              <div className="text-[13px] leading-tight text-foreground">{row.patient.fullName}</div>
+                            )}
                             <div className="text-xs text-muted-foreground">
                               {row.patient.uhid} · {row.patient.gender.toUpperCase()} · {row.patient.ageYears}y
                             </div>
@@ -815,25 +667,33 @@ export function NurseStationPage(): JSX.Element {
                             )}
                           </div>
                         </td>
+
+                        {/* Doctor */}
                         <td className="px-3 py-2.5">
                           <div className="text-[12px] leading-tight">{row.doctorName}</div>
                           {row.department && <div className="text-xxs text-muted-foreground">{row.department}</div>}
                         </td>
+
+                        {/* Vitals (today only) */}
                         {isToday && (
                           <td className="px-3 py-2.5">
-                            {vitalsPending ? (
+                            {isVitals ? (
                               <span className="inline-flex items-center gap-1.5 text-warning">
                                 <HeartPulse className="h-3.5 w-3.5 animate-breathe" />
                                 <span className="text-xxs">Pending</span>
                               </span>
-                            ) : (
+                            ) : row.queueStatus === 'awaiting_doctor' ? (
                               <span className="inline-flex items-center gap-1.5 text-success">
                                 <CheckCircle2 className="h-3.5 w-3.5" />
                                 <span className="text-xxs">Done</span>
                               </span>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
                             )}
                           </td>
                         )}
+
+                        {/* Status */}
                         <td className="px-3 py-2.5">
                           {isToday ? (
                             <StatusPill
@@ -847,37 +707,82 @@ export function NurseStationPage(): JSX.Element {
                             <StatusPill tone="neutral" size="sm">Booked</StatusPill>
                           )}
                         </td>
+
+                        {/* ETA (today only) */}
                         {isToday && (
                           <td className="px-3 py-2.5">
-                            {(() => {
-                              const m = queueMeta.get(rowKey(row));
-                              if (!m) return <span className="text-muted-foreground text-xs">—</span>;
-                              return (
-                                <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                                  ~{m.etaMinutes}m
-                                </span>
-                              );
-                            })()}
+                            {qMeta
+                              ? <span className="font-mono text-xs tabular-nums text-muted-foreground">~{qMeta.etaMinutes}m</span>
+                              : <span className="text-muted-foreground text-xs">—</span>}
                           </td>
                         )}
-                        {isToday && (
-                          <td className="px-3 py-2.5 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              {vitalsPending && row.opNumber && (
-                                <Button asChild size="sm" className="w-20 justify-center">
-                                  <Link to={`/frontdesk/vitals?op=${encodeURIComponent(row.opNumber)}`}>
-                                    Vitals
-                                  </Link>
-                                </Button>
-                              )}
-                              <RowActionsMenu label={`More actions for ${row.patient.fullName}`}>
-                                <RowActionsItem asChild>
-                                  <Link to={`/patient/${row.patient.uhid}`}><Eye /> View / edit patient</Link>
+
+                        {/* Actions */}
+                        <td className="px-3 py-2.5 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {isToday && isBooked && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="w-20 justify-center"
+                                onClick={() => apptId && void onCheckIn(apptId)}
+                                disabled={!apptId || busy}
+                              >
+                                {busy ? <Spinner size="sm" /> : 'Check in'}
+                              </Button>
+                            )}
+                            {isToday && isPending && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="w-20 justify-center"
+                                onClick={() => {
+                                  if (shiftLock.locked) return;
+                                  if (row.appointmentId) {
+                                    navigate(`/payment/appointment/${row.appointmentId}`);
+                                  } else if (row.opNumber) {
+                                    navigate(`/payment/${encodeURIComponent(row.opNumber)}`);
+                                  }
+                                }}
+                                disabled={shiftLock.locked || (!row.appointmentId && !row.opNumber)}
+                                title={
+                                  shiftLock.locked
+                                    ? shiftLock.reason === 'no_open'
+                                      ? 'Shift not opened on this counter yet'
+                                      : 'Shift on this counter is closed'
+                                    : undefined
+                                }
+                              >
+                                Payment
+                              </Button>
+                            )}
+                            {isToday && isVitals && row.opNumber && (
+                              <Button asChild size="sm" className="w-20 justify-center">
+                                <Link to={`/frontdesk/vitals?op=${encodeURIComponent(row.opNumber)}`}>
+                                  Vitals
+                                </Link>
+                              </Button>
+                            )}
+                            <RowActionsMenu label={`More actions for ${row.patient.fullName}`}>
+                              <RowActionsItem asChild>
+                                <Link to={`/patient/${row.patient.uhid}`}><Eye /> View / edit patient</Link>
+                              </RowActionsItem>
+                              {isToday && isBooked && (
+                                <RowActionsItem onClick={() => { if (apptId) void onMarkNoShow(apptId); }}>
+                                  Mark no-show
                                 </RowActionsItem>
-                              </RowActionsMenu>
-                            </div>
-                          </td>
-                        )}
+                              )}
+                              {isToday && isBooked && (
+                                <RowActionsItem
+                                  destructive
+                                  onClick={() => { if (apptId) void onCancelAppt(apptId); }}
+                                >
+                                  Cancel appointment
+                                </RowActionsItem>
+                              )}
+                            </RowActionsMenu>
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}

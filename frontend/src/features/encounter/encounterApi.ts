@@ -1064,12 +1064,21 @@ export const fetchLiveQueue = async (params: {
       );
     }
 
-    // Sort: live rows by waitingSince (FIFO), appointment rows by
-    // scheduledAt. The default sort applied here keeps everything in
-    // chronological order; the page can re-sort via its own column hooks.
-    filtered.sort((a, b) =>
-      new Date(a.waitingSince).getTime() - new Date(b.waitingSince).getTime(),
-    );
+    // Sort by status priority so page 1 always surfaces the most urgent
+    // patients first: awaiting_doctor → awaiting_vitals → pending_payment
+    // → booked. Secondary key is waitingSince (FIFO) within each group.
+    const STATUS_ORDER: Record<string, number> = {
+      awaiting_doctor: 1,
+      awaiting_vitals: 2,
+      pending_payment: 3,
+      booked:          4,
+    };
+    filtered.sort((a, b) => {
+      const pa = STATUS_ORDER[a.queueStatus] ?? 5;
+      const pb = STATUS_ORDER[b.queueStatus] ?? 5;
+      if (pa !== pb) return pa - pb;
+      return new Date(a.waitingSince).getTime() - new Date(b.waitingSince).getTime();
+    });
 
     const page  = params.page  ?? 1;
     const limit = params.limit ?? 20;
