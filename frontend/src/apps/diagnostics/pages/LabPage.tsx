@@ -27,7 +27,6 @@ import {
   type LabOrderQueueEntry,
   type OrderStatus,
 } from '@/features/lab';
-import { DEFAULT_LIMIT } from '@/utils/listQuery';
 
 /**
  * Lab worklist — high-throughput tech workstation.
@@ -92,7 +91,7 @@ export function LabPage(): JSX.Element {
   const [params, setParams] = useSearchParams();
   const q = params.get('q') ?? '';
   const page = Math.max(1, Number(params.get('page')) || 1);
-  const limit = Math.max(1, Number(params.get('limit')) || DEFAULT_LIMIT);
+  const limit = Math.max(1, Number(params.get('limit')) || 10);
   const sort = params.get('sort') || '-orderedAt';
 
   const [items, setItems] = useState<LabOrderQueueEntry[]>([]);

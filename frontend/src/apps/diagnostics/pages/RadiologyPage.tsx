@@ -26,7 +26,6 @@ import {
   type RadiologyOrderQueueEntry,
 } from '@/features/radiology';
 import type { OrderStatus } from '@/features/lab';
-import { DEFAULT_LIMIT } from '@/utils/listQuery';
 
 const statusTone: Record<OrderStatus, StatusPillProps['tone']> = {
   ordered:             'neutral',
@@ -54,7 +53,7 @@ export function RadiologyPage(): JSX.Element {
   const [params, setParams] = useSearchParams();
   const q = params.get('q') ?? '';
   const page = Math.max(1, Number(params.get('page')) || 1);
-  const limit = Math.max(1, Number(params.get('limit')) || DEFAULT_LIMIT);
+  const limit = Math.max(1, Number(params.get('limit')) || 10);
   const sort = params.get('sort') || '-orderedAt';
 
   const [items, setItems] = useState<RadiologyOrderQueueEntry[]>([]);
