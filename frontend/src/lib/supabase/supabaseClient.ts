@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { useNetworkActivity } from '@/store/networkActivityStore';
 
 /**
  * DEMO-ONLY direct Supabase client.
@@ -37,6 +38,15 @@ if (!url || !anonKey) {
   );
 }
 
+const trackedFetch: typeof fetch = async (input, init) => {
+  useNetworkActivity.getState().increment();
+  try {
+    return await fetch(input, init);
+  } finally {
+    useNetworkActivity.getState().decrement();
+  }
+};
+
 export const supabase: SupabaseClient = createClient(url ?? '', anonKey ?? '', {
   auth: {
     // The frontend manages its own session via Zustand (authStore).
@@ -44,6 +54,7 @@ export const supabase: SupabaseClient = createClient(url ?? '', anonKey ?? '', {
     persistSession: false,
     autoRefreshToken: false,
   },
+  global: { fetch: trackedFetch },
 });
 
 /**
