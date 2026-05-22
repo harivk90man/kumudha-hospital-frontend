@@ -200,8 +200,11 @@ export const fetchSlots = async (params: SlotsListParams): Promise<AppointmentSl
 
 /* ---------- Book + lifecycle ---------- */
 
+// `appointments` has 5 FKs to `users` (doctor + created/updated/deleted/cancelled)
+// and `users` has 4 FKs to `departments` (department_id + audit triple).
+// Both embeds must be pinned to their real path or PostgREST returns PGRST201.
 const APPOINTMENT_SELECT =
-  '*, patient:patients!inner(*), doctor:users!inner(id, full_name, department_id, departments(dept_name))';
+  '*, patient:patients!inner(*), doctor:users!appointments_doctor_id_fkey!inner(id, full_name, department_id, departments!fk_users_department(dept_name))';
 
 /**
  * Build appointment_no in the form `APT-YYYY-NNNNN` using the appointment
