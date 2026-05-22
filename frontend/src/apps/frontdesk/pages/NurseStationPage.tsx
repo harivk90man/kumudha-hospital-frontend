@@ -209,21 +209,59 @@ export function NurseStationPage(): JSX.Element {
     return () => window.clearTimeout(t);
   }, [focusedOp]);
 
+  const rowKey = (r: LiveQueueEntry): string => r.opNumber ?? r.appointmentId ?? '';
+
   // Split rows by source/status:
   //   bookedRows       — appointments that haven't arrived yet (Check-in CTA)
   //   pendingPayment   — checked-in OR walk-in op_visit not yet paid (Pay CTA)
   //   paidRows         — paid op_visits at vitals / doctor station
+  //
+  // Band pinning: when the nurse acts on a row (Check-in / Cancel /
+  // No-show), the row stays in whichever band it was IN AT THE MOMENT
+  // OF THE ACTION, even after the underlying queueStatus changes on
+  // the next poll. Stops rows from jumping between bands under her
+  // hand. The pin clears when she changes sort, doctor filter, search,
+  // date, or page (handled by an effect below).
+  type Band = 'booked' | 'pending_payment' | 'paid';
+  const naturalBand = (status: LiveQueueStatus): Band =>
+    status === 'booked' ? 'booked'
+    : status === 'pending_payment' ? 'pending_payment'
+    : 'paid';
+
+  const [pinnedBands, setPinnedBands] = useState<Map<string, Band>>(new Map());
+  const bandForRow = useCallback(
+    (r: LiveQueueEntry): Band =>
+      pinnedBands.get(rowKey(r)) ?? naturalBand(r.queueStatus),
+    [pinnedBands],
+  );
+  const pinRow = useCallback((r: LiveQueueEntry): void => {
+    const key = rowKey(r);
+    const band = naturalBand(r.queueStatus);
+    setPinnedBands((prev) => {
+      const next = new Map(prev);
+      next.set(key, band);
+      return next;
+    });
+  }, []);
+
+  // Clear all pins when the user shifts the view — sort/filter/search/
+  // date/page changes count as an "explicit re-order" per the spec
+  // ("...until further sort").
+  useEffect(() => {
+    setPinnedBands(new Map());
+  }, [sort, doctorFilter, queueQ, selectedDate, page]);
+
   const bookedRows = useMemo(
-    () => rows.filter((r) => r.queueStatus === 'booked'),
-    [rows],
+    () => rows.filter((r) => bandForRow(r) === 'booked'),
+    [rows, bandForRow],
   );
   const pendingPayment = useMemo(
-    () => rows.filter((r) => r.queueStatus === 'pending_payment'),
-    [rows],
+    () => rows.filter((r) => bandForRow(r) === 'pending_payment'),
+    [rows, bandForRow],
   );
   const paidRows = useMemo(
-    () => rows.filter((r) => r.queueStatus === 'awaiting_vitals' || r.queueStatus === 'awaiting_doctor'),
-    [rows],
+    () => rows.filter((r) => bandForRow(r) === 'paid'),
+    [rows, bandForRow],
   );
 
   /* ---------- Appointment-row actions (Check-in / Cancel / No-show) ---------- */
@@ -238,6 +276,8 @@ export function NurseStationPage(): JSX.Element {
     });
 
   const onCheckIn = async (apptId: string): Promise<void> => {
+    const row = rows.find((r) => r.appointmentId === apptId);
+    if (row) pinRow(row);
     setBusy(apptId, true);
     try {
       await checkInAppointment(apptId);
@@ -255,6 +295,8 @@ export function NurseStationPage(): JSX.Element {
 
   const onCancelAppt = async (apptId: string): Promise<void> => {
     if (!window.confirm('Cancel this appointment?')) return;
+    const row = rows.find((r) => r.appointmentId === apptId);
+    if (row) pinRow(row);
     setBusy(apptId, true);
     try {
       await cancelAppointment(apptId, 'Cancelled at front desk');
@@ -271,6 +313,8 @@ export function NurseStationPage(): JSX.Element {
   };
 
   const onMarkNoShow = async (apptId: string): Promise<void> => {
+    const row = rows.find((r) => r.appointmentId === apptId);
+    if (row) pinRow(row);
     setBusy(apptId, true);
     try {
       await markNoShow(apptId);
@@ -330,8 +374,6 @@ export function NurseStationPage(): JSX.Element {
     { value: 'all', name: 'All doctors' },
     ...doctors.map((d) => ({ value: d.id, name: d.name, sublabel: d.department })),
   ], [doctors]);
-
-  const rowKey = (r: LiveQueueEntry) => r.opNumber ?? r.appointmentId ?? '';
 
   // Per-doctor queue positions + ETA for awaiting_doctor rows.
   // Sorted by waitingSince ASC within each doctor — Q1 = next up.
@@ -559,7 +601,7 @@ export function NurseStationPage(): JSX.Element {
             </div>
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-b border-gray-100 bg-white shadow-sm">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-b border-border bg-card shadow-sm">
             <div className="min-h-0 flex-1 overflow-hidden">
               <table className="min-w-full table-fixed text-sm">
                 <colgroup>

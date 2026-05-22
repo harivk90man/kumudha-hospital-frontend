@@ -236,24 +236,24 @@ function SectionCard({ id, icon: Icon, title, children, isOpen, onToggle, classN
         onClick={onToggle}
         className={cn(
           'flex w-full items-center gap-3 px-8 py-5 text-left transition-colors',
-          isOpen ? 'bg-white hover:bg-slate-50/50' : 'bg-slate-50 hover:bg-slate-100/70',
+          isOpen ? 'bg-card hover:bg-muted/40' : 'bg-muted/50 hover:bg-muted/70',
         )}
       >
         <div className={cn(
           'flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg transition-colors duration-200',
-          isOpen ? 'bg-primary/10' : 'bg-slate-100',
+          isOpen ? 'bg-primary/10' : 'bg-muted',
         )}>
-          <Icon className={cn('h-[17px] w-[17px] transition-colors duration-200', isOpen ? 'text-primary' : 'text-slate-400')} />
+          <Icon className={cn('h-[17px] w-[17px] transition-colors duration-200', isOpen ? 'text-primary' : 'text-muted-foreground')} />
         </div>
         <h3 className={cn(
           'flex-1 text-[13px] tracking-tight transition-colors duration-200',
-          isOpen ? 'font-semibold text-slate-900' : 'font-medium text-slate-500',
+          isOpen ? 'font-semibold text-foreground' : 'font-medium text-muted-foreground',
         )}>
           {title}
         </h3>
         <ChevronDown className={cn(
           'h-4 w-4 transition-transform duration-200',
-          isOpen ? 'rotate-180 text-primary' : 'text-slate-400',
+          isOpen ? 'rotate-180 text-primary' : 'text-muted-foreground',
         )} />
       </button>
 

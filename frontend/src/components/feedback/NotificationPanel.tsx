@@ -10,25 +10,28 @@ import {
 
 // ── Colour maps ───────────────────────────────────────────────────────────────
 
+// Semantic tokens — `--success/--danger/--warning/--info` re-point in .dark
+// (see globals.css), so the tinted bg + saturated text combo stays readable
+// in both modes without per-class `dark:` variants.
 const HEADER_BG: Record<NotificationType, string> = {
-  success: 'bg-green-50  border-green-300',
-  error:   'bg-red-50    border-red-300',
-  warning: 'bg-amber-50  border-amber-300',
-  info:    'bg-blue-50   border-blue-300',
+  success: 'bg-success/15 border-success/40',
+  error:   'bg-danger/15  border-danger/40',
+  warning: 'bg-warning/15 border-warning/40',
+  info:    'bg-info/15    border-info/40',
 };
 
 const HEADER_TEXT: Record<NotificationType, string> = {
-  success: 'text-green-800',
-  error:   'text-red-800',
-  warning: 'text-amber-800',
-  info:    'text-blue-800',
+  success: 'text-success',
+  error:   'text-danger',
+  warning: 'text-warning',
+  info:    'text-info',
 };
 
 const ITEM_DOT: Record<NotificationType, string> = {
-  success: 'bg-green-500',
-  error:   'bg-red-500',
-  warning: 'bg-amber-500',
-  info:    'bg-blue-500',
+  success: 'bg-success',
+  error:   'bg-danger',
+  warning: 'bg-warning',
+  info:    'bg-info',
 };
 
 // ── Icon per type ─────────────────────────────────────────────────────────────
@@ -36,10 +39,10 @@ const ITEM_DOT: Record<NotificationType, string> = {
 function TypeIcon({ type, className }: { type: NotificationType; className?: string }) {
   const cls = cn('h-4 w-4 shrink-0', className);
   switch (type) {
-    case 'success': return <CheckCircle2 className={cn(cls, 'text-green-600')} />;
-    case 'error':   return <AlertCircle  className={cn(cls, 'text-red-600')} />;
-    case 'warning': return <AlertTriangle className={cn(cls, 'text-amber-600')} />;
-    case 'info':    return <Info          className={cn(cls, 'text-blue-600')} />;
+    case 'success': return <CheckCircle2 className={cn(cls, 'text-success')} />;
+    case 'error':   return <AlertCircle  className={cn(cls, 'text-danger')} />;
+    case 'warning': return <AlertTriangle className={cn(cls, 'text-warning')} />;
+    case 'info':    return <Info          className={cn(cls, 'text-info')} />;
   }
 }
 
@@ -106,7 +109,7 @@ export function NotificationPanel() {
       {/* ↑ / ↓ minimise */}
       <button
         onClick={() => setPanelState(isMinimized ? 'normal' : 'minimized')}
-        className={cn('rounded p-0.5 hover:bg-black/10', HEADER_TEXT[type])}
+        className={cn('rounded p-0.5 hover:bg-foreground/10', HEADER_TEXT[type])}
         aria-label={isMinimized ? 'Restore' : 'Minimise'}
       >
         {isMinimized ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
@@ -115,7 +118,7 @@ export function NotificationPanel() {
       {/* ⤢ expand */}
       <button
         onClick={() => setPanelState(isExpanded ? 'normal' : 'expanded')}
-        className={cn('rounded p-0.5 hover:bg-black/10', HEADER_TEXT[type])}
+        className={cn('rounded p-0.5 hover:bg-foreground/10', HEADER_TEXT[type])}
         aria-label={isExpanded ? 'Collapse' : 'Expand'}
       >
         <Maximize2 className="h-3.5 w-3.5" />
@@ -124,7 +127,7 @@ export function NotificationPanel() {
       {/* ✕ close all */}
       <button
         onClick={clearAll}
-        className={cn('rounded p-0.5 hover:bg-black/10', HEADER_TEXT[type])}
+        className={cn('rounded p-0.5 hover:bg-foreground/10', HEADER_TEXT[type])}
         aria-label="Close all"
       >
         <X className="h-3.5 w-3.5" />

@@ -23,6 +23,7 @@ import { CardLabel } from '@/components/layout';
 import { Button } from '@/components/ui/button';
 import { homeForRole, useAuth } from '@/features/auth';
 import { fetchVisitHistory, type VisitHistoryItem } from '@/features/consultation';
+import { ReportViewerDialog, type ReportViewerInput } from '@/features/consultation/components/ReportViewerDialog';
 import { fetchPatient, findLinkedPatients } from './patientApi';
 import { useRecentPatientsStore } from './recentsStore';
 import type { LinkedPatient, PatientSummary } from './patientTypes';
@@ -134,7 +135,7 @@ export function PatientProfilePage(): JSX.Element {
               {/* Left column */}
               <div className="flex flex-col gap-6">
                 <IdentitySection patient={patient} />
-                <VisitHistorySection visits={visits} />
+                <VisitHistorySection visits={visits} patient={patient} />
               </div>
 
               {/* Right column — left-accent sections, flush with Identity heading */}
@@ -248,8 +249,15 @@ function IdentitySection({ patient }: { patient: PatientSummary }): JSX.Element 
 
 const VISIT_PAGE_SIZE = 5;
 
-function VisitHistorySection({ visits }: { visits: VisitHistoryItem[] }): JSX.Element {
+function VisitHistorySection({
+  visits,
+  patient,
+}: {
+  visits: VisitHistoryItem[];
+  patient: PatientSummary;
+}): JSX.Element {
   const [page, setPage] = useState<number>(1);
+  const [viewingReport, setViewingReport] = useState<ReportViewerInput>(null);
   const lastPage = Math.max(1, Math.ceil(visits.length / VISIT_PAGE_SIZE));
   const safePage = Math.min(Math.max(1, page), lastPage);
   const start = (safePage - 1) * VISIT_PAGE_SIZE;
@@ -271,9 +279,17 @@ function VisitHistorySection({ visits }: { visits: VisitHistoryItem[] }): JSX.El
       </div>
       {hasVisits && (
         <ul className="flex flex-col divide-y divide-hairline">
-          {visible.map((v) => <VisitRow key={v.opNumber} visit={v} />)}
+          {visible.map((v) => (
+            <VisitRow
+              key={v.opNumber}
+              visit={v}
+              patient={patient}
+              onOpenReport={setViewingReport}
+            />
+          ))}
         </ul>
       )}
+      <ReportViewerDialog value={viewingReport} onClose={() => setViewingReport(null)} />
       {hasVisits && (
         <div className="flex items-center justify-between gap-2 border-t border-hairline pt-2 text-xxs text-muted-foreground">
           <span className="tabular-nums">
@@ -306,11 +322,20 @@ function VisitHistorySection({ visits }: { visits: VisitHistoryItem[] }): JSX.El
   );
 }
 
-function VisitRow({ visit: v }: { visit: VisitHistoryItem }): JSX.Element {
+function VisitRow({
+  visit: v,
+  patient,
+  onOpenReport,
+}: {
+  visit: VisitHistoryItem;
+  patient: PatientSummary;
+  onOpenReport: (input: ReportViewerInput) => void;
+}): JSX.Element {
   const [open, setOpen] = useState<boolean>(false);
   const dateLabel = new Date(v.visitDate).toLocaleDateString(undefined, {
     day: '2-digit', month: 'short', year: 'numeric',
   });
+  const hasReports = (v.labOrders?.length ?? 0) + (v.radiologyOrders?.length ?? 0) > 0;
   return (
     <li>
       <button
@@ -354,6 +379,40 @@ function VisitRow({ visit: v }: { visit: VisitHistoryItem }): JSX.Element {
             <span className="text-xxs uppercase tracking-wider text-muted-foreground">OP number</span>
             <span className="font-mono text-foreground tabular-nums">{v.opNumber}</span>
           </div>
+
+          {hasReports && (
+            <div className="mt-2 grid grid-cols-[7rem_1fr] gap-x-3">
+              <span className="text-xxs uppercase tracking-wider text-muted-foreground">Reports</span>
+              <ul className="flex flex-col gap-1">
+                {v.labOrders?.map((o) => (
+                  <li key={`lab-${o.id}`} className="flex items-center gap-2">
+                    <FlaskConical className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate text-foreground">{o.testName}</span>
+                    <button
+                      type="button"
+                      onClick={() => onOpenReport({ kind: 'lab', order: o, patient })}
+                      className="text-xxs font-medium text-primary hover:underline"
+                    >
+                      View
+                    </button>
+                  </li>
+                ))}
+                {v.radiologyOrders?.map((o) => (
+                  <li key={`rad-${o.id}`} className="flex items-center gap-2">
+                    <Scan className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate text-foreground">{o.testName}</span>
+                    <button
+                      type="button"
+                      onClick={() => onOpenReport({ kind: 'radiology', order: o, patient })}
+                      className="text-xxs font-medium text-primary hover:underline"
+                    >
+                      View
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </li>

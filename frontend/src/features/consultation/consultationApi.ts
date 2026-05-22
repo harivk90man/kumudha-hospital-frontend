@@ -17,6 +17,8 @@ import { appendRxToQueue, removeRxFromQueue } from '@/features/pharmacy/__mocks_
 import { mockMedicines } from '@/features/inventory/__mocks__/inventoryMocks';
 import { mockQueue } from '@/features/encounter/__mocks__/encounterMocks';
 import type { RxItem, RxQueueEntry } from '@/features/pharmacy';
+import type { LabOrder, LabResultFlag, OrderStatus as LabOrderStatus } from '@/features/lab';
+import type { Modality, RadiologyOrder } from '@/features/radiology';
 
 const delay = <T>(value: T, ms = 250): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), ms));
@@ -490,15 +492,91 @@ interface SbVisitHistoryRow {
     diagnoses: Array<{ icd10?: string; desc?: string; type?: string }> | null;
     prescriptions: Array<{ prescription_items: Array<{ id: string }> }>;
   }>;
-  lab_orders: Array<{ id: string }>;
-  radiology_orders: Array<{ id: string }>;
+  lab_orders: Array<{
+    id: string; status: string; priority: string;
+    created_at: string; completed_at: string | null;
+    lab_order_items: Array<{
+      id: string; sequence_no: number;
+      lab_tests: { test_code: string; test_name: string } | null;
+      lab_results: Array<{
+        value_raw: string | null; value_numeric: number | string | null;
+        unit: string | null; flag: string | null;
+      }>;
+    }>;
+  }>;
+  radiology_orders: Array<{
+    id: string; status: string; priority: string; created_at: string;
+    radiology_procedures: { procedure_code: string; procedure_name: string; modality: string } | null;
+    radiology_reports: Array<{ findings: string | null; impression: string | null }>;
+  }>;
 }
+
+const FE_LAB_STATUS: ReadonlyArray<LabOrderStatus> = [
+  'ordered', 'awaiting_payment', 'paid', 'sample_collection', 'sample_collected',
+  'in_progress', 'partially_reported', 'reported', 'released', 'cancelled',
+];
+const toLabStatus = (s: string): LabOrderStatus =>
+  (FE_LAB_STATUS as readonly string[]).includes(s) ? (s as LabOrderStatus) : 'ordered';
+
+/**
+ * Fan out each lab_order_items row into its own LabOrder so the
+ * patient-profile expand can render one View button per test (a
+ * panel like CBC produces multiple component rows).
+ */
+const sbToLabOrders = (orders: SbVisitHistoryRow['lab_orders']): LabOrder[] => {
+  const out: LabOrder[] = [];
+  for (const o of orders) {
+    const status = toLabStatus(o.status);
+    if (o.lab_order_items.length === 0) {
+      out.push({
+        id: o.id,
+        orderedAt: o.created_at,
+        status,
+        testCode: '—',
+        testName: '—',
+      });
+      continue;
+    }
+    for (const it of o.lab_order_items) {
+      const res = it.lab_results[0];
+      const numeric = res?.value_numeric != null ? String(res.value_numeric) : undefined;
+      out.push({
+        id: it.id,
+        orderedAt: o.created_at,
+        status,
+        testCode: it.lab_tests?.test_code ?? '—',
+        testName: it.lab_tests?.test_name ?? '—',
+        resultSummary: res?.value_raw ?? undefined,
+        resultValue: numeric ?? res?.value_raw ?? undefined,
+        resultUnit: res?.unit ?? undefined,
+        flag: (res?.flag as LabResultFlag | undefined) ?? undefined,
+      });
+    }
+  }
+  return out;
+};
+
+const sbToRadiologyOrders = (orders: SbVisitHistoryRow['radiology_orders']): RadiologyOrder[] =>
+  orders.map((o) => {
+    const rpt = o.radiology_reports[0];
+    return {
+      id: o.id,
+      orderedAt: o.created_at,
+      status: toLabStatus(o.status),
+      testCode: o.radiology_procedures?.procedure_code ?? '—',
+      testName: o.radiology_procedures?.procedure_name ?? '—',
+      modality: (o.radiology_procedures?.modality ?? 'other') as Modality,
+      resultSummary: rpt?.impression ?? rpt?.findings ?? undefined,
+    };
+  });
 
 const sbRowToVisitHistory = (r: SbVisitHistoryRow): VisitHistoryItem => {
   const cons = r.consultations[0];
   const primary = cons?.diagnoses?.find((d) => d.type === 'primary') ?? cons?.diagnoses?.[0];
   const rxItemCount = (cons?.prescriptions ?? [])
     .reduce((acc, p) => acc + (p.prescription_items?.length ?? 0), 0);
+  const labOrders = sbToLabOrders(r.lab_orders);
+  const radiologyOrders = sbToRadiologyOrders(r.radiology_orders);
   return {
     opNumber:            r.op_number,
     visitDate:           r.closed_at ?? r.created_at ?? r.visit_date,
@@ -507,8 +585,10 @@ const sbRowToVisitHistory = (r: SbVisitHistoryRow): VisitHistoryItem => {
     chiefComplaint:      r.chief_complaint ?? '',
     primaryDiagnosis:    primary?.desc,
     prescriptionCount:   rxItemCount,
-    hasLabReports:       r.lab_orders.length > 0,
-    hasRadiologyReports: r.radiology_orders.length > 0,
+    hasLabReports:       labOrders.length > 0,
+    hasRadiologyReports: radiologyOrders.length > 0,
+    labOrders:           labOrders.length > 0 ? labOrders : undefined,
+    radiologyOrders:     radiologyOrders.length > 0 ? radiologyOrders : undefined,
   };
 };
 
@@ -537,8 +617,19 @@ export const fetchVisitHistory = async (
           op_number, visit_date, chief_complaint, created_at, closed_at,
           users:users!op_visits_doctor_id_fkey ( full_name, departments!fk_users_department ( dept_name ) ),
           consultations ( diagnoses, prescriptions ( prescription_items ( id ) ) ),
-          lab_orders ( id ),
-          radiology_orders ( id )
+          lab_orders (
+            id, status, priority, created_at, completed_at,
+            lab_order_items (
+              id, sequence_no,
+              lab_tests ( test_code, test_name ),
+              lab_results ( value_raw, value_numeric, unit, flag )
+            )
+          ),
+          radiology_orders (
+            id, status, priority, created_at,
+            radiology_procedures ( procedure_code, procedure_name, modality ),
+            radiology_reports ( findings, impression )
+          )
         `)
         .eq('patient_id', patientId)
         .is('deleted_at', null)

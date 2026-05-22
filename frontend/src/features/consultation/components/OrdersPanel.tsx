@@ -335,10 +335,19 @@ export function OrdersPanel({
                     {statusLabel(order.status)}
                   </td>
 
-                  {/* Row actions — paperclip when report attached, plus delete */}
+                  {/* Row actions — paperclip when a result is available, plus delete.
+                      "Available" means the order has reached a reported/released
+                      state OR has a saved summary/pdf. Gating on reportPdfUrl
+                      alone hid the button on past-visit rows that never got an
+                      uploaded PDF but DO have a stored result the dialog can
+                      render from order fields. */}
                   <td className="py-2.5 pr-4 align-top">
                     <div className="flex items-center gap-0.5">
-                      {order.reportPdfUrl && (
+                      {(order.status === 'reported'
+                        || order.status === 'released'
+                        || order.status === 'partially_reported'
+                        || Boolean(order.resultSummary)
+                        || Boolean(order.reportPdfUrl)) && (
                         <button
                           type="button"
                           onClick={() =>
