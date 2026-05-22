@@ -366,11 +366,11 @@ function actionsForRole(
       onSelect: goAndClose('/frontdesk/station'),
     });
     items.push({
-      id: 'go-appointments',
-      label: 'Appointments',
-      hint: "Today’s bookings + check-in",
+      id: 'go-op-coordination',
+      label: 'OP coordination',
+      hint: "Today's bookings + live queue",
       icon: CalendarClock,
-      onSelect: goAndClose('/frontdesk/appointments'),
+      onSelect: goAndClose('/frontdesk/station'),
     });
     items.push({
       id: 'go-walkin',

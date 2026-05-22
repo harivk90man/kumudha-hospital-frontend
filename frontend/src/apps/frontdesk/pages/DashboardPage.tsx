@@ -227,7 +227,7 @@ export function DashboardPage(): JSX.Element {
         severity: 'info',
         Icon: XCircle,
         message: `${counters.noShows} no-show${counters.noShows === 1 ? '' : 's'} today`,
-        href: '/frontdesk/appointments',
+        href: '/frontdesk/station',
       });
     }
     return list;
@@ -289,8 +289,8 @@ export function DashboardPage(): JSX.Element {
             </Link>
           </Button>
           <Button asChild variant="outline">
-            <Link to="/frontdesk/appointments">
-              <CalendarClock /> Appointments
+            <Link to="/frontdesk/station">
+              <CalendarClock /> OP coordination
             </Link>
           </Button>
         </div>

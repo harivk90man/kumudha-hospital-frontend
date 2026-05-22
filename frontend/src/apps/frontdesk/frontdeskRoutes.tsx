@@ -6,7 +6,6 @@ import { BookAppointmentPage } from './pages/BookAppointmentPage';
 import { WalkInPage } from './pages/WalkInPage';
 import { RegistrationPage } from './pages/RegistrationPage';
 import { VitalsPage } from './pages/VitalsPage';
-import { AppointmentsPage } from './pages/AppointmentsPage';
 import { QueuePage } from './pages/QueuePage';
 
 /**
@@ -32,7 +31,10 @@ export const frontdeskRoutes: RouteObject[] = [
       { path: 'register',     element: <RegistrationPage /> },
       { path: 'vitals',       element: <VitalsPage /> },
       { path: 'queue',        element: <QueuePage /> },
-      { path: 'appointments', element: <AppointmentsPage /> },
+      // /frontdesk/appointments merged into /frontdesk/station — keep the
+      // legacy URL alive so dashboards, bookmarks and the command palette
+      // don't 404.
+      { path: 'appointments', element: <Navigate to="/frontdesk/station" replace /> },
     ],
   },
 ];

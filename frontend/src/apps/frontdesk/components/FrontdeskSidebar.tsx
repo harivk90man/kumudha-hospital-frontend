@@ -1,4 +1,4 @@
-import { CalendarClock, HeartPulse, Lock, Users } from 'lucide-react';
+import { HeartPulse, Lock, Users } from 'lucide-react';
 import { AppSidebar, type AppSidebarNavItem } from '@/components/layout';
 import { roleHas, useAuth, type UserRole } from '@/features/auth';
 
@@ -12,8 +12,7 @@ import { roleHas, useAuth, type UserRole } from '@/features/auth';
 // reachable via deep-link but are off the sidebar so the user isn’t
 // fragmented across screens.
 const baseItems: AppSidebarNavItem[] = [
-  { to: '/frontdesk/station',      label: 'OP coordination', icon: HeartPulse },
-  { to: '/frontdesk/appointments', label: 'Appointments',    icon: CalendarClock },
+  { to: '/frontdesk/station', label: 'OP coordination', icon: HeartPulse },
 ];
 
 const navFor = (role: UserRole | undefined): AppSidebarNavItem[] => {

@@ -224,7 +224,7 @@ export function RegistrationPage(): JSX.Element {
       }
     : !bookedAppointment
     ? { label: 'Skip for now', onClick: startOver }
-    : { label: 'View appointments', onClick: () => navigate('/frontdesk/appointments') };
+    : { label: 'View queue', onClick: () => navigate('/frontdesk/station') };
 
   /* ---------- Render ---------- */
   return (

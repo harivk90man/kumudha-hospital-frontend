@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { CalendarClock, HeartPulse } from 'lucide-react';
+import { HeartPulse } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import type { LucideIcon } from 'lucide-react';
 
@@ -12,8 +12,7 @@ interface NavItem {
 // "OP" is the bottom-nav abbreviation for OP coordination — sidebar
 // shows the full label, mobile bottom-nav goes terse.
 const items: NavItem[] = [
-  { to: '/frontdesk/station',      label: 'OP',    icon: HeartPulse },
-  { to: '/frontdesk/appointments', label: 'Appts', icon: CalendarClock },
+  { to: '/frontdesk/station', label: 'OP', icon: HeartPulse },
 ];
 
 export function FrontdeskBottomNav(): JSX.Element {
