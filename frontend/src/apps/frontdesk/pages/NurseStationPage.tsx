@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   CalendarClock,
-  CalendarPlus,
   CheckCircle2,
   Eye,
   FlaskConical,
@@ -352,11 +351,6 @@ export function NurseStationPage(): JSX.Element {
           <Button asChild className="w-44 justify-center">
             <Link to="/frontdesk/register?returnTo=/frontdesk/station">
               <UserPlus /> Register new patient
-            </Link>
-          </Button>
-          <Button asChild variant="outline">
-            <Link to="/frontdesk/register?returnTo=/frontdesk/station">
-              <CalendarPlus /> New booking
             </Link>
           </Button>
           <Button asChild variant="outline">
