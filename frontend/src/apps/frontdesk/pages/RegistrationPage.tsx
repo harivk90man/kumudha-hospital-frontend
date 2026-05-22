@@ -159,6 +159,24 @@ export function RegistrationPage(): JSX.Element {
     ? 'Patient registered — book an appointment below.'
     : 'Appointment confirmed.';
 
+  const title = !selectedPatient
+    ? 'Register new patient'
+    : !bookedAppointment
+    ? 'Book appointment'
+    : 'Appointment booked';
+
+  const breadcrumbItems = !selectedPatient
+    ? [{ label: 'Register patient' }]
+    : !bookedAppointment
+    ? [
+        { label: 'Register patient', to: '/frontdesk/register' },
+        { label: 'Book appointment' },
+      ]
+    : [
+        { label: 'Register patient', to: '/frontdesk/register' },
+        { label: 'Book appointment' },
+      ];
+
   const uhidSearch = !selectedPatient
     ? { value: lookupValue, onChange: setLookupValue, onSubmit: () => void onLookup(lookupValue) }
     : undefined;
@@ -189,11 +207,11 @@ export function RegistrationPage(): JSX.Element {
   /* ---------- Render ---------- */
   return (
     <WorkspacePageLayout
-      breadcrumbItems={[{ label: 'Register patient' }]}
+      breadcrumbItems={breadcrumbItems}
       homeTo="/frontdesk/station"
       homeLabel="OP Management"
       backTo="/frontdesk/station"
-      title="Register new patient"
+      title={title}
       subtitle={subtitle}
       uhidSearch={uhidSearch}
       primaryAction={primaryAction}
