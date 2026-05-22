@@ -7,6 +7,7 @@ export {
   fetchQueuePaged,
   fetchQueueByDoctor,
   fetchLiveQueue,
+  LIVE_QUEUE_SORT_WHITELIST,
   liveToQueueEntry,
   fetchReportPendingQueue,
   fetchJourneyEvents,

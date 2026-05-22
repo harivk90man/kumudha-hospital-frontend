@@ -49,6 +49,14 @@ export const QUEUE_SORT_WHITELIST = [
   'qPos',
 ] as const;
 
+export const LIVE_QUEUE_SORT_WHITELIST = [
+  'tokenNumber',
+  'patient.fullName',
+  'queueStatus',
+  'waitingSince',
+  // queuePos is virtual — handled separately in the component
+] as const;
+
 const delay = <T>(value: T, ms = 250): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), ms));
 
