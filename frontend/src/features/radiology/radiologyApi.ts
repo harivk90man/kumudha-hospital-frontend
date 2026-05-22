@@ -28,6 +28,28 @@ export const RADIOLOGY_ORDERS_SORT_WHITELIST = [
 const delay = <T>(value: T, ms = 250): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), ms));
 
+const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
+
+/** Next `RAD-YYYY-NNNNN` from the max suffix already in `radiology_orders`. */
+async function nextRadOrderNumber(): Promise<string> {
+  const { supabase } = await import('@/lib/supabase/supabaseClient');
+  const year = new Date().getFullYear();
+  const { data, error } = await supabase
+    .from('radiology_orders')
+    .select('order_number')
+    .like('order_number', `RAD-${year}-_____`)
+    .order('order_number', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  let next = 1;
+  if (data) {
+    const m = String((data as { order_number: string }).order_number).match(/RAD-\d{4}-(\d+)$/);
+    if (m) next = parseInt(m[1], 10) + 1;
+  }
+  return `RAD-${year}-${String(next).padStart(5, '0')}`;
+}
+
 /**
  * Radiology API surface. Mocked today; signatures match the final backend
  * contract (TSD-09). All list endpoints honour ?page=&limit=&sort= per
@@ -128,8 +150,66 @@ export const placeRadiologyOrder = async (
       .filter((c): c is RadiologyTestCatalogItem => Boolean(c));
   }
 
+  // Persist to Supabase first so the radiology-tech worklist (which
+  // reads from DB) actually sees the doctor's order. Schema CHECK
+  // constraint allows one procedure per radiology_orders row, so we
+  // insert N rows (one per testId).
+  const dbOrderIds: Record<string, string> = {}; // testCatalogId -> radiology_orders.id
+  try {
+    if (opNumber && patientSnapshot && tests.length > 0) {
+      const { supabase } = await import('@/lib/supabase/supabaseClient');
+      const { data: opvData } = await supabase
+        .from('op_visits')
+        .select('id, doctor_id')
+        .eq('op_number', opNumber)
+        .is('deleted_at', null)
+        .maybeSingle();
+      if (opvData) {
+        const opv = opvData as { id: string; doctor_id: string };
+        for (const t of tests) {
+          let attempts = 0;
+          let orderNum = await nextRadOrderNumber();
+          while (attempts < 5) {
+            const { data: insOrder, error: insErr } = await supabase
+              .from('radiology_orders')
+              .insert({
+                order_number:           orderNum,
+                patient_id:             patientSnapshot.id,
+                op_visit_id:            opv.id,
+                doctor_id:              opv.doctor_id,
+                radiology_procedure_id: t.id,
+                priority:               clinicalPriority,
+                status:                 'ordered',
+                created_by:             DEMO_USER_ID,
+              })
+              .select('id')
+              .maybeSingle();
+            if (insErr) {
+              const code = (insErr as unknown as { code?: string }).code;
+              if (code === '23505') {
+                attempts += 1;
+                orderNum = await nextRadOrderNumber();
+                continue;
+              }
+              throw insErr;
+            }
+            const id = (insOrder as { id: string } | null)?.id;
+            if (id) dbOrderIds[t.id] = id;
+            break;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[placeRadiologyOrder] Supabase persist failed:', e);
+  }
+
   const orders: RadiologyOrder[] = tests.map((c) => ({
-    id: `rad-${c.id}-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+    // Prefer the real DB id so the returned RadiologyOrder maps back
+    // to the persisted row (downstream status updates query by id).
+    id: dbOrderIds[c.id]
+      ?? `rad-${c.id}-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
     orderedAt: new Date().toISOString(),
     status: 'ordered' as const,
     testCode: c.code,

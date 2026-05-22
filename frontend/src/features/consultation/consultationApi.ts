@@ -35,6 +35,45 @@ const PROCEDURE_DEMO_IMAGES: Record<string, string[]> = {
 const delay = <T>(value: T, ms = 250): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), ms));
 
+/**
+ * Doses-per-day from a free-text frequency string. Handles:
+ *   - Dash patterns: '1-0-1' → 2, '1-1-1' → 3, '1-1-1-1' → 4
+ *   - Named:         OD/QD/HS/SOS/STAT → 1, BD/BID → 2, TDS/TID → 3, QID → 4
+ * Falls back to 1 when nothing matches (defensive default so the
+ * resulting quantity_prescribed still satisfies the CHECK > 0).
+ *
+ * Used to backfill `quantity_prescribed` when the doctor didn't type
+ * a quantity — prescription_items has NOT NULL + CHECK > 0 on that
+ * column, so a missing value was silently rejecting the whole insert.
+ */
+const dosesPerDay = (freq: string): number => {
+  const f = freq.trim().toUpperCase();
+  if (!f) return 1;
+  // Dash-separated: count non-zero parts (handles '1-0-1', '0-1-1' etc.)
+  if (/^[\d-]+$/.test(f)) {
+    const parts = f.split('-').filter((p) => p !== '');
+    const count = parts.filter((p) => {
+      const n = parseInt(p, 10);
+      return !Number.isNaN(n) && n > 0;
+    }).length;
+    return count > 0 ? count : 1;
+  }
+  if (f.includes('QID')) return 4;
+  if (f.includes('TID') || f.includes('TDS')) return 3;
+  if (f.includes('BD') || f.includes('BID')) return 2;
+  return 1;
+};
+
+const safeQuantityPrescribed = (
+  quantity: number | undefined,
+  durationDays: number,
+  frequency: string,
+): number => {
+  if (quantity != null && quantity > 0) return quantity;
+  const days = durationDays > 0 ? durationDays : 1;
+  return Math.max(1, days * dosesPerDay(frequency));
+};
+
 /** Seeded-random vitals so each queue patient has plausible, consistent values. */
 const seedVitals = (opNumber: string) => {
   const h = [...opNumber].reduce((acc, c) => acc + c.charCodeAt(0), 0);
@@ -861,8 +900,17 @@ export const lockConsultation = async (opNumber: string): Promise<ConsultationCo
             medicine_name_snapshot: `${it.medicineNameSnapshot}${it.strength ? ' ' + it.strength : ''}`,
             dosage: it.dosage,
             frequency: it.frequency,
-            duration_days: it.durationDays,
-            quantity_prescribed: it.quantityPrescribed,
+            // Schema CHECK requires duration_days > 0 — default to 1 day
+            // so a doctor who skipped this field still gets a row.
+            duration_days: it.durationDays > 0 ? it.durationDays : 1,
+            // Schema CHECK requires quantity_prescribed > 0; the FE type
+            // had this optional which silently NULL'd the whole insert.
+            // Backfill from durationDays * frequency-count when missing.
+            quantity_prescribed: safeQuantityPrescribed(
+              it.quantityPrescribed,
+              it.durationDays,
+              it.frequency,
+            ),
             sequence_no: i + 1,
             created_by: bs,
           }));
