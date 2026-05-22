@@ -169,9 +169,13 @@ export const fetchBookableDoctors = async (): Promise<
   const userIds = (links ?? []).map((l) => l.user_id);
   if (userIds.length === 0) return [];
 
+  // `users` has FOUR FK paths to `departments` (department_id +
+  // three audit FKs created_by/updated_by/deleted_by). Without the
+  // explicit FK hint PostgREST returns PGRST201 and the dropdown
+  // silently stays empty.
   const { data, error } = await supabase
     .from('users')
-    .select('id, full_name, departments ( dept_name )')
+    .select('id, full_name, departments!fk_users_department ( dept_name )')
     .in('id', userIds)
     .eq('status', 'active')
     .is('deleted_at', null)
