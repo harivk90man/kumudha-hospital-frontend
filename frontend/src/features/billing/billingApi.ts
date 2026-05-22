@@ -686,9 +686,18 @@ export const createInvoice = async (input: CreateInvoiceInput): Promise<Invoice>
     front_desk: 'op',
     billing:    'op',
   };
+  // DB invoice_items has biconditional constraints between item_type and
+  // its companion FK (e.g. item_type='consultation' iff consultation_id
+  // IS NOT NULL). At billing time we don't yet have a consultations row
+  // (the doctor creates it later when the consult is locked), so the
+  // consult fee can't be 'consultation'. 'other' is the only safe choice
+  // for an unanchored service charge — same applies to lab/rad which
+  // would need lab_order_item_id / radiology_order_id set. The line
+  // name ('OPD consultation' / 'CBC' / 'Chest X-Ray') still carries the
+  // semantic meaning on the receipt.
   const feCategoryToItemType: Record<string, string> = {
-    consultation: 'consultation', lab: 'lab_test', radiology: 'radiology',
-    pharmacy: 'drug', procedure: 'procedure', admission: 'room_charge',
+    consultation: 'other', lab: 'other', radiology: 'other',
+    pharmacy: 'other', procedure: 'procedure', admission: 'room_charge',
     registration: 'other', other: 'other',
   };
 
