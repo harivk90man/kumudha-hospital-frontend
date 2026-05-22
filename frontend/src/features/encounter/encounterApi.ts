@@ -82,6 +82,29 @@ const STATUS_CODE: Record<EncounterStatusName, number> = {
   pharmacy_pending: 320, closed: 400, booked: 100,
 };
 
+/**
+ * Reverse of STATION_TO_STATUS — which DB `station_type` does the
+ * patient_states row need to land on when the FE asks for a given
+ * encounter status? Used by `transitionEncounterState` to drive the
+ * Supabase write. Statuses with no clean station mapping (e.g.
+ * `consultation_done`, `closed`) intentionally don't appear — the
+ * caller should close the visit (`closed_at`) instead of moving state.
+ */
+type TargetStation =
+  | 'front_desk' | 'vitals' | 'doctor' | 'billing'
+  | 'lab_collection' | 'lab_processing' | 'radiology' | 'pharmacy';
+
+const STATUS_TO_STATION: Partial<Record<EncounterStatusName, TargetStation>> = {
+  registered:       'front_desk',
+  awaiting_billing: 'billing',
+  awaiting_vitals:  'vitals',
+  awaiting_doctor:  'doctor',
+  in_consultation:  'doctor',
+  lab_pending:      'lab_collection',
+  imaging_pending:  'radiology',
+  pharmacy_pending: 'pharmacy',
+};
+
 const ageFromDobIso = (dob: string | null | undefined): number => {
   if (!dob) return 0;
   const d = new Date(dob); const n = new Date();
@@ -674,6 +697,20 @@ export const recordVitals = async (
   if (insErr || !ins) {
     throw new Error(insErr?.message ?? 'Failed to save vitals');
   }
+
+  // Vitals captured â†’ move the patient_states row to the doctor station
+  // so the live queue picks them up on the doctorâ€™s side without
+  // waiting for the doctor's startConsultation auto-correct. Vitals data
+  // is the audit-bearing write; if the state move fails (transient DB
+  // error) we still return success since startConsultation will
+  // re-converge the state later.
+  try {
+    await moveToStation(opv.id, opv.patient_id, 'doctor');
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[recordVitals] post-insert state move failed:', e);
+  }
+
   return {
     ...payload,
     id: (ins as { id: string }).id,
@@ -726,12 +763,29 @@ export const transitionEncounterState = async (
   opNumber: string,
   toName: EncounterStatusName,
 ): Promise<EncounterStatus> => {
-  // Mock side-effect: keep the queue rowâ€™s status in sync so the demo
-  // shows the patient leaving `awaiting_vitals` after vitals capture
-  // and appearing on the doctorâ€™s `awaiting_doctor` queue.
+  // Mock side-effect first â€” keeps the local queue rowâ€™s status in sync
+  // so the same-browser UI flips instantly without waiting for the DB
+  // round-trip.
   setQueueStatus(opNumber, toName);
-  // Mock returns code 0 â€” backend stamps the real int from patient_states.code.
-  return delay({ code: 0, name: toName });
+
+  // Supabase-backed transition: close the active patient_states row and
+  // open a new one at the target station. moveToStation is idempotent
+  // (no-op when the active state is already at the target), so this is
+  // safe to call repeatedly.
+  const targetStation = STATUS_TO_STATION[toName];
+  if (targetStation) {
+    try {
+      const opv = await lookupOpVisit(opNumber);
+      if (opv) {
+        await moveToStation(opv.id, opv.patientId, targetStation);
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('[transitionEncounterState] DB move failed:', e);
+    }
+  }
+
+  return { code: STATUS_CODE[toName] ?? 0, name: toName };
 };
 
 /**
