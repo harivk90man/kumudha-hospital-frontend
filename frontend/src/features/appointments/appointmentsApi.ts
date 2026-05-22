@@ -319,7 +319,17 @@ export const fetchAppointmentsPaged = async (
 };
 
 /** Mark a pre-booked appointment as arrived at reception. */
+/**
+ * Front-desk check-in: flips the appointment to 'arrived' AND creates
+ * the live-queue row (op_visit + initial patient_states at the billing
+ * station so the cashier can collect the consult fee before vitals).
+ *
+ * Idempotent — if an op_visit already exists for this appointment
+ * (e.g. a previous check-in attempt failed mid-way) the op_visit /
+ * patient_states inserts are skipped.
+ */
 export const checkInAppointment = async (id: string): Promise<Appointment> => {
+  // 1. Update the appointment first.
   const { data, error } = await supabase
     .from('appointments')
     .update({ status: 'arrived', updated_by: DEMO_USER_ID })
@@ -327,7 +337,73 @@ export const checkInAppointment = async (id: string): Promise<Appointment> => {
     .select(APPOINTMENT_SELECT)
     .single();
   if (error) throw new Error(error.message);
-  return mapRowToAppointment(data as unknown as AppointmentRowJoined);
+  const appt = data as unknown as AppointmentRowJoined;
+
+  // 2. Look for an existing op_visit for this appointment (idempotency).
+  const { data: existingOpv } = await supabase
+    .from('op_visits')
+    .select('id, patient_id')
+    .eq('appointment_id', id)
+    .is('deleted_at', null)
+    .maybeSingle();
+
+  let opVisitId: string | null = (existingOpv as { id: string } | null)?.id ?? null;
+  const patientId = (existingOpv as { patient_id: string } | null)?.patient_id ?? appt.patient_id;
+
+  // 3. Create the op_visit if it doesn't exist yet.
+  if (!opVisitId) {
+    const opNumber = await nextOpNumber();
+    const visitDate = (appt.scheduled_at as string).slice(0, 10);
+    const { data: opIns, error: opErr } = await supabase
+      .from('op_visits')
+      .insert({
+        op_number:       opNumber,
+        patient_id:      appt.patient_id,
+        appointment_id:  appt.id,
+        doctor_id:       appt.doctor_id,
+        visit_date:      visitDate,
+        chief_complaint: appt.reason ?? null,
+        created_by:      DEMO_USER_ID,
+      })
+      .select('id')
+      .maybeSingle();
+    if (opErr) throw new Error(opErr.message);
+    opVisitId = (opIns as { id: string } | null)?.id ?? null;
+  }
+
+  // 4. Create the initial patient_states row at the billing station so
+  //    the live queue (which joins op_visits to its active state) finds it.
+  //    Skip when the visit already has an active state row.
+  if (opVisitId) {
+    const { data: activeState } = await supabase
+      .from('patient_states')
+      .select('id')
+      .eq('op_visit_id', opVisitId)
+      .is('left_at', null)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (!activeState) {
+      // Resolve billing station id.
+      const { data: stRow } = await supabase
+        .from('stations')
+        .select('id')
+        .eq('station_type', 'billing')
+        .is('deleted_at', null)
+        .maybeSingle();
+      const stationId = (stRow as { id: string } | null)?.id;
+      if (stationId) {
+        await supabase.from('patient_states').insert({
+          patient_id:  patientId,
+          op_visit_id: opVisitId,
+          station_id:  stationId,
+          metadata:    {},
+          created_by:  DEMO_USER_ID,
+        });
+      }
+    }
+  }
+
+  return mapRowToAppointment(appt);
 };
 
 /** Cancel a booked appointment. Reason is optional but recommended. */
