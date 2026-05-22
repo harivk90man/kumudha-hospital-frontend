@@ -4,25 +4,12 @@ import { FileText, Search, User } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { searchPatientsByMobile, type PatientSummary } from '@/features/patient';
 import {
-  fetchQueuePaged,
   searchCasesByDiagnosis,
   type CaseSummary,
-  type EncounterStatusName,
 } from '@/features/encounter';
-import { useAuth } from '@/features/auth';
+import { fetchVisitHistory } from '@/features/consultation';
 
 type Mode = 'patient' | 'cases';
-
-/** Encounter statuses considered "live" for the patient-mode jump-to-consultation
- *  shortcut. Matches the doctor queue tab's active-statuses allowlist. */
-const ACTIVE_ENCOUNTER_STATUSES: EncounterStatusName[] = [
-  'walk_in_arrived',
-  'registered',
-  'awaiting_vitals',
-  'vitals_done',
-  'awaiting_doctor',
-  'in_consultation',
-];
 
 const DEBOUNCE_MS = 200;
 const MAX_RESULTS = 8;
@@ -53,14 +40,6 @@ const formatConsultedRelative = (iso: string): string => {
  * Cases mode the palette doesn't support.
  */
 export function DoctorTopSearch(): JSX.Element {
-  // Patient-mode active-encounter lookup needs to be scoped to this
-  // doctor so the search doesn't route them into another doctor's
-  // consultation. Owner / admin fall through unfiltered (overview).
-  const { user } = useAuth();
-  const scopedDoctorId =
-    user && (user.role === 'doctor' || user.role === 'chief_doctor')
-      ? user.id
-      : undefined;
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -114,22 +93,32 @@ export function DoctorTopSearch(): JSX.Element {
     setCaseResults([]);
   };
 
-  /** Patient-mode select: route to active encounter today if any, else profile. */
+  /**
+   * Patient-mode select: always route to the most recent op_visit's
+   * consultation page, whether or not the visit is today and whether
+   * or not the patient is in this doctor's queue. The consultation
+   * page handles view-only vs editable via its own locked-state logic
+   * (locked = past visit, in_consultation = today's live encounter).
+   *
+   * Only fall back to the patient profile when the patient has zero
+   * op_visits anywhere — fresh registration, never seen by any doctor.
+   */
   const onSelectPatient = async (p: PatientSummary): Promise<void> => {
     closeAndReset();
-    const r = await fetchQueuePaged({
-      q: p.uhid,
-      statuses: ACTIVE_ENCOUNTER_STATUSES,
-      doctorId: scopedDoctorId,
-      page: 1,
-      limit: 5,
-    });
-    const active = r.rows.find((row) => row.patient.uhid === p.uhid);
-    if (active) {
-      navigate(`/doctor/consultation/${active.opNumber}`);
-    } else {
-      navigate(`/patient/${p.uhid}`);
+    try {
+      // fetchVisitHistory returns rows sorted DESC by visit_date —
+      // first entry is the most recent op_visit (today's live one if
+      // present, else the latest closed visit).
+      const visits = await fetchVisitHistory(p.uhid);
+      if (visits.length > 0) {
+        navigate(`/doctor/consultation/${visits[0].opNumber}`);
+        return;
+      }
+    } catch {
+      // Fall through to profile on lookup failure so the search action
+      // stays useful even if the history endpoint hiccups.
     }
+    navigate(`/patient/${p.uhid}`);
   };
 
   const onSelectCase = (c: CaseSummary): void => {
