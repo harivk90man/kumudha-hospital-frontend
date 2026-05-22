@@ -334,11 +334,21 @@ export function PaymentPage(): JSX.Element {
   // to the OP coordination page with the op_number so the row can be
   // scrolled into view + flashed. Pre-payment cancellations route to
   // the bare home path so we don't focus a row that hasn't moved yet.
+  //
+  // Callers from other stations (e.g. radiology desk collecting their
+  // own payment) can pass `?returnTo=/diagnostics/radiology` so the
+  // post-payment redirect goes back to THEIR page, not front-desk.
+  const returnToParam = new URLSearchParams(location.search).get('returnTo');
   const justPaidOpNumber =
     (apptResult?.opNumber) || (invoice && fullyPaid ? opNumber : '');
-  const returnPath = justPaidOpNumber
+  const defaultReturnPath = justPaidOpNumber
     ? `/frontdesk/station?focus=${encodeURIComponent(justPaidOpNumber)}`
     : homePath;
+  const returnPath = returnToParam
+    ? (justPaidOpNumber
+        ? `${returnToParam}${returnToParam.includes('?') ? '&' : '?'}focus=${encodeURIComponent(justPaidOpNumber)}`
+        : returnToParam)
+    : defaultReturnPath;
   const readOnlyLines = invoice
     ? invoice.status === 'paid' || invoice.status === 'cancelled'
     : true;

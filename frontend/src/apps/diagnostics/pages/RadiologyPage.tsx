@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Camera,
   CheckCircle2,
+  CreditCard,
   Eye,
   PlayCircle,
   Search,
@@ -26,6 +27,7 @@ import {
   type RadiologyOrderQueueEntry,
 } from '@/features/radiology';
 import type { OrderStatus } from '@/features/lab';
+import { ShiftLockedBanner, useShiftLock } from '@/features/billing';
 
 const statusTone: Record<OrderStatus, StatusPillProps['tone']> = {
   ordered:             'neutral',
@@ -50,6 +52,7 @@ const statusLabel: Partial<Record<OrderStatus, string>> = {
 
 export function RadiologyPage(): JSX.Element {
   const navigate = useNavigate();
+  const shiftLock = useShiftLock();
   const [params, setParams] = useSearchParams();
   const q = params.get('q') ?? '';
   const page = Math.max(1, Number(params.get('page')) || 1);
@@ -147,6 +150,8 @@ export function RadiologyPage(): JSX.Element {
           </p>
         </div>
       </header>
+
+      <ShiftLockedBanner lock={shiftLock} />
 
       <div className="flex flex-wrap items-end justify-between gap-3 border-t border-hairline pt-3">
         <span className="text-sm font-semibold text-foreground tabular-nums">
@@ -293,7 +298,28 @@ export function RadiologyPage(): JSX.Element {
                           </Button>
                         )}
                         {o.status === 'awaiting_payment' && (
-                          <span className="text-xs text-warning">Awaiting payment</span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="min-w-[6.5rem]"
+                            onClick={() => {
+                              if (shiftLock.locked) return;
+                              navigate(
+                                `/payment/${encodeURIComponent(o.opNumber)}` +
+                                `?returnTo=${encodeURIComponent('/diagnostics/radiology')}`,
+                              );
+                            }}
+                            disabled={shiftLock.locked || !o.opNumber}
+                            title={
+                              shiftLock.locked
+                                ? shiftLock.reason === 'no_open'
+                                  ? 'Shift not opened on this counter yet'
+                                  : 'Shift on this counter is closed'
+                                : undefined
+                            }
+                          >
+                            <CreditCard /> Collect Payment
+                          </Button>
                         )}
                       </div>
                     </td>
