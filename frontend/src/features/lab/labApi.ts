@@ -148,9 +148,43 @@ export const placeLabOrder = async (
 ): Promise<LabOrder[]> => {
   const effectiveOpNumber =
     opNumber ?? `WALK-${Date.now().toString(36).toUpperCase()}`;
-  const tests = testIds
-    .map((id) => mockLabCatalog.find((c) => c.id === id))
-    .filter((c): c is LabTestCatalogItem => Boolean(c));
+
+  // Resolve test details. fetchLabCatalog returns DB-issued UUIDs that
+  // never match mockLabCatalog's hardcoded ids, so the mock lookup
+  // silently returned nothing — the doctor's tick-mark "add test"
+  // appeared to do nothing because the orders array was empty.
+  let tests: LabTestCatalogItem[] = [];
+  try {
+    const { data } = await supabase
+      .from('lab_tests')
+      .select('id, test_code, test_name, sample_type, sample_volume_ml, requires_fasting')
+      .in('id', testIds);
+    if (data && data.length > 0) {
+      tests = (data as Array<{ id: string; test_code: string; test_name: string;
+                              sample_type: string; sample_volume_ml: number | null;
+                              requires_fasting: boolean }>).map((r) => ({
+        id:               r.id,
+        code:             r.test_code,
+        name:             r.test_name,
+        fullName:         r.test_name,
+        category:         'general',
+        specimen:         r.sample_type,
+        tatHours:         24,
+        resultType:       'numeric',
+        unit:             undefined,
+        sampleVolumeMl:   r.sample_volume_ml ?? undefined,
+        requiresFasting:  r.requires_fasting,
+        defaultPrice:     0,
+      } satisfies LabTestCatalogItem));
+    }
+  } catch {
+    // fall through to mock
+  }
+  if (tests.length === 0) {
+    tests = testIds
+      .map((id) => mockLabCatalog.find((c) => c.id === id))
+      .filter((c): c is LabTestCatalogItem => Boolean(c));
+  }
 
   const orders: LabOrder[] = tests.map((c) => {
     // Catalogue rows whose id starts with `pnl-` are panel surrogates
