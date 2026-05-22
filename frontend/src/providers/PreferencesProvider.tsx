@@ -4,6 +4,7 @@ import {
   FONT_SIZE_PX,
   PRIMARIES,
   usePreferences,
+  type ThemeMode,
 } from '@/store/preferencesStore';
 
 interface PreferencesProviderProps {
@@ -12,6 +13,9 @@ interface PreferencesProviderProps {
 
 const matchMediaDark = (): MediaQueryList | null =>
   typeof window === 'undefined' ? null : window.matchMedia('(prefers-color-scheme: dark)');
+
+const isDarkActive = (mode: ThemeMode): boolean =>
+  mode === 'dark' || (mode === 'system' && (matchMediaDark()?.matches ?? false));
 
 /**
  * Applies persisted user preferences to the document root.
@@ -54,13 +58,39 @@ export function PreferencesProvider({ children }: PreferencesProviderProps): JSX
     root.style.setProperty('--accent-l', `${def.l}%`);
   }, [accent]);
 
-  // Primary — writes --nav-bg and --nav-fg so sidebar tokens update.
+  // Primary + theme — writes --nav-bg and --nav-fg so the sidebar
+  // tokens update. The default Primary='white' nav is unreadable in
+  // dark mode, so when dark is active (explicit OR system+OS-dark) the
+  // white preset swaps to a dark slate matching the page chrome.
+  // Temenos / Graphite presets are already dark, so they stay.
   useEffect(() => {
-    const def = PRIMARIES.find((p) => p.key === primary) ?? PRIMARIES[0];
     const root = document.documentElement;
-    root.style.setProperty('--nav-bg', `${def.bg.h} ${def.bg.s}% ${def.bg.l}%`);
-    root.style.setProperty('--nav-fg', `${def.fg.h} ${def.fg.s}% ${def.fg.l}%`);
-  }, [primary]);
+
+    const applyNav = (): void => {
+      const def = PRIMARIES.find((p) => p.key === primary) ?? PRIMARIES[0];
+      const dark = isDarkActive(theme);
+      if (dark && primary === 'white') {
+        // Same hue as --card in the .dark block so the sidebar sits flush
+        // with the surrounding chrome but stays one shade above page-bg.
+        root.style.setProperty('--nav-bg', '220 13% 12%');
+        root.style.setProperty('--nav-fg', '220 14% 96%');
+      } else {
+        root.style.setProperty('--nav-bg', `${def.bg.h} ${def.bg.s}% ${def.bg.l}%`);
+        root.style.setProperty('--nav-fg', `${def.fg.h} ${def.fg.s}% ${def.fg.l}%`);
+      }
+    };
+
+    applyNav();
+
+    // When the user's preference is 'system', the effective theme can
+    // change without React re-rendering (OS-level toggle). Subscribe so
+    // the nav stays in sync.
+    if (theme !== 'system') return;
+    const mq = matchMediaDark();
+    if (!mq) return;
+    mq.addEventListener('change', applyNav);
+    return () => mq.removeEventListener('change', applyNav);
+  }, [primary, theme]);
 
   // Font size — every `rem` in the app scales from this single var.
   useEffect(() => {
