@@ -26,6 +26,7 @@ import { isShiftLocked, useShiftCloseStore } from './shiftCloseStore';
 import { useCurrentCounterStore, DEFAULT_COUNTER_ID } from './currentCounterStore';
 import { HttpError } from '@/lib/http/httpError';
 import { supabase, DEMO_USER_ID } from '@/lib/supabase/supabaseClient';
+import { todayLocalIso } from '@/utils/dateRange';
 import type { PatientSummary, Gender } from '@/features/patient';
 
 /**
@@ -744,7 +745,7 @@ export const createInvoice = async (input: CreateInvoiceInput): Promise<Invoice>
           invoice_type: stationToInvoiceType[input.station] ?? 'op',
           patient_id: input.patientId,
           op_visit_id: opVisitId,
-          invoice_date: new Date().toISOString().slice(0, 10),
+          invoice_date: todayLocalIso(),
           subtotal: totals.subtotal,
           total_line_discount: 0,
           bill_discount_amount: 0,

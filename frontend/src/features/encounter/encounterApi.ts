@@ -1,6 +1,7 @@
 ﻿import { httpClient } from '@/lib/http/httpClient';
 import type { Gender } from '@/features/patient';
 import { supabase, supabaseSilent } from '@/lib/supabase/supabaseClient';
+import { isoDate, todayLocalIso } from '@/utils/dateRange';
 import type {
   CaseSummary,
   DoctorQueueGroup,
@@ -180,8 +181,8 @@ const supabaseRowToQueueEntry = (r: SbQueueRow): QueueEntry => {
  */
 const fetchDoneCases = async (doctorId?: string, client = supabase): Promise<QueueEntry[]> => {
   // Use last 24h of visit_date so a doctor running late doesn't lose visits.
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const yesterdayIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const todayIso = todayLocalIso();
+  const yesterdayIso = isoDate(new Date(Date.now() - 24 * 60 * 60 * 1000));
   let q = client
     .from('op_visits')
     .select(`
@@ -984,7 +985,7 @@ export const fetchLiveQueue = async (params: {
   /** When true, uses the silent Supabase client so the progress bar is not triggered. */
   silent?: boolean;
 } = {}): Promise<PageResult<LiveQueueEntry>> => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalIso();
   const requestedDate = params.date ?? today;
   const isToday = requestedDate === today;
   const isPast  = requestedDate < today;
@@ -1250,7 +1251,7 @@ const FUTURE_SLOTS: FutureSlot[] = [
 const buildFutureAppointmentsMock = (params: {
   date?: string; doctorId?: string; q?: string; page?: number; limit?: number;
 }): PageResult<LiveQueueEntry> => {
-  const date = params.date ?? new Date().toISOString().slice(0, 10);
+  const date = params.date ?? todayLocalIso();
   let slots = FUTURE_SLOTS;
   if (params.doctorId && params.doctorId !== 'all') slots = slots.filter((s) => s.doctorId === params.doctorId);
   if (params.q) {

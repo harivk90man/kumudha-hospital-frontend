@@ -26,6 +26,7 @@ import {
   type Supplier,
 } from '@/features/inventory';
 import { formatCurrency } from '@/utils/formatCurrency';
+import { todayLocalIso } from '@/utils/dateRange';
 
 interface DraftLine extends GrnLineInput {
   key: string;
@@ -45,7 +46,7 @@ const blankLine = (): DraftLine => ({
 const LOW_MARGIN_PCT = 5;
 const MIN_FUTURE_EXPIRY_DAYS = 30;
 
-const today = (): string => new Date().toISOString().slice(0, 10);
+const today = (): string => todayLocalIso();
 
 /**
  * Goods receive form — spreadsheet-style editable table for high-volume

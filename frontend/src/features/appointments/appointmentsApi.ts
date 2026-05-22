@@ -12,6 +12,7 @@ import type {
 import type { Gender, PatientAddress, PatientSummary } from '@/features/patient';
 import { mockSlotsForDoctor, markSlotBooked } from './__mocks__/appointmentsMocks';
 import type { PageResult } from '@/utils/listQuery';
+import { todayLocalIso } from '@/utils/dateRange';
 
 /**
  * Appointments API — DEMO-mode against Supabase.
@@ -273,7 +274,7 @@ export const fetchAppointmentsPaged = async (
 ): Promise<PageResult<Appointment>> => {
   const limit = params.limit ?? 20;
   const page  = params.page  ?? 1;
-  const slotDate = params.slotDate ?? new Date().toISOString().slice(0, 10);
+  const slotDate = params.slotDate ?? todayLocalIso();
 
   // Treat slotDate as a local-day window — start-of-day to start-of-next.
   const dayStart = new Date(`${slotDate}T00:00:00`).toISOString();
@@ -404,7 +405,7 @@ async function nextOpNumber(): Promise<string> {
  * returns the next sequence + display string (`D-04` style).
  */
 async function nextDoctorToken(doctorId: string): Promise<{ sequence: number; number: string }> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocalIso();
   const { count, error } = await supabase
     .from('tokens')
     .select('id', { count: 'exact', head: true })
@@ -480,7 +481,7 @@ export const payAppointment = async (
       token_sequence: tk.sequence,
       service_type:   'consultation',
       provider_id:    apptData.doctor_id,
-      issue_date:     new Date().toISOString().slice(0, 10),
+      issue_date:     todayLocalIso(),
       op_visit_id:    opVisit.id,
       status:         'active',
       issued_by:      DEMO_USER_ID,

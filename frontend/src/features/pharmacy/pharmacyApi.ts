@@ -10,6 +10,7 @@ import type {
 } from './pharmacyTypes';
 import { mockRxQueue } from './__mocks__/pharmacyMocks';
 import { consumeStockFefo, mockMedicineBatches } from '@/features/inventory/__mocks__/inventoryMocks';
+import { todayLocalIso } from '@/utils/dateRange';
 
 /**
  * Resolve a discount input against a positive base amount, clamped so we
@@ -430,7 +431,7 @@ const persistOtcSaleToDb = async (
 
     if (work.length === 0) return null;
 
-    const today = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const today = todayLocalIso().replace(/-/g, '');
     const saleNumber = `OTC-${today}-${Date.now().toString(36).slice(-4).toUpperCase()}`;
     const netAmount = Number((subtotal + totalTax).toFixed(2));
 

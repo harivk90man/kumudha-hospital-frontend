@@ -52,9 +52,10 @@ import { sortRows } from '@/utils/listQuery';
 import { useNotificationsStore } from '@/store/notificationsStore';
 import { ShiftLockedBanner, useShiftLock } from '@/features/billing';
 import { cn } from '@/utils/cn';
+import { todayLocalIso } from '@/utils/dateRange';
 
 const POLL_INTERVAL_MS = 5_000;
-const todayIso = (): string => new Date().toISOString().slice(0, 10);
+const todayIso = (): string => todayLocalIso();
 const formatSlot = (iso: string): string =>
   new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 

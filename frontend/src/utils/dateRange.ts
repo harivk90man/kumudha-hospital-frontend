@@ -44,6 +44,14 @@ export const isoDate = (d: Date): string => {
   return `${y}-${m}-${day}`;
 };
 
+/**
+ * Today's date as a local YYYY-MM-DD string. Prefer this over
+ * `new Date().toISOString().slice(0, 10)` which returns UTC and rolls
+ * the date over to the next day in the early morning (e.g. 12:12 AM
+ * IST on 23-May still shows as 22-May in UTC).
+ */
+export const todayLocalIso = (): string => isoDate(new Date());
+
 const startOfDay = (d: Date): Date => {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);

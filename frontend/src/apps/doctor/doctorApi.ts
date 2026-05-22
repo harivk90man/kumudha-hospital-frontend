@@ -1,6 +1,7 @@
 import { fetchPharmacyAlerts, type PharmacyAlert } from '@/features/inventory';
 import { mockQueue } from '@/features/encounter/__mocks__/encounterMocks';
 import { supabase } from '@/lib/supabase/supabaseClient';
+import { todayLocalIso } from '@/utils/dateRange';
 import type {
   ActivityEvent,
   AdmissionAdvisedPatient,
@@ -26,7 +27,7 @@ const delay = <T>(value: T, ms = 250): Promise<T> =>
 const fetchLiveCounters = async (): Promise<DashboardCounters | null> => {
   try {
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-    const todayIso = todayStart.toISOString().slice(0, 10);
+    const todayIso = todayLocalIso();
 
     const [
       apptsRes, openVisitsRes, closedTodayRes,
@@ -114,7 +115,7 @@ const fetchActiveOpNumber = async (): Promise<string | null> => {
  */
 const fetchLiveFollowUps = async (): Promise<FollowUpReminder[] | null> => {
   try {
-    const todayIso = new Date().toISOString().slice(0, 10);
+    const todayIso = todayLocalIso();
     const { data, error } = await supabase
       .from('consultations')
       .select(`
