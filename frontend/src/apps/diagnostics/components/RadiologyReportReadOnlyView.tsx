@@ -1,5 +1,19 @@
 import type { RadiologyOrderQueueEntry } from '@/features/radiology';
 
+/**
+ * Chrome blocks top-level navigation to data: URIs, so we convert to a
+ * blob: URL on click — browsers allow opening those in a new tab.
+ */
+const openDataUriInNewTab = (dataUri: string): void => {
+  const [header, b64] = dataUri.split(',');
+  const mime = (header.match(/:(.*?);/) ?? [])[1] ?? 'image/jpeg';
+  const raw  = atob(b64);
+  const buf  = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
+  const blobUrl = URL.createObjectURL(new Blob([buf], { type: mime }));
+  window.open(blobUrl, '_blank', 'noopener,noreferrer');
+};
+
 interface RadiologyReportReadOnlyViewProps {
   order: RadiologyOrderQueueEntry;
 }
@@ -35,18 +49,18 @@ export function RadiologyReportReadOnlyView({
           <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
             {images.map((url, idx) => (
               <li key={url} className="aspect-square overflow-hidden rounded-md border">
-                <a
-                  href={url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={`Open image ${idx + 1}`}
+                <button
+                  type="button"
+                  onClick={() => openDataUriInNewTab(url)}
+                  title={`Open image ${idx + 1} in new tab`}
+                  className="h-full w-full cursor-zoom-in"
                 >
                   <img
                     src={url}
                     alt={`${order.testName} ${idx + 1}`}
                     className="h-full w-full object-cover transition hover:opacity-90"
                   />
-                </a>
+                </button>
               </li>
             ))}
           </ul>
