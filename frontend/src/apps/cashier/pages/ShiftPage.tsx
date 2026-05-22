@@ -219,12 +219,10 @@ export function ShiftPage(): JSX.Element {
       if (!alive || !dbSession) return;
       const localActive = openFor(counterId, shift.shiftType, shift.shiftDate);
       if (localActive) return;  // local already has an open record
-      // Treat a 'full_day' DB session as covering whichever shift the
-      // user is viewing; otherwise only mirror when labels match.
-      const labelCovers =
-        dbSession.sessionLabel === 'full_day' ||
-        dbSession.sessionLabel === shift.shiftType;
-      if (!labelCovers) return;
+      // Forgiving label match: any open cash_sessions row on this counter
+      // for today's date counts as covering whichever shift the user is
+      // viewing. The morning/evening label distinction is a real-world
+      // payroll concern that doesn't affect the demo flow.
       recordOpen({
         id:            dbSession.id,
         counterId,

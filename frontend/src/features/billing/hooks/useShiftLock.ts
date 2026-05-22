@@ -38,6 +38,12 @@ export function useShiftLock(): ShiftLockState {
   // Hydrate local store from DB so a second machine sees the shift another
   // machine already opened. Cheap query (one row), so polling every minute
   // is fine for the demo.
+  //
+  // Forgiving label match: ANY open cash_sessions row on this counter
+  // for today unlocks the till, regardless of session_label. A cashier
+  // who opens "Today morning" by mistake at 4 PM still gets to collect
+  // payments — the real-world morning→evening handover distinction is
+  // a payroll/audit concern that's not demo-relevant.
   useEffect(() => {
     let alive = true;
     const sync = async (): Promise<void> => {
@@ -45,10 +51,6 @@ export function useShiftLock(): ShiftLockState {
       if (!alive || !dbSession) return;
       const active = resolveActiveShift(new Date());
       if (openFor(counterId, active.shiftType, active.shiftDate)) return;
-      const labelCovers =
-        dbSession.sessionLabel === 'full_day' ||
-        dbSession.sessionLabel === active.shiftType;
-      if (!labelCovers) return;
       recordOpen({
         id:            dbSession.id,
         counterId,
