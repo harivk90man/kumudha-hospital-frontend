@@ -112,8 +112,6 @@ const computeTotals = (
   };
 };
 
-const yearShort = (): string => String(new Date().getFullYear());
-
 /* ---------- Counters ---------- */
 
 export const fetchCounters = async (): Promise<Counter[]> => {
@@ -614,14 +612,46 @@ const resolveApproverId = async (): Promise<string | null> => {
 };
 
 /**
+ * Build the next `INV-YYYY-NNNNNN` from the *max* numeric-suffix row
+ * already in the table, not from an in-memory counter. The earlier
+ * `let invoiceSeq = 1300` scheme reset on every browser refresh and
+ * collided whenever the previous session had successfully inserted a
+ * row at that number.
+ *
+ * Same shape as nextOpNumber. Ignores BULK / LIVE prefixed seeds —
+ * matches only the strict 6-digit pattern via 6 LIKE underscores.
+ */
+async function nextInvoiceNumber(): Promise<string> {
+  const year = new Date().getFullYear();
+  const { data, error } = await supabase
+    .from('invoices')
+    .select('invoice_number')
+    .like('invoice_number', `INV-${year}-______`)  // 6 underscores
+    .order('invoice_number', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  let next = 1;
+  if (data) {
+    const m = String((data as { invoice_number: string }).invoice_number).match(/INV-\d{4}-(\d+)$/);
+    if (m) next = parseInt(m[1], 10) + 1;
+  }
+  return `INV-${year}-${String(next).padStart(6, '0')}`;
+}
+
+/**
  * DEMO: writes the invoice + invoice_items to Supabase so walk-in lab/
  * radiology orders surface on the owner dashboard. Mock state is also
  * kept in sync so the cashier's editable-line flow (still mock) reads
  * back what the front-desk wrote.
  */
 export const createInvoice = async (input: CreateInvoiceInput): Promise<Invoice> => {
+  // FE-only seed counter used purely for synthetic line / fallback ids
+  // — never touches the DB. Bumped per call so two creates in the same
+  // session don't reuse the same `inl-…` ids.
   invoiceSeq += 1;
-  const invoiceNumber = `INV-${yearShort()}-${String(invoiceSeq).padStart(6, '0')}`;
+  const feSeq = invoiceSeq;
+  let invoiceNumber = await nextInvoiceNumber();
 
   // Build FE-shape lines first so we always return a valid Invoice object.
   const lines = input.lines.map((l, idx) => {
@@ -631,7 +661,7 @@ export const createInvoice = async (input: CreateInvoiceInput): Promise<Invoice>
       const svc = mockServices.find((s) => s.id === l.serviceId);
       if (!svc) throw new Error(`Unknown service ${l.serviceId}`);
       return {
-        id: `inl-${invoiceSeq}-${idx + 1}`,
+        id: `inl-${feSeq}-${idx + 1}`,
         serviceId: svc.id, serviceCode: svc.code, serviceName: svc.name,
         category: svc.category, unitPrice: svc.unitPrice, quantity: l.quantity,
         gstPct: svc.gstPct, lineTotal: Number((svc.unitPrice * l.quantity).toFixed(2)),
@@ -640,7 +670,7 @@ export const createInvoice = async (input: CreateInvoiceInput): Promise<Invoice>
     }
     const a = l.adhoc!;
     return {
-      id: `inl-${invoiceSeq}-${idx + 1}`,
+      id: `inl-${feSeq}-${idx + 1}`,
       serviceId: `adhoc-${a.code}`, serviceCode: a.code, serviceName: a.name,
       category: a.category, unitPrice: a.unitPrice, quantity: l.quantity,
       gstPct: a.gstPct, lineTotal: Number((a.unitPrice * l.quantity).toFixed(2)),
@@ -671,32 +701,45 @@ export const createInvoice = async (input: CreateInvoiceInput): Promise<Invoice>
   const useApproved = approverId !== null && approverId !== DEMO_USER_ID;
 
   // Try to persist; on any failure, fall back to mock state only so the UI still works.
+  // Retry on uq_invoices_number (23505) collisions — two cashiers writing
+  // at the same moment can both compute the same max+1; the loop bumps
+  // and retries up to 5 times.
   let persistedId: string | null = null;
+  let lastErr: string | null = null;
   try {
-    const { error: invErr, data: invRow } = await supabase
-      .from('invoices')
-      .insert({
-        invoice_number: invoiceNumber,
-        invoice_type: stationToInvoiceType[input.station] ?? 'op',
-        patient_id: input.patientId,
-        invoice_date: new Date().toISOString().slice(0, 10),
-        subtotal: totals.subtotal,
-        total_line_discount: 0,
-        bill_discount_amount: 0,
-        total_tax: totals.tax,
-        total_amount: totals.total,
-        amount_paid: 0,
-        payment_status: 'finalized',
-        approval_status: useApproved ? 'approved' : 'pending_approval',
-        approved_by:     useApproved ? approverId : null,
-        approved_at:     useApproved ? new Date().toISOString() : null,
-        finalized_at: new Date().toISOString(),
-        created_by: DEMO_USER_ID,
-      })
-      .select('id')
-      .single();
-    if (invErr) throw new Error(invErr.message);
-    persistedId = (invRow as { id: string }).id;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const { error: invErr, data: invRow } = await supabase
+        .from('invoices')
+        .insert({
+          invoice_number: invoiceNumber,
+          invoice_type: stationToInvoiceType[input.station] ?? 'op',
+          patient_id: input.patientId,
+          invoice_date: new Date().toISOString().slice(0, 10),
+          subtotal: totals.subtotal,
+          total_line_discount: 0,
+          bill_discount_amount: 0,
+          total_tax: totals.tax,
+          total_amount: totals.total,
+          amount_paid: 0,
+          payment_status: 'finalized',
+          approval_status: useApproved ? 'approved' : 'pending_approval',
+          approved_by:     useApproved ? approverId : null,
+          approved_at:     useApproved ? new Date().toISOString() : null,
+          finalized_at: new Date().toISOString(),
+          created_by: DEMO_USER_ID,
+        })
+        .select('id')
+        .maybeSingle();
+      if (!invErr && invRow) {
+        persistedId = (invRow as { id: string }).id;
+        break;
+      }
+      lastErr = invErr?.message ?? 'invoice insert failed';
+      const code = (invErr as unknown as { code?: string } | null)?.code;
+      if (code !== '23505') throw new Error(lastErr);
+      invoiceNumber = await nextInvoiceNumber();
+    }
+    if (!persistedId) throw new Error(lastErr ?? 'invoice insert failed after retries');
 
     const itemRows = lines.map((l, idx) => ({
       invoice_id: persistedId,
@@ -721,7 +764,7 @@ export const createInvoice = async (input: CreateInvoiceInput): Promise<Invoice>
   }
 
   const created: Invoice = {
-    id: persistedId ?? `inv-${invoiceSeq}`,
+    id: persistedId ?? `inv-${feSeq}`,
     invoiceNumber,
     patient: input.patientSnapshot ?? {
       id: input.patientId,
