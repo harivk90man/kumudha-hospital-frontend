@@ -19,38 +19,31 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
-/**
- * TSD-09 §4.3 — multi-image capture caps. UI enforces JPEG/PNG/WebP
- * only (full DICOM stays in PACS via study_uid); per-file cap 10 MB,
- * per-study cap 20 files. Real backend will mirror these limits.
- */
-const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
-const MAX_FILES = 20;
-const MAX_FILE_BYTES = 10 * 1024 * 1024;
-
-interface RadiologyReportFormProps {
-  order: RadiologyOrderQueueEntry;
-  /** Called after the impression + images are successfully saved. */
-  onSaved: () => void | Promise<void>;
-  /** Called when the user cancels — parent collapses the expand. */
-  onCancel?: () => void;
-  /**
-   * Optional `id` on the wrapping `<form>` so an external Save button
-   * (page-header CTA) can trigger this form via `form="..."`.
-   */
-  formId?: string;
-  /** Hide the in-form Save / Cancel row — caller renders its own CTAs. */
-  hideActions?: boolean;
-  /** Mirrors submitting state to the parent so external CTAs can disable. */
-  onSubmittingChange?: (busy: boolean) => void;
+/** One image entry in local state. */
+interface ImageEntry {
+  /** Display URL — blob URL for new picks, data URI for existing DB images. */
+  url: string;
+  /** Present only for newly picked files (not yet persisted). */
+  file?: File;
 }
 
 /**
- * Compact impression + notes form for radiology with multi-image
- * capture (X-ray / CT preview snapshots). Used both by the legacy
- * `/diagnostics/radiology/:orderId/report` page and the inline-expand
- * on the worklist row.
+ * DB CHECK allows image/jpeg and image/png only.
+ * WebP excluded — no matching MIME in radiology_attachments.file_type CHECK.
  */
+const ACCEPTED_TYPES = ['image/jpeg', 'image/png'] as const;
+const MAX_FILES = 20;
+const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2 MB — stored as bytea in DB
+
+interface RadiologyReportFormProps {
+  order: RadiologyOrderQueueEntry;
+  onSaved: () => void | Promise<void>;
+  onCancel?: () => void;
+  formId?: string;
+  hideActions?: boolean;
+  onSubmittingChange?: (busy: boolean) => void;
+}
+
 export function RadiologyReportForm({
   order,
   onSaved,
@@ -72,44 +65,39 @@ export function RadiologyReportForm({
     },
   });
 
-  // Mirror submitting state to parent so external CTAs (page-header
-  // Save button when `hideActions` is set) can disable while in flight.
   useEffect(() => {
     onSubmittingChange?.(isSubmitting);
   }, [isSubmitting, onSubmittingChange]);
 
   /**
-   * Image previews live in component state — `URL.createObjectURL`
-   * blob URLs for newly-picked files plus any URLs already saved on
-   * the order. Tracked separately from RHF because `File` objects
-   * aren’t serialisable into the form schema.
+   * `images` holds both pre-existing DB images (url only, no file) and
+   * newly picked files (url = blob URL, file = File object).
+   * On submit we extract only entries with a `file` to upload — existing
+   * DB attachments are not re-sent.
    *
-   * `picked` is the subset of `images` we created in this session so
-   * we can `revokeObjectURL` them on unmount / removal. Server-saved
-   * URLs (from `order.imagesUrl`) are *not* revoked.
+   * `blobsRef` tracks blob URLs created this session so we can revoke them
+   * on unmount. Server-supplied data URIs are NOT revoked.
    */
-  const [images, setImages] = useState<string[]>(order.imagesUrl ?? []);
-  const pickedRef = useRef<Set<string>>(new Set());
+  const [images, setImages] = useState<ImageEntry[]>(
+    (order.imagesUrl ?? []).map((url) => ({ url })),
+  );
+  const blobsRef = useRef<Set<string>>(new Set());
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState<boolean>(false);
 
-  // Re-prime the form + image previews if the parent reuses this
-  // component across different orders by swapping the `order` prop.
   useEffect(() => {
     reset({
       resultSummary: order.resultSummary ?? '',
       notes: order.notes ?? '',
     });
-    setImages(order.imagesUrl ?? []);
+    setImages((order.imagesUrl ?? []).map((url) => ({ url })));
   }, [order.id, order.resultSummary, order.notes, order.imagesUrl, reset]);
 
-  // Revoke blob URLs created in THIS session when the component unmounts
-  // (or when the order changes — pickedRef carries the survivors).
   useEffect(() => {
     return () => {
-      for (const url of pickedRef.current) URL.revokeObjectURL(url);
-      pickedRef.current.clear();
+      for (const url of blobsRef.current) URL.revokeObjectURL(url);
+      blobsRef.current.clear();
     };
   }, []);
 
@@ -125,39 +113,34 @@ export function RadiologyReportForm({
         return;
       }
 
-      const accepted: string[] = [];
+      const accepted: ImageEntry[] = [];
       const skipped: string[] = [];
+
       for (const f of incoming.slice(0, remaining)) {
         if (!ACCEPTED_TYPES.includes(f.type as typeof ACCEPTED_TYPES[number])) {
-          skipped.push(`${f.name} (unsupported type)`);
+          skipped.push(`${f.name} (unsupported type — use JPEG or PNG)`);
           continue;
         }
         if (f.size > MAX_FILE_BYTES) {
-          skipped.push(`${f.name} (>10 MB)`);
+          skipped.push(`${f.name} (exceeds 2 MB)`);
           continue;
         }
         const url = URL.createObjectURL(f);
-        pickedRef.current.add(url);
-        accepted.push(url);
+        blobsRef.current.add(url);
+        accepted.push({ url, file: f });
       }
 
       if (incoming.length > remaining) {
         skipped.push(`${incoming.length - remaining} more (cap of ${MAX_FILES})`);
       }
-
-      if (accepted.length > 0) {
-        setImages((prev) => [...prev, ...accepted]);
-      }
-      if (skipped.length > 0) {
-        setUploadError(`Skipped: ${skipped.join(', ')}`);
-      }
+      if (accepted.length > 0) setImages((prev) => [...prev, ...accepted]);
+      if (skipped.length > 0) setUploadError(`Skipped: ${skipped.join(', ')}`);
     },
     [images.length],
   );
 
   const onFileInputChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
     if (e.target.files) acceptFiles(e.target.files);
-    // Reset so re-picking the same file fires onChange again.
     e.target.value = '';
   };
 
@@ -168,40 +151,30 @@ export function RadiologyReportForm({
   };
 
   const removeImage = (url: string): void => {
-    setImages((prev) => prev.filter((u) => u !== url));
-    if (pickedRef.current.has(url)) {
+    setImages((prev) => prev.filter((img) => img.url !== url));
+    if (blobsRef.current.has(url)) {
       URL.revokeObjectURL(url);
-      pickedRef.current.delete(url);
+      blobsRef.current.delete(url);
     }
   };
 
   const onSubmit = async (values: FormValues): Promise<void> => {
+    const imageFiles = images
+      .filter((img) => img.file !== undefined)
+      .map((img) => img.file!);
+
     await recordRadiologyResult({
       orderId: order.id,
       resultSummary: values.resultSummary,
       notes: values.notes || undefined,
-      imagesUrl: images.length > 0 ? images : undefined,
+      imageFiles: imageFiles.length > 0 ? imageFiles : undefined,
     });
-    // Don’t revoke session-uploaded URLs here — the mock backend now
-    // holds them; revoking would break preview elsewhere in the app.
-    pickedRef.current.clear();
+    blobsRef.current.clear();
     await onSaved();
   };
 
   return (
     <form id={formId} onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-3">
-      <div className="rounded-lg border bg-muted/30 p-3 text-xs">
-        <div className="flex flex-wrap gap-x-3 gap-y-1">
-          <span>UHID {order.patient.uhid}</span>
-          <span className="text-muted-foreground">·</span>
-          <span>OP {order.opNumber}</span>
-          <span className="text-muted-foreground">·</span>
-          <span className="capitalize">{order.modality}</span>
-          <span className="text-muted-foreground">·</span>
-          <span>{order.bodyPart}</span>
-        </div>
-      </div>
-
       {/* Image upload + thumbnails */}
       <section className="flex flex-col gap-2">
         <div className="flex items-baseline justify-between">
@@ -209,7 +182,7 @@ export function RadiologyReportForm({
             Images ({images.length}/{MAX_FILES})
           </span>
           <span className="text-[10px] text-muted-foreground">
-            JPEG / PNG / WebP · up to 10 MB each
+            JPEG / PNG · up to 2 MB each
           </span>
         </div>
 
@@ -231,16 +204,16 @@ export function RadiologyReportForm({
             </p>
           ) : (
             <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
-              {images.map((url, idx) => (
-                <li key={url} className="group relative aspect-square overflow-hidden rounded-md border">
+              {images.map((img, idx) => (
+                <li key={img.url} className="group relative aspect-square overflow-hidden rounded-md border">
                   <img
-                    src={url}
+                    src={img.url}
                     alt={`Capture ${idx + 1}`}
                     className="h-full w-full object-cover"
                   />
                   <button
                     type="button"
-                    onClick={() => removeImage(url)}
+                    onClick={() => removeImage(img.url)}
                     aria-label={`Remove image ${idx + 1}`}
                     className="absolute right-1 top-1 rounded-full bg-card/90 p-0.5 text-muted-foreground opacity-0 transition group-hover:opacity-100 hover:bg-card hover:text-foreground focus:opacity-100"
                   >

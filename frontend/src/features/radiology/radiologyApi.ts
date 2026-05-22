@@ -179,6 +179,16 @@ export const placeRadiologyOrder = async (
 
 /* ---------- Radiology-tech actor flows ---------- */
 
+interface SbRadAttachmentRow {
+  id: string;
+  file_name: string;
+  file_type: string;
+  /** PostgREST returns bytea as a \xhex string. Only present when explicitly selected. */
+  file_data?: string | null;
+  file_size_bytes: number;
+  sequence_no: number;
+}
+
 interface SbRadOrderRow {
   id: string; order_number: string; priority: string; status: string;
   created_at: string; imaging_completed_at: string | null; released_at: string | null;
@@ -190,6 +200,8 @@ interface SbRadOrderRow {
   } | null;
   radiology_procedures: { procedure_code: string; procedure_name: string; modality: string; body_part: string } | null;
   radiology_reports: Array<{ findings: string | null; impression: string | null; release_status: string }>;
+  /** Only populated when fetching a single order (detail page) — omitted from queue listing to avoid bulk bytea transfer. */
+  radiology_attachments?: SbRadAttachmentRow[];
 }
 
 const ageFromDobR = (dob: string | null): number => {
@@ -212,36 +224,48 @@ const DB_TO_FE_RAD_STATUS: Record<string, RadiologyOrderQueueEntry['status']> = 
   cancelled:            'cancelled',
 };
 
+/** Convert a File to the `\xhex` bytea literal that PostgREST accepts in JSON. */
+const fileToByteaHex = async (file: File): Promise<string> => {
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  const parts: string[] = ['\\x'];
+  for (const byte of bytes) parts.push(byte.toString(16).padStart(2, '0'));
+  return parts.join('');
+};
+
 /**
- * Demo image set per procedure code. Real backend stores DICOM in PACS
- * and surfaces preview/thumbnail URLs via `radiology_studies.images_url[]`;
- * for the demo we attach a known-good Wikimedia Commons sample so the
- * doctor can actually view an x-ray when they open a released report.
+ * Decode a PostgREST bytea hex string (`\xdeadbeef`) to a data URI so the
+ * browser can render the image without a separate network request.
+ * Processes in 8 kB chunks to avoid call-stack overflow on large files.
  */
-export const PROCEDURE_DEMO_IMAGES: Record<string, string[]> = {
-  'XR-CHE': [
-    'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/Chest_Xray_PA_3-8-2010.png/640px-Chest_Xray_PA_3-8-2010.png',
-  ],
-  'XR-KNE': [
-    'https://upload.wikimedia.org/wikipedia/commons/thumb/0/02/X-ray_of_normal_knee_-_AP.jpg/512px-X-ray_of_normal_knee_-_AP.jpg',
-  ],
-  'XR-LSP': [
-    'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b6/Lumbar_xray.jpg/512px-Lumbar_xray.jpg',
-  ],
-  'CT-HD': [
-    'https://upload.wikimedia.org/wikipedia/commons/thumb/4/49/Computed_tomography_of_human_brain_-_large.png/512px-Computed_tomography_of_human_brain_-_large.png',
-  ],
-  'USG-ABD': [
-    'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c2/Abdominal_ultrasound_007.jpg/512px-Abdominal_ultrasound_007.jpg',
-  ],
+const byteaHexToDataUri = (hex: string, mimeType: string): string => {
+  const raw = hex.startsWith('\\x') ? hex.slice(2) : hex;
+  const bytes = new Uint8Array(raw.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(raw.slice(i * 2, i * 2 + 2), 16);
+  }
+  let binary = '';
+  const CHUNK = 8192;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return `data:${mimeType};base64,${btoa(binary)}`;
 };
 
 const mapRadOrderRow = (r: SbRadOrderRow): RadiologyOrderQueueEntry => {
   const p = r.patients;
   const rpt = r.radiology_reports[0];
-  const procCode = r.radiology_procedures?.procedure_code ?? '';
-  const isReleased = r.status === 'released' || r.status === 'reported';
-  const demoImages = isReleased ? PROCEDURE_DEMO_IMAGES[procCode] : undefined;
+
+  // Decode bytea attachments to data URIs — only present on single-order fetch.
+  let imagesUrl: string[] | undefined;
+  if (r.radiology_attachments && r.radiology_attachments.length > 0) {
+    const sorted = [...r.radiology_attachments].sort((a, b) => a.sequence_no - b.sequence_no);
+    const uris = sorted
+      .filter((a) => a.file_data)
+      .map((a) => byteaHexToDataUri(a.file_data!, a.file_type));
+    if (uris.length > 0) imagesUrl = uris;
+  }
+
   return {
     id: r.id,
     opNumber: r.op_visits?.op_number ?? '—',
@@ -267,7 +291,7 @@ const mapRadOrderRow = (r: SbRadOrderRow): RadiologyOrderQueueEntry => {
     releasedAt: r.released_at ?? undefined,
     resultSummary: rpt?.impression ?? undefined,
     notes: rpt?.findings ?? undefined,
-    imagesUrl: demoImages,
+    imagesUrl,
   } satisfies RadiologyOrderQueueEntry;
 };
 
@@ -339,7 +363,8 @@ export const fetchRadiologyOrder = async (
         op_visits!radiology_orders_op_visit_id_fkey ( op_number ),
         patients!radiology_orders_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
         radiology_procedures ( procedure_code, procedure_name, modality, body_part ),
-        radiology_reports ( findings, impression, release_status )
+        radiology_reports ( findings, impression, release_status ),
+        radiology_attachments ( id, file_name, file_type, file_data, file_size_bytes, sequence_no )
       `)
       .eq('id', id)
       .is('deleted_at', null)
@@ -442,7 +467,8 @@ export const recordRadiologyResult = async (
   input: RecordRadiologyResultInput,
 ): Promise<RadiologyOrderQueueEntry> => {
   const { supabase } = await import('@/lib/supabase/supabaseClient');
-  // Insert or update the radiology_report row
+
+  // 1. Upsert radiology_report row (findings + impression).
   const { data: existing } = await supabase
     .from('radiology_reports')
     .select('id')
@@ -463,17 +489,46 @@ export const recordRadiologyResult = async (
   } else {
     await supabase.from('radiology_reports').insert(reportPayload);
   }
+
+  // 2. Insert newly uploaded images as radiology_attachments rows.
+  //    We query the current max sequence_no so re-saves don't reset numbering.
+  if (input.imageFiles && input.imageFiles.length > 0) {
+    const { data: existingAttachments } = await supabase
+      .from('radiology_attachments')
+      .select('sequence_no')
+      .eq('radiology_order_id', input.orderId)
+      .is('deleted_at', null)
+      .order('sequence_no', { ascending: false })
+      .limit(1);
+    const maxSeq = (existingAttachments as Array<{ sequence_no: number }> | null)?.[0]?.sequence_no ?? 0;
+
+    for (let i = 0; i < input.imageFiles.length; i++) {
+      const file = input.imageFiles[i];
+      const hexData = await fileToByteaHex(file);
+      await supabase.from('radiology_attachments').insert({
+        radiology_order_id: input.orderId,
+        file_name:          file.name,
+        file_type:          file.type,
+        file_data:          hexData,
+        file_size_bytes:    file.size,
+        sequence_no:        maxSeq + i + 1,
+        created_by:         '00000000-0000-0000-0000-000000000001',
+      });
+    }
+  }
+
+  // 3. Flip order status to reported.
   await supabase.from('radiology_orders').update({
     status: 'reported',
     imaging_completed_at: new Date().toISOString(),
   }).eq('id', input.orderId);
+
   const re = await fetchRadiologyOrder(input.orderId);
   return re ?? updateQueue(input.orderId, {
     status: 'reported',
     reportedAt: new Date().toISOString(),
     resultSummary: input.resultSummary,
     notes: input.notes,
-    imagesUrl: input.imagesUrl,
   });
 };
 

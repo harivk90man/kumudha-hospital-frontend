@@ -19,7 +19,18 @@ import { mockQueue } from '@/features/encounter/__mocks__/encounterMocks';
 import type { RxItem, RxQueueEntry } from '@/features/pharmacy';
 import type { LabOrder, LabResultFlag, OrderStatus as LabOrderStatus } from '@/features/lab';
 import type { Modality, RadiologyOrder } from '@/features/radiology';
-import { PROCEDURE_DEMO_IMAGES } from '@/features/radiology';
+
+// Demo images for the doctor's past-visit radiology view.
+// Real images come from radiology_attachments bytea — this fallback keeps
+// the consultation view populated until the doctor-side fetch is wired to
+// the attachments table.
+const PROCEDURE_DEMO_IMAGES: Record<string, string[]> = {
+  'XR-CHE': ['https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/Chest_Xray_PA_3-8-2010.png/640px-Chest_Xray_PA_3-8-2010.png'],
+  'XR-KNE': ['https://upload.wikimedia.org/wikipedia/commons/thumb/0/02/X-ray_of_normal_knee_-_AP.jpg/512px-X-ray_of_normal_knee_-_AP.jpg'],
+  'XR-LSP': ['https://upload.wikimedia.org/wikipedia/commons/thumb/b/b6/Lumbar_xray.jpg/512px-Lumbar_xray.jpg'],
+  'CT-HD':  ['https://upload.wikimedia.org/wikipedia/commons/thumb/4/49/Computed_tomography_of_human_brain_-_large.png/512px-Computed_tomography_of_human_brain_-_large.png'],
+  'USG-ABD':['https://upload.wikimedia.org/wikipedia/commons/thumb/c/c2/Abdominal_ultrasound_007.jpg/512px-Abdominal_ultrasound_007.jpg'],
+};
 
 const delay = <T>(value: T, ms = 250): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), ms));

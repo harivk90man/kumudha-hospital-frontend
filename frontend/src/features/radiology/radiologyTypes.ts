@@ -78,8 +78,12 @@ export interface RecordRadiologyResultInput {
   orderId: Uuid;
   resultSummary: string;
   notes?: string;
-  /** Preview URLs for the captured images. See RadiologyOrder.imagesUrl. */
-  imagesUrl?: string[];
+  /**
+   * Newly picked File objects to upload as radiology_attachments rows.
+   * Pre-existing attachments (already in DB) are NOT re-uploaded — the
+   * caller only passes files added in this session.
+   */
+  imageFiles?: File[];
 }
 
 export interface RadiologyOrdersListParams {

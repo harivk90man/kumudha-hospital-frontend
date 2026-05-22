@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Check } from 'lucide-react';
+import { ArrowLeft, Check, Pencil } from 'lucide-react';
 import { Breadcrumb } from '@/components/data-display';
 import { Card } from '@/components/layout';
 import { Button } from '@/components/ui/button';
@@ -15,11 +15,14 @@ import { RadiologyReportReadOnlyView } from '../components/RadiologyReportReadOn
 const FORM_ID = 'radiology-report-form';
 
 /**
- * Full-page radiology report entry. Mounted at
- * `/diagnostics/radiology/:orderId/report` — the worklist row's
- * primary CTA navigates here directly. For `reported` / `released`
- * orders this page renders the read-only view (and hides the Save
- * CTA) so the same URL is the canonical view-and-edit surface.
+ * Full-page radiology report entry / view. Mounted at
+ * `/diagnostics/radiology/:orderId/report`.
+ *
+ * Modes:
+ *   in_progress / paid  → "Enter report"  — fresh entry, Save navigates away
+ *   reported            → "View report"   — read-only + Amend button
+ *   reported + amending → "Amend report"  — editable, Modify report / Cancel
+ *   released            → "View report"   — read-only, no Amend (locked)
  */
 export function RadiologyResultEntryPage(): JSX.Element {
   const { orderId } = useParams<{ orderId: string }>();
@@ -28,28 +31,33 @@ export function RadiologyResultEntryPage(): JSX.Element {
   const [order, setOrder] = useState<RadiologyOrderQueueEntry | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const [isAmending, setIsAmending] = useState<boolean>(false);
+
+  // Used on initial mount and after a successful amend save.
+  const reload = useCallback(async (): Promise<void> => {
+    if (!orderId) return;
+    const found = await fetchRadiologyOrder(orderId);
+    setOrder(found);
+  }, [orderId]);
 
   useEffect(() => {
     if (!orderId) return;
     let alive = true;
     setLoading(true);
     fetchRadiologyOrder(orderId)
-      .then((found) => {
-        if (alive) setOrder(found);
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
+      .then((found) => { if (alive) setOrder(found); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
   }, [orderId]);
 
-  // Read-only branch — `reported` and `released` orders are presented
-  // as a finalized report. The page swaps to `RadiologyReportReadOnlyView`
-  // and drops the Save CTA.
-  const isReadOnly =
-    order?.status === 'reported' || order?.status === 'released';
+  const canAmend  = order?.status === 'reported';
+  const isReadOnly = (order?.status === 'reported' || order?.status === 'released') && !isAmending;
+
+  const pageTitle = isAmending
+    ? 'Amend report'
+    : isReadOnly
+    ? 'View report'
+    : 'Enter report';
 
   return (
     <div className="flex flex-col gap-4 p-4 md:p-6">
@@ -74,7 +82,7 @@ export function RadiologyResultEntryPage(): JSX.Element {
             <ArrowLeft /> Back to radiology worklist
           </Button>
           <h1 className="text-xl font-semibold tracking-tight text-foreground">
-            {isReadOnly ? 'View report' : 'Enter report'}
+            {pageTitle}
           </h1>
           {order && (
             <p className="font-mono text-xxs text-muted-foreground tabular-nums">
@@ -83,20 +91,55 @@ export function RadiologyResultEntryPage(): JSX.Element {
             </p>
           )}
         </div>
-        {order && !isReadOnly && (
+
+        {order && (
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="submit" form={FORM_ID} disabled={submitting}>
-              {submitting ? <Spinner size="sm" /> : <Check />}
-              {submitting ? 'Saving…' : 'Save report'}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => navigate('/diagnostics/radiology')}
-              disabled={submitting}
-            >
-              Cancel
-            </Button>
+            {/* View mode — reported only: offer amend */}
+            {isReadOnly && canAmend && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsAmending(true)}
+              >
+                <Pencil /> Amend
+              </Button>
+            )}
+
+            {/* Amend mode CTAs */}
+            {isAmending && (
+              <>
+                <Button type="submit" form={FORM_ID} disabled={submitting}>
+                  {submitting ? <Spinner size="sm" /> : <Check />}
+                  {submitting ? 'Saving…' : 'Modify report'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsAmending(false)}
+                  disabled={submitting}
+                >
+                  Cancel
+                </Button>
+              </>
+            )}
+
+            {/* Fresh entry CTAs */}
+            {!isReadOnly && !isAmending && (
+              <>
+                <Button type="submit" form={FORM_ID} disabled={submitting}>
+                  {submitting ? <Spinner size="sm" /> : <Check />}
+                  {submitting ? 'Saving…' : 'Save report'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => navigate('/diagnostics/radiology')}
+                  disabled={submitting}
+                >
+                  Cancel
+                </Button>
+              </>
+            )}
           </div>
         )}
       </header>
@@ -125,7 +168,11 @@ export function RadiologyResultEntryPage(): JSX.Element {
               formId={FORM_ID}
               hideActions
               onSubmittingChange={setSubmitting}
-              onSaved={() => navigate('/diagnostics/radiology')}
+              onSaved={
+                isAmending
+                  ? async () => { await reload(); setIsAmending(false); }
+                  : () => navigate('/diagnostics/radiology')
+              }
             />
           )}
         </Card>

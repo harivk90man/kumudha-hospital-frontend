@@ -18,30 +18,6 @@ export function RadiologyReportReadOnlyView({
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="rounded-lg border bg-muted/30 p-3 text-xs">
-        <div className="flex flex-wrap gap-x-3 gap-y-1">
-          <span>UHID {order.patient.uhid}</span>
-          <span className="text-muted-foreground">·</span>
-          <span>OP {order.opNumber}</span>
-          <span className="text-muted-foreground">·</span>
-          <span className="capitalize">{order.modality}</span>
-          <span className="text-muted-foreground">·</span>
-          <span>{order.bodyPart}</span>
-          {order.reportedAt && (
-            <>
-              <span className="text-muted-foreground">·</span>
-              <span>Reported {new Date(order.reportedAt).toLocaleString()}</span>
-            </>
-          )}
-          {order.releasedAt && (
-            <>
-              <span className="text-muted-foreground">·</span>
-              <span>Released {new Date(order.releasedAt).toLocaleString()}</span>
-            </>
-          )}
-        </div>
-      </div>
-
       <Card>
         <div className="flex flex-col gap-2">
           <div className="text-xs uppercase tracking-wide text-muted-foreground">
