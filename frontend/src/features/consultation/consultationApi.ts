@@ -74,6 +74,54 @@ const safeQuantityPrescribed = (
   return Math.max(1, days * dosesPerDay(frequency));
 };
 
+/**
+ * Next `LAB-YYYY-NNNNN` from the max suffix already in `lab_orders`.
+ * Ignores BULK-prefixed seeds via a strict 5-underscore LIKE pattern.
+ * Caller is expected to retry on uq_lab_orders_number 23505.
+ */
+async function nextLabOrderNumber(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+): Promise<string> {
+  const year = new Date().getFullYear();
+  const { data, error } = await supabase
+    .from('lab_orders')
+    .select('order_number')
+    .like('order_number', `LAB-${year}-_____`)
+    .order('order_number', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  let next = 1;
+  if (data) {
+    const m = String((data as { order_number: string }).order_number).match(/LAB-\d{4}-(\d+)$/);
+    if (m) next = parseInt(m[1], 10) + 1;
+  }
+  return `LAB-${year}-${String(next).padStart(5, '0')}`;
+}
+
+/** Same shape as nextLabOrderNumber, for radiology_orders. */
+async function nextRadOrderNumber(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+): Promise<string> {
+  const year = new Date().getFullYear();
+  const { data, error } = await supabase
+    .from('radiology_orders')
+    .select('order_number')
+    .like('order_number', `RAD-${year}-_____`)
+    .order('order_number', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  let next = 1;
+  if (data) {
+    const m = String((data as { order_number: string }).order_number).match(/RAD-\d{4}-(\d+)$/);
+    if (m) next = parseInt(m[1], 10) + 1;
+  }
+  return `RAD-${year}-${String(next).padStart(5, '0')}`;
+}
+
 /** Seeded-random vitals so each queue patient has plausible, consistent values. */
 const seedVitals = (opNumber: string) => {
   const h = [...opNumber].reduce((acc, c) => acc + c.charCodeAt(0), 0);
@@ -916,6 +964,104 @@ export const lockConsultation = async (opNumber: string): Promise<ConsultationCo
           }));
           if (items.length > 0) {
             await supabase.from('prescription_items').insert(items);
+          }
+        }
+      }
+
+      // Lab orders — one lab_orders row + one lab_order_items row per
+      // LabOrder in the locked context. Lookup lab_tests.id by test_code
+      // so we don't need to thread the catalog UUID through the FE.
+      // Panel surrogates ('pnl-…') have no lab_tests row and get skipped.
+      if (next.labOrders.length > 0) {
+        const labCodes = [...new Set(next.labOrders.map((o) => o.testCode))];
+        const { data: labRows } = await supabase
+          .from('lab_tests').select('id, test_code').in('test_code', labCodes);
+        const labCodeToId = new Map<string, string>(
+          (labRows as Array<{ id: string; test_code: string }> | null ?? [])
+            .map((r) => [r.test_code, r.id]),
+        );
+        for (const o of next.labOrders) {
+          const labTestId = labCodeToId.get(o.testCode);
+          if (!labTestId) continue;
+          let attempts = 0;
+          let orderNum = await nextLabOrderNumber(supabase);
+          let labOrderId: string | null = null;
+          while (attempts < 5 && !labOrderId) {
+            const { data: insOrd, error: insErr } = await supabase
+              .from('lab_orders')
+              .insert({
+                order_number: orderNum,
+                patient_id:   row.patient_id,
+                op_visit_id:  row.id,
+                doctor_id:    row.doctor_id,
+                priority:     o.clinicalPriority ?? 'routine',
+                status:       'ordered',
+                created_by:   bs,
+              })
+              .select('id').maybeSingle();
+            if (insErr) {
+              const code = (insErr as unknown as { code?: string }).code;
+              if (code === '23505') {
+                attempts += 1;
+                orderNum = await nextLabOrderNumber(supabase);
+                continue;
+              }
+              throw insErr;
+            }
+            labOrderId = (insOrd as { id: string } | null)?.id ?? null;
+          }
+          if (labOrderId) {
+            await supabase.from('lab_order_items').insert({
+              lab_order_id: labOrderId,
+              lab_test_id:  labTestId,
+              status:       'pending',
+              sequence_no:  1,
+              created_by:   bs,
+            });
+          }
+        }
+      }
+
+      // Radiology orders — one radiology_orders row per RadiologyOrder.
+      // Schema chk_radiology_orders_context allows one procedure per
+      // order, which matches our 1:1 mapping. Lookup procedure id by
+      // procedure_code.
+      if (next.radiologyOrders.length > 0) {
+        const radCodes = [...new Set(next.radiologyOrders.map((o) => o.testCode))];
+        const { data: radRows } = await supabase
+          .from('radiology_procedures').select('id, procedure_code').in('procedure_code', radCodes);
+        const radCodeToId = new Map<string, string>(
+          (radRows as Array<{ id: string; procedure_code: string }> | null ?? [])
+            .map((r) => [r.procedure_code, r.id]),
+        );
+        for (const o of next.radiologyOrders) {
+          const procId = radCodeToId.get(o.testCode);
+          if (!procId) continue;
+          let attempts = 0;
+          let orderNum = await nextRadOrderNumber(supabase);
+          while (attempts < 5) {
+            const { error: insErr } = await supabase
+              .from('radiology_orders')
+              .insert({
+                order_number:           orderNum,
+                patient_id:             row.patient_id,
+                op_visit_id:            row.id,
+                doctor_id:              row.doctor_id,
+                radiology_procedure_id: procId,
+                priority:               o.clinicalPriority ?? 'routine',
+                status:                 'ordered',
+                created_by:             bs,
+              });
+            if (insErr) {
+              const code = (insErr as unknown as { code?: string }).code;
+              if (code === '23505') {
+                attempts += 1;
+                orderNum = await nextRadOrderNumber(supabase);
+                continue;
+              }
+              throw insErr;
+            }
+            break;
           }
         }
       }

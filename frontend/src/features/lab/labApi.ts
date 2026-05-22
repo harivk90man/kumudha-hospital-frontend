@@ -38,30 +38,6 @@ export const LAB_ORDERS_SORT_WHITELIST = [
 const delay = <T>(value: T, ms = 250): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), ms));
 
-const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
-
-/**
- * Next `LAB-YYYY-NNNNN` from the max suffix already in `lab_orders`.
- * Ignores BULK-prefixed seeds via a strict 5-underscore LIKE pattern.
- */
-async function nextLabOrderNumber(): Promise<string> {
-  const year = new Date().getFullYear();
-  const { data, error } = await supabase
-    .from('lab_orders')
-    .select('order_number')
-    .like('order_number', `LAB-${year}-_____`)  // 5 underscores
-    .order('order_number', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  let next = 1;
-  if (data) {
-    const m = String((data as { order_number: string }).order_number).match(/LAB-\d{4}-(\d+)$/);
-    if (m) next = parseInt(m[1], 10) + 1;
-  }
-  return `LAB-${year}-${String(next).padStart(5, '0')}`;
-}
-
 /**
  * Lab API surface. Mocked today; signatures match the final backend contract.
  *
@@ -208,73 +184,6 @@ export const placeLabOrder = async (
     tests = testIds
       .map((id) => mockLabCatalog.find((c) => c.id === id))
       .filter((c): c is LabTestCatalogItem => Boolean(c));
-  }
-
-  // Persist to Supabase first so the lab-tech worklist (which reads
-  // from DB) actually sees the doctor's order. Mock side-effects below
-  // still fire so the in-memory queue + invoice flow keep working.
-  // Panel surrogate ids ('pnl-…') don't exist in lab_tests, so we skip
-  // them here — panel fan-out to component lab_order_items is a
-  // separate flow that's not in scope.
-  let dbOrderId: string | null = null;
-  try {
-    if (opNumber && patientSnapshot && tests.length > 0) {
-      const realTests = tests.filter((t) => !t.id.startsWith('pnl-'));
-      if (realTests.length > 0) {
-        const { data: opvData } = await supabase
-          .from('op_visits')
-          .select('id, doctor_id')
-          .eq('op_number', opNumber)
-          .is('deleted_at', null)
-          .maybeSingle();
-        if (opvData) {
-          const opv = opvData as { id: string; doctor_id: string };
-          // Retry on uq_lab_orders_number (23505) — two simultaneous
-          // doctors can compute the same max+1.
-          let attempts = 0;
-          let orderNum = await nextLabOrderNumber();
-          while (attempts < 5 && !dbOrderId) {
-            const { data: insOrder, error: insErr } = await supabase
-              .from('lab_orders')
-              .insert({
-                order_number: orderNum,
-                patient_id:   patientSnapshot.id,
-                op_visit_id:  opv.id,
-                doctor_id:    opv.doctor_id,
-                priority:     clinicalPriority,
-                status:       'ordered',
-                created_by:   DEMO_USER_ID,
-              })
-              .select('id')
-              .maybeSingle();
-            if (insErr) {
-              const code = (insErr as unknown as { code?: string }).code;
-              if (code === '23505') {
-                attempts += 1;
-                orderNum = await nextLabOrderNumber();
-                continue;
-              }
-              throw insErr;
-            }
-            dbOrderId = (insOrder as { id: string } | null)?.id ?? null;
-          }
-          if (dbOrderId) {
-            await supabase.from('lab_order_items').insert(
-              realTests.map((t, i) => ({
-                lab_order_id: dbOrderId,
-                lab_test_id:  t.id,
-                status:       'pending',
-                sequence_no:  i + 1,
-                created_by:   DEMO_USER_ID,
-              })),
-            );
-          }
-        }
-      }
-    }
-  } catch (e) {
-    // eslint-disable-next-line no-console
-    console.warn('[placeLabOrder] Supabase persist failed:', e);
   }
 
   const orders: LabOrder[] = tests.map((c) => {
