@@ -333,24 +333,29 @@ function UserPill({ collapsed }: UserPillProps): JSX.Element | null {
         <div
           role="menu"
           className={cn(
-            'absolute z-30 min-w-[12rem] overflow-hidden rounded-md border bg-card p-1 shadow-md',
+            'absolute z-30 min-w-[13rem] overflow-hidden rounded-md border bg-card shadow-md',
             collapsed
-              ? 'bottom-1/2 left-full ml-2 translate-y-1/2'
-              : 'bottom-full left-0 mb-1 w-full',
+              ? 'bottom-full left-0 mb-2'
+              : 'bottom-full right-0 mb-2',
           )}
         >
-          <div className="border-b px-2.5 py-1.5">
-            <div className="text-sm font-medium">{user.fullName}</div>
-            <div className="text-xs text-muted-foreground">{ROLE_LABEL[user.role]}</div>
+          <div className="flex items-center gap-2.5 bg-muted/40 px-3 py-2.5">
+            {avatar}
+            <div className="flex min-w-0 flex-col leading-tight">
+              <div className="truncate text-sm font-semibold">{user.fullName}</div>
+              <div className="truncate text-xs text-muted-foreground">{ROLE_LABEL[user.role]}</div>
+            </div>
           </div>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={onLogout}
-            className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-left text-sm font-medium text-foreground hover:bg-muted/60 focus:bg-muted/60 focus:outline-none [&_svg]:size-4 [&_svg]:shrink-0"
-          >
-            <LogOut /> Log out
-          </button>
+          <div className="p-1">
+            <button
+              type="button"
+              role="menuitem"
+              onClick={onLogout}
+              className="flex w-full items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-left text-sm font-medium text-destructive hover:bg-destructive/10 focus:bg-destructive/10 focus:outline-none [&_svg]:size-4 [&_svg]:shrink-0"
+            >
+              <LogOut /> Log out
+            </button>
+          </div>
         </div>
       )}
     </div>
