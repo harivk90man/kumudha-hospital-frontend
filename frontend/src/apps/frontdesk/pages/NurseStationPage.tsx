@@ -6,6 +6,7 @@ import {
   Eye,
   FlaskConical,
   HeartPulse,
+  Pin,
   Search,
   ShieldAlert,
   UserPlus,
@@ -129,15 +130,25 @@ export function NurseStationPage(): JSX.Element {
   const prevStatusByKey = useRef<Map<string, string>>(new Map());
   const [recentlyChanged, setRecentlyChanged] = useState<Set<string>>(new Set());
 
+  const [pinnedKeys, setPinnedKeys] = useState<Set<string>>(new Set());
+  const togglePin = useCallback((key: string): void => {
+    setPinnedKeys((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }, []);
+
   const reload = async (silent = false): Promise<void> => {
     if (!silent) setLoading(true);
     try {
       const result = await fetchLiveQueue({
-        date:     selectedDate !== todayIso() ? selectedDate : undefined,
-        doctorId: doctorFilter !== 'all' ? doctorFilter : undefined,
-        q:        queueQ || undefined,
+        date:       selectedDate !== todayIso() ? selectedDate : undefined,
+        doctorId:   doctorFilter !== 'all' ? doctorFilter : undefined,
+        q:          queueQ || undefined,
         page,
         limit,
+        pinnedKeys: pinnedKeys.size > 0 ? [...pinnedKeys] : undefined,
       });
 
       // Flash rows whose queueStatus changed since last poll
@@ -173,7 +184,7 @@ export function NurseStationPage(): JSX.Element {
     }
   };
 
-  useEffect(() => { void reload(); }, [selectedDate, doctorFilter, queueQ, page, limit]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { void reload(); }, [selectedDate, doctorFilter, queueQ, page, limit, pinnedKeys]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!isToday) return;
     const id = window.setInterval(() => void reload(true), POLL_INTERVAL_MS);
@@ -349,10 +360,14 @@ export function NurseStationPage(): JSX.Element {
   }, [rows]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sortedRows = useMemo(() => {
+    const pinned   = rows.filter((r) => pinnedKeys.has(rowKey(r)));
+    const unpinned = rows.filter((r) => !pinnedKeys.has(rowKey(r)));
+
     const desc  = sort.startsWith('-');
     const field = desc ? sort.slice(1) : sort;
+    let sortedUnpinned: LiveQueueEntry[];
     if (field === 'queuePos') {
-      return [...rows].sort((a, b) => {
+      sortedUnpinned = [...unpinned].sort((a, b) => {
         const pa = STATUS_PRIORITY[a.queueStatus];
         const pb = STATUS_PRIORITY[b.queueStatus];
         if (pa !== pb) return pa - pb;
@@ -363,9 +378,11 @@ export function NurseStationPage(): JSX.Element {
         }
         return new Date(a.waitingSince).getTime() - new Date(b.waitingSince).getTime();
       });
+    } else {
+      sortedUnpinned = sortRows(unpinned, sort, LIVE_QUEUE_SORT_WHITELIST);
     }
-    return sortRows(rows, sort, LIVE_QUEUE_SORT_WHITELIST);
-  }, [rows, sort, queueMeta]); // eslint-disable-line react-hooks/exhaustive-deps
+    return [...pinned, ...sortedUnpinned];
+  }, [rows, sort, queueMeta, pinnedKeys]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col gap-4 overflow-hidden md:h-screen md:gap-5">
@@ -598,16 +615,32 @@ export function NurseStationPage(): JSX.Element {
                         className={cn(
                           'border-b align-middle last:border-b-0 transition-colors',
                           isPending ? 'bg-warning/5 hover:bg-warning/10' : 'hover:bg-muted/30',
+                          pinnedKeys.has(rowKey(row)) && 'bg-primary/5',
                           recentlyChanged.has(rowKey(row)) && 'animate-flash-once',
                           focusedOp && row.opNumber === focusedOp && 'animate-flash-once bg-success/10 ring-2 ring-success/40',
                         )}
                       >
-                        {/* Q# */}
+                        {/* Q# + pin toggle */}
                         {isToday && (
                           <td className="px-3 py-2.5">
-                            {qMeta
-                              ? <span className="font-mono text-xs font-semibold tabular-nums text-primary">{qMeta.qPos}</span>
-                              : <span className="text-muted-foreground">—</span>}
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); togglePin(rowKey(row)); }}
+                                title={pinnedKeys.has(rowKey(row)) ? 'Unpin row' : 'Pin to top'}
+                                className="flex-shrink-0 rounded p-0.5 transition-colors hover:bg-muted/60 focus:outline-none"
+                              >
+                                <Pin className={cn(
+                                  'h-3 w-3',
+                                  pinnedKeys.has(rowKey(row))
+                                    ? 'fill-primary text-primary'
+                                    : 'text-muted-foreground/40',
+                                )} />
+                              </button>
+                              {qMeta
+                                ? <span className="font-mono text-xs font-semibold tabular-nums text-primary">{qMeta.qPos}</span>
+                                : <span className="text-muted-foreground">—</span>}
+                            </div>
                           </td>
                         )}
 

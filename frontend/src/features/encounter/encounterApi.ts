@@ -940,6 +940,7 @@ export const fetchLiveQueue = async (params: {
   q?: string;
   page?: number;
   limit?: number;
+  pinnedKeys?: string[];
 } = {}): Promise<PageResult<LiveQueueEntry>> => {
   const today = new Date().toISOString().slice(0, 10);
   const requestedDate = params.date ?? today;
@@ -1084,8 +1085,14 @@ export const fetchLiveQueue = async (params: {
     const limit = params.limit ?? 20;
     const start = (page - 1) * limit;
     void isPast; // reserved for future "show completed too" pass
+
+    const pinnedSet = new Set(params.pinnedKeys ?? []);
+    const lqRowKey  = (r: LiveQueueEntry) => r.opNumber ?? r.appointmentId ?? '';
+    const pinned    = pinnedSet.size > 0 ? filtered.filter(r => pinnedSet.has(lqRowKey(r))) : [];
+    const unpinned  = pinnedSet.size > 0 ? filtered.filter(r => !pinnedSet.has(lqRowKey(r))) : filtered;
+
     return {
-      rows: filtered.slice(start, start + limit),
+      rows:  [...pinned, ...unpinned.slice(start, start + limit)],
       total: filtered.length,
       page,
       limit,
