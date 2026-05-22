@@ -512,6 +512,21 @@ export const payAppointment = async (
     });
   }
 
+  // Create a draft consultation stub so the nurse's vitals write
+  // (chief_complaint + clinical_notes) has a row to land in immediately.
+  // The doctor updates this row to 'locked' when they complete the consultation.
+  // next_action defaults to 'no_action' — doctor sets the real value on save.
+  await supabase.from('consultations').insert({
+    op_visit_id:     opVisit.id,
+    patient_id:      apptData.patient_id,
+    doctor_id:       apptData.doctor_id,
+    chief_complaint: complaint,
+    status:          'draft',
+    next_action:     'no_action',
+    diagnoses:       [],
+    created_by:      DEMO_USER_ID,
+  });
+
   const { error: updError } = await supabase
     .from('appointments')
     .update({ status: 'completed', updated_by: DEMO_USER_ID })

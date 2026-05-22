@@ -729,6 +729,44 @@ export const recordVitals = async (
   // is the audit-bearing write; if the state move fails (transient DB
   // error) we still return success since startConsultation will
   // re-converge the state later.
+  // Write chief_complaint to op_visits so the doctor's consultation form
+  // is pre-filled from the nurse's intake, even before the consultation row exists.
+  if (payload.chiefComplaint) {
+    try {
+      await supabase
+        .from('op_visits')
+        .update({ chief_complaint: payload.chiefComplaint })
+        .eq('id', opv.id);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('[recordVitals] op_visits chief_complaint update failed:', e);
+    }
+  }
+
+  // If the consultation row already exists (doctor opened the chart before
+  // vitals were taken), sync chief_complaint + clinical_notes. We never INSERT
+  // here — consultations.next_action is NOT NULL with no default so only the
+  // doctor-side flow can create the row safely.
+  try {
+    const { data: cons } = await supabase
+      .from('consultations')
+      .select('id')
+      .eq('op_visit_id', opv.id)
+      .maybeSingle();
+    if (cons) {
+      await supabase
+        .from('consultations')
+        .update({
+          chief_complaint: payload.chiefComplaint ?? null,
+          clinical_notes:  payload.notes ?? null,
+        })
+        .eq('id', (cons as { id: string }).id);
+    }
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[recordVitals] consultations sync failed:', e);
+  }
+
   try {
     await moveToStation(opv.id, opv.patient_id, 'doctor');
   } catch (e) {
