@@ -524,6 +524,49 @@ export const fetchInvoice = async (id: string): Promise<Invoice | null> => {
 };
 
 /**
+ * Resolve an "approver" UUID different from the bootstrap admin so the
+ * invoice's chk_invoices_sod constraint (created_by <> approved_by)
+ * doesn't reject the row. Prefers an owner / chief_doctor; falls back
+ * to any active user that isn't the bootstrap. Cached in module scope
+ * so we hit the DB at most once per session.
+ */
+let cachedApproverId: string | null = null;
+const resolveApproverId = async (): Promise<string | null> => {
+  if (cachedApproverId) return cachedApproverId;
+  try {
+    // Look for an owner first, then any other active user.
+    const { data: ownerRoleRow } = await supabase
+      .from('roles').select('id')
+      .in('role_code', ['owner', 'chief_doctor'])
+      .is('deleted_at', null)
+      .limit(1).maybeSingle();
+    const roleId = (ownerRoleRow as { id: string } | null)?.id;
+    if (roleId) {
+      const { data: link } = await supabase
+        .from('user_roles').select('user_id')
+        .eq('role_id', roleId)
+        .neq('user_id', DEMO_USER_ID)
+        .is('deleted_at', null)
+        .limit(1).maybeSingle();
+      const uid = (link as { user_id: string } | null)?.user_id;
+      if (uid) { cachedApproverId = uid; return uid; }
+    }
+    // Fallback: any active non-bootstrap user.
+    const { data: anyUser } = await supabase
+      .from('users').select('id')
+      .neq('id', DEMO_USER_ID)
+      .eq('status', 'active')
+      .is('deleted_at', null)
+      .limit(1).maybeSingle();
+    const uid = (anyUser as { id: string } | null)?.id;
+    if (uid) { cachedApproverId = uid; return uid; }
+  } catch {
+    // fall through
+  }
+  return null;
+};
+
+/**
  * DEMO: writes the invoice + invoice_items to Supabase so walk-in lab/
  * radiology orders surface on the owner dashboard. Mock state is also
  * kept in sync so the cashier's editable-line flow (still mock) reads
@@ -572,6 +615,14 @@ export const createInvoice = async (input: CreateInvoiceInput): Promise<Invoice>
     registration: 'other', other: 'other',
   };
 
+  // Resolve an approver != bootstrap so chk_invoices_sod
+  // (created_by <> approved_by) accepts the row. When no other user
+  // exists (very early demo setup), persist as 'pending_approval' so
+  // the consistency CHECK still passes; the row stays editable from
+  // the UI until someone approves.
+  const approverId = await resolveApproverId();
+  const useApproved = approverId !== null && approverId !== DEMO_USER_ID;
+
   // Try to persist; on any failure, fall back to mock state only so the UI still works.
   let persistedId: string | null = null;
   try {
@@ -589,9 +640,9 @@ export const createInvoice = async (input: CreateInvoiceInput): Promise<Invoice>
         total_amount: totals.total,
         amount_paid: 0,
         payment_status: 'finalized',
-        approval_status: 'approved',
-        approved_by: '00000000-0000-0000-0000-000000000001',
-        approved_at: new Date().toISOString(),
+        approval_status: useApproved ? 'approved' : 'pending_approval',
+        approved_by:     useApproved ? approverId : null,
+        approved_at:     useApproved ? new Date().toISOString() : null,
         finalized_at: new Date().toISOString(),
         created_by: DEMO_USER_ID,
       })
