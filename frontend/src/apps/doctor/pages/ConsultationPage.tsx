@@ -708,7 +708,10 @@ export function ConsultationPage(): JSX.Element {
               onNavigate={scrollToSection}
               onHistory={() => setShowHistory((v) => !v)}
               showingHistory={showHistory}
-              showHistoryButton={!viewOnly}
+              // Patient History stays available in past-visit mode too —
+              // the doctor often lands on a past visit via search and
+              // wants to jump to an even older visit from the same patient.
+              showHistoryButton={true}
             />
           </aside>
 
