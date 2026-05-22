@@ -9,6 +9,7 @@ import {
   type CaseSummary,
   type EncounterStatusName,
 } from '@/features/encounter';
+import { fetchVisitHistory } from '@/features/consultation';
 import { useAuth } from '@/features/auth';
 
 type Mode = 'patient' | 'cases';
@@ -114,7 +115,17 @@ export function DoctorTopSearch(): JSX.Element {
     setCaseResults([]);
   };
 
-  /** Patient-mode select: route to active encounter today if any, else profile. */
+  /**
+   * Patient-mode select routing waterfall:
+   *   1. Live encounter today for THIS doctor → open that consultation.
+   *   2. Most recent past visit (any doctor) → open it in view-only mode
+   *      so the doctor lands directly on clinical context (notes, Rx,
+   *      lab/scan reports with View buttons, history side-tab) instead
+   *      of the biographical profile.
+   *   3. No visits anywhere → fall back to `/patient/<uhid>` so the
+   *      doctor still has somewhere meaningful to land for a fresh
+   *      registration.
+   */
   const onSelectPatient = async (p: PatientSummary): Promise<void> => {
     closeAndReset();
     const r = await fetchQueuePaged({
@@ -127,9 +138,21 @@ export function DoctorTopSearch(): JSX.Element {
     const active = r.rows.find((row) => row.patient.uhid === p.uhid);
     if (active) {
       navigate(`/doctor/consultation/${active.opNumber}`);
-    } else {
-      navigate(`/patient/${p.uhid}`);
+      return;
     }
+    // No live encounter — try the most recent past visit (any doctor).
+    // fetchVisitHistory returns rows sorted DESC by visit_date already.
+    try {
+      const visits = await fetchVisitHistory(p.uhid);
+      if (visits.length > 0) {
+        navigate(`/doctor/consultation/${visits[0].opNumber}`);
+        return;
+      }
+    } catch {
+      // Fall through to profile on any lookup failure — keeps the
+      // search action useful even if the history endpoint hiccups.
+    }
+    navigate(`/patient/${p.uhid}`);
   };
 
   const onSelectCase = (c: CaseSummary): void => {
