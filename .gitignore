@@ -32,3 +32,4 @@ backend-queue.log
 
 db-mcp-server/node_modules/
 !db-mcp-server/dist/
+.vercel
