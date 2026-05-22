@@ -1,32 +1,59 @@
-const PT = 'm3-pt 2s linear infinite';
-const PS = 'm3-ps 2s linear infinite';
-const ST = 'm3-st 2s linear infinite';
-const SS = 'm3-ss 2s linear infinite';
+import { useEffect, useState } from 'react';
+
+interface LinearProgressProps {
+  completing?: boolean;
+}
 
 /**
- * Material Design 3 indeterminate linear progress indicator.
- * 3px fixed strip at the top of the viewport, accent-coloured.
+ * NProgress-style top-of-page loading bar.
  *
- * Two bars, each split into an outer translator and inner scaler so
- * the translate and scale transforms stay on separate elements (no
- * conflict). Keyframes are defined in globals.css where per-keyframe
- * animation-timing-function is valid CSS syntax.
+ * loading:    starts at 8% immediately, grows to 85% over ~8 s
+ * completing: fills to 100% in 150 ms, then fades out over 300 ms
+ *
+ * GlobalProgressBar controls the completing prop and unmounts after 500 ms.
  */
-export function LinearProgress(): JSX.Element {
+export function LinearProgress({ completing = false }: LinearProgressProps): JSX.Element {
+  const [width, setWidth] = useState(8);
+
+  // On mount: let the browser paint the 8% bar first, then start the
+  // slow grow so the transition actually fires (needs two frames).
+  useEffect(() => {
+    const t = window.setTimeout(() => setWidth(85), 16);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  // When completing, fill to 100% immediately.
+  useEffect(() => {
+    if (completing) setWidth(100);
+  }, [completing]);
+
   return (
     <div
       role="progressbar"
       aria-valuemin={0}
       aria-valuemax={100}
       aria-label="Loading"
-      className="fixed inset-x-0 top-0 z-[9999] h-[3px] overflow-hidden bg-primary/20"
+      style={{
+        position: 'fixed',
+        inset: '0 0 auto 0',
+        zIndex: 9999,
+        height: 6,
+        pointerEvents: 'none',
+        opacity: completing ? 0 : 1,
+        transition: completing ? 'opacity 300ms ease 150ms' : undefined,
+      }}
     >
-      <div className="absolute inset-y-0 left-0 w-full" style={{ animation: PT }}>
-        <div className="h-full w-full origin-left bg-primary" style={{ animation: PS }} />
-      </div>
-      <div className="absolute inset-y-0 left-0 w-full" style={{ animation: ST }}>
-        <div className="h-full w-full origin-left bg-primary" style={{ animation: SS }} />
-      </div>
+      <div
+        style={{
+          height: '100%',
+          background: 'hsl(var(--primary))',
+          borderRadius: '0 3px 3px 0',
+          width: `${width}%`,
+          transition: completing
+            ? 'width 150ms ease-in'
+            : 'width 8000ms cubic-bezier(0.05, 0.1, 0.1, 1)',
+        }}
+      />
     </div>
   );
 }
