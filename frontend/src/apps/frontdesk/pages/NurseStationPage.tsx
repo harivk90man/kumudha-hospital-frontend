@@ -209,6 +209,8 @@ export function NurseStationPage(): JSX.Element {
     return () => window.clearTimeout(t);
   }, [focusedOp]);
 
+  const rowKey = (r: LiveQueueEntry): string => r.opNumber ?? r.appointmentId ?? '';
+
   const STATUS_PRIORITY: Record<LiveQueueStatus, number> = {
     awaiting_doctor: 1,
     awaiting_vitals: 2,
@@ -320,8 +322,6 @@ export function NurseStationPage(): JSX.Element {
     { value: 'all', name: 'All doctors' },
     ...doctors.map((d) => ({ value: d.id, name: d.name, sublabel: d.department })),
   ], [doctors]);
-
-  const rowKey = (r: LiveQueueEntry) => r.opNumber ?? r.appointmentId ?? '';
 
   // Per-doctor queue positions + ETA for awaiting_doctor rows.
   // Sorted by waitingSince ASC within each doctor — Q1 = next up.
@@ -552,7 +552,7 @@ export function NurseStationPage(): JSX.Element {
             </div>
           </div>
         ) : (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-b border-gray-100 bg-white shadow-sm">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-b border-border bg-card shadow-sm">
             <div className="min-h-0 flex-1 overflow-hidden">
               <table className="min-w-full table-fixed text-sm">
                 <colgroup>

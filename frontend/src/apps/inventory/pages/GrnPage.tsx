@@ -227,7 +227,7 @@ export function GrnPage(): JSX.Element {
           }
         />
       ) : (
-        <div className="overflow-hidden border-b border-gray-100 bg-white shadow-sm">
+        <div className="overflow-hidden border-b border-border bg-card shadow-sm">
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead className="sticky top-0 z-10 bg-card">

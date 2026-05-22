@@ -411,7 +411,7 @@ export function GrnNewPage(): JSX.Element {
             </span>
           </div>
 
-          <div className="overflow-x-auto border-b border-gray-100 bg-white shadow-sm">
+          <div className="overflow-x-auto border-b border-border bg-card shadow-sm">
             <table ref={tableRef} className="min-w-full text-sm">
               <thead className="bg-muted/30">
                 <tr className="border-b text-left text-xxs uppercase tracking-wide text-muted-foreground">

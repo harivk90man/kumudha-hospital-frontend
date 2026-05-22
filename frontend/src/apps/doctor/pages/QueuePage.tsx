@@ -472,7 +472,7 @@ export function QueuePage(): JSX.Element {
             description="New arrivals from the front desk will appear here automatically."
           />
         ) : (
-          <div className="overflow-hidden border-b border-gray-100 bg-card shadow-sm">
+          <div className="overflow-hidden border-b border-border bg-card shadow-sm">
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead>
@@ -604,7 +604,7 @@ export function QueuePage(): JSX.Element {
             description="Encounters whose lab/imaging reports are ready will appear here."
           />
         ) : (
-          <div className="overflow-hidden border-b border-gray-100 bg-card shadow-sm">
+          <div className="overflow-hidden border-b border-border bg-card shadow-sm">
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead>
@@ -707,7 +707,7 @@ export function QueuePage(): JSX.Element {
           description="Encounters marked consultation done will appear here."
         />
       ) : (
-        <div className="overflow-hidden border-b border-gray-100 bg-card shadow-sm">
+        <div className="overflow-hidden border-b border-border bg-card shadow-sm">
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>

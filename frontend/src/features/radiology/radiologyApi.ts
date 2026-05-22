@@ -97,9 +97,36 @@ export const placeRadiologyOrder = async (
 ): Promise<RadiologyOrder[]> => {
   const effectiveOpNumber =
     opNumber ?? `WALK-${Date.now().toString(36).toUpperCase()}`;
-  const tests = testIds
-    .map((id) => mockRadiologyCatalog.find((c) => c.id === id))
-    .filter((c): c is RadiologyTestCatalogItem => Boolean(c));
+
+  // Resolve from DB first — fetchRadiologyCatalog returns DB UUIDs that
+  // never match mockRadiologyCatalog ids, so the mock lookup returned
+  // nothing and the doctor's tick-mark add silently produced no order.
+  let tests: RadiologyTestCatalogItem[] = [];
+  try {
+    const { supabase } = await import('@/lib/supabase/supabaseClient');
+    const { data } = await supabase
+      .from('radiology_procedures')
+      .select('id, procedure_code, procedure_name, modality, body_part')
+      .in('id', testIds);
+    if (data && data.length > 0) {
+      tests = (data as Array<{ id: string; procedure_code: string;
+                              procedure_name: string; modality: string;
+                              body_part: string }>).map((r) => ({
+        id:        r.id,
+        code:      r.procedure_code,
+        name:      r.procedure_name,
+        modality:  r.modality as RadiologyTestCatalogItem['modality'],
+        bodyPart:  r.body_part,
+      } satisfies RadiologyTestCatalogItem));
+    }
+  } catch {
+    // fall through to mock
+  }
+  if (tests.length === 0) {
+    tests = testIds
+      .map((id) => mockRadiologyCatalog.find((c) => c.id === id))
+      .filter((c): c is RadiologyTestCatalogItem => Boolean(c));
+  }
 
   const orders: RadiologyOrder[] = tests.map((c) => ({
     id: `rad-${c.id}-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
@@ -191,7 +218,7 @@ const DB_TO_FE_RAD_STATUS: Record<string, RadiologyOrderQueueEntry['status']> = 
  * for the demo we attach a known-good Wikimedia Commons sample so the
  * doctor can actually view an x-ray when they open a released report.
  */
-const PROCEDURE_DEMO_IMAGES: Record<string, string[]> = {
+export const PROCEDURE_DEMO_IMAGES: Record<string, string[]> = {
   'XR-CHE': [
     'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/Chest_Xray_PA_3-8-2010.png/640px-Chest_Xray_PA_3-8-2010.png',
   ],

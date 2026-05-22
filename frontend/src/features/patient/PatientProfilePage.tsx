@@ -23,6 +23,7 @@ import { CardLabel } from '@/components/layout';
 import { Button } from '@/components/ui/button';
 import { homeForRole, useAuth } from '@/features/auth';
 import { fetchVisitHistory, type VisitHistoryItem } from '@/features/consultation';
+import { ReportViewerDialog, type ReportViewerInput } from '@/features/consultation/components/ReportViewerDialog';
 import { fetchPatient, findLinkedPatients } from './patientApi';
 import { useRecentPatientsStore } from './recentsStore';
 import type { LinkedPatient, PatientSummary } from './patientTypes';
@@ -134,7 +135,7 @@ export function PatientProfilePage(): JSX.Element {
               {/* Left column */}
               <div className="flex flex-col gap-6">
                 <IdentitySection patient={patient} />
-                <VisitHistorySection visits={visits} />
+                <VisitHistorySection visits={visits} patient={patient} />
               </div>
 
               {/* Right column — left-accent sections, flush with Identity heading */}
@@ -169,7 +170,7 @@ export function PatientProfilePage(): JSX.Element {
                   icon={<Users className="h-4 w-4 text-muted-foreground" />}
                   title="Linked family"
                   count={linked.length}
-                  accentClass="border-l-gray-300"
+                  accentClass="border-l-border"
                 >
                   {linked.length > 0 ? (
                     <FamilyList linked={linked} fromUhid={patient.uhid} />
@@ -248,8 +249,15 @@ function IdentitySection({ patient }: { patient: PatientSummary }): JSX.Element 
 
 const VISIT_PAGE_SIZE = 5;
 
-function VisitHistorySection({ visits }: { visits: VisitHistoryItem[] }): JSX.Element {
+function VisitHistorySection({
+  visits,
+  patient,
+}: {
+  visits: VisitHistoryItem[];
+  patient: PatientSummary;
+}): JSX.Element {
   const [page, setPage] = useState<number>(1);
+  const [viewingReport, setViewingReport] = useState<ReportViewerInput>(null);
   const lastPage = Math.max(1, Math.ceil(visits.length / VISIT_PAGE_SIZE));
   const safePage = Math.min(Math.max(1, page), lastPage);
   const start = (safePage - 1) * VISIT_PAGE_SIZE;
@@ -271,9 +279,17 @@ function VisitHistorySection({ visits }: { visits: VisitHistoryItem[] }): JSX.El
       </div>
       {hasVisits && (
         <ul className="flex flex-col divide-y divide-hairline">
-          {visible.map((v) => <VisitRow key={v.opNumber} visit={v} />)}
+          {visible.map((v) => (
+            <VisitRow
+              key={v.opNumber}
+              visit={v}
+              patient={patient}
+              onOpenReport={setViewingReport}
+            />
+          ))}
         </ul>
       )}
+      <ReportViewerDialog value={viewingReport} onClose={() => setViewingReport(null)} />
       {hasVisits && (
         <div className="flex items-center justify-between gap-2 border-t border-hairline pt-2 text-xxs text-muted-foreground">
           <span className="tabular-nums">
@@ -306,11 +322,20 @@ function VisitHistorySection({ visits }: { visits: VisitHistoryItem[] }): JSX.El
   );
 }
 
-function VisitRow({ visit: v }: { visit: VisitHistoryItem }): JSX.Element {
+function VisitRow({
+  visit: v,
+  patient,
+  onOpenReport,
+}: {
+  visit: VisitHistoryItem;
+  patient: PatientSummary;
+  onOpenReport: (input: ReportViewerInput) => void;
+}): JSX.Element {
   const [open, setOpen] = useState<boolean>(false);
   const dateLabel = new Date(v.visitDate).toLocaleDateString(undefined, {
     day: '2-digit', month: 'short', year: 'numeric',
   });
+  const hasReports = (v.labOrders?.length ?? 0) + (v.radiologyOrders?.length ?? 0) > 0;
   return (
     <li>
       <button
@@ -354,6 +379,40 @@ function VisitRow({ visit: v }: { visit: VisitHistoryItem }): JSX.Element {
             <span className="text-xxs uppercase tracking-wider text-muted-foreground">OP number</span>
             <span className="font-mono text-foreground tabular-nums">{v.opNumber}</span>
           </div>
+
+          {hasReports && (
+            <div className="mt-2 grid grid-cols-[7rem_1fr] gap-x-3">
+              <span className="text-xxs uppercase tracking-wider text-muted-foreground">Reports</span>
+              <ul className="flex flex-col gap-1">
+                {v.labOrders?.map((o) => (
+                  <li key={`lab-${o.id}`} className="flex items-center gap-2">
+                    <FlaskConical className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate text-foreground">{o.testName}</span>
+                    <button
+                      type="button"
+                      onClick={() => onOpenReport({ kind: 'lab', order: o, patient })}
+                      className="text-xxs font-medium text-primary hover:underline"
+                    >
+                      View
+                    </button>
+                  </li>
+                ))}
+                {v.radiologyOrders?.map((o) => (
+                  <li key={`rad-${o.id}`} className="flex items-center gap-2">
+                    <Scan className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+                    <span className="min-w-0 flex-1 truncate text-foreground">{o.testName}</span>
+                    <button
+                      type="button"
+                      onClick={() => onOpenReport({ kind: 'radiology', order: o, patient })}
+                      className="text-xxs font-medium text-primary hover:underline"
+                    >
+                      View
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </li>
@@ -363,7 +422,7 @@ function VisitRow({ visit: v }: { visit: VisitHistoryItem }): JSX.Element {
 /* ---------- Clinical sidebar cards ---------- */
 
 function SidebarCard({
-  icon, title, count, children, accentClass = 'border-l-gray-200',
+  icon, title, count, children, accentClass = 'border-l-border',
 }: {
   icon: JSX.Element;
   title: string;
@@ -392,7 +451,7 @@ function AllergyPills({ items }: { items: string[] }): JSX.Element {
     <ul className="flex flex-wrap gap-1.5">
       {items.map((item) => (
         <li key={item}>
-          <span className="inline-flex items-center rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-medium text-red-700">
+          <span className="inline-flex items-center rounded-full bg-danger/15 px-2.5 py-0.5 text-xs font-medium text-danger">
             {item}
           </span>
         </li>
@@ -406,7 +465,7 @@ function ChronicPills({ items }: { items: string[] }): JSX.Element {
     <ul className="flex flex-wrap gap-1.5">
       {items.map((item) => (
         <li key={item}>
-          <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+          <span className="inline-flex items-center rounded-full bg-warning/15 px-2.5 py-0.5 text-xs font-medium text-warning">
             {item}
           </span>
         </li>
@@ -422,7 +481,7 @@ function FamilyList({ linked, fromUhid }: { linked: LinkedPatient[]; fromUhid: s
         <li key={l.patient.uhid}>
           <Link
             to={`/patient/${l.patient.uhid}?from=${fromUhid}`}
-            className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-gray-50"
+            className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-muted/50"
           >
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted/60 text-muted-foreground">
               <User className="h-3.5 w-3.5" />

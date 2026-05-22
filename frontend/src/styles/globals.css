@@ -90,6 +90,16 @@
     --aurora-1: 178 70% 55%;   /* teal — keys with --primary */
     --aurora-2: 195 78% 60%;   /* cyan */
     --aurora-3: 220 65% 62%;   /* blue */
+
+    /* ---- Card / elevation drop-shadow base. Slate-900 at low alpha in
+       light mode reads as a real drop; in dark mode the same color is
+       invisible against the page, so the .dark block re-points it to
+       pure black at much higher alpha for proper depth. Consumed by the
+       `card`, `card-hover`, `elevated` shadow tokens in tailwind.config. */
+    --shadow-rgb: 15 23 42;
+    --shadow-alpha-sm: 0.04;
+    --shadow-alpha-md: 0.08;
+    --shadow-alpha-lg: 0.12;
   }
 
   .dark {
@@ -129,6 +139,20 @@
 
     --page-bg: 220 13% 7%;
     --hairline: 220 10% 18%;
+
+    /* Aurora hues — slightly dimmed + shifted for the dark login panel
+       so the blobs read as a deep glow, not a neon swatch. */
+    --aurora-1: 178 55% 38%;
+    --aurora-2: 195 60% 42%;
+    --aurora-3: 220 55% 45%;
+
+    /* Pure-black shadow at higher alpha gives card edges real depth
+       against the near-black page background. Three tiers (sm / md / lg)
+       are also re-pointed so each shadow level keeps its visual weight. */
+    --shadow-rgb: 0 0 0;
+    --shadow-alpha-sm: 0.45;
+    --shadow-alpha-md: 0.55;
+    --shadow-alpha-lg: 0.65;
   }
 }
 

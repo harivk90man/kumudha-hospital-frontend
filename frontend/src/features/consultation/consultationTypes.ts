@@ -64,6 +64,15 @@ export interface VisitHistoryItem {
   hasLabReports: boolean;
   hasRadiologyReports: boolean;
   reports?: VisitReportSummary[];
+  /**
+   * Full LabOrder rows for this visit when fetched (Supabase path).
+   * Powers the "View report" action on the Patient profile expand —
+   * the same `ReportViewerDialog` consumes these shapes directly so
+   * the doctor can inspect the saved blood/scan report on a past
+   * visit without any of the consultation inputs becoming editable.
+   */
+  labOrders?: LabOrder[];
+  radiologyOrders?: RadiologyOrder[];
 }
 
 /* ---------- Clinical capture ---------- */
