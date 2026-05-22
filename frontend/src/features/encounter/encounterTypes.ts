@@ -203,6 +203,8 @@ export interface QueueListParams {
    * mutually exclusive on the wire; `statuses` wins if both are set.
    */
   statuses?: EncounterStatusName[];
+  /** When true, uses the silent Supabase client so the progress bar is not triggered. */
+  silent?: boolean;
 }
 
 /* ---------- Op-visit creation (BRD §1 step 3 — receptionist) ---------- */

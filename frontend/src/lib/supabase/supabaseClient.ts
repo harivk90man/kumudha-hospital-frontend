@@ -47,14 +47,19 @@ const trackedFetch: typeof fetch = async (input, init) => {
   }
 };
 
+const AUTH_OPTIONS = {
+  persistSession: false,
+  autoRefreshToken: false,
+};
+
 export const supabase: SupabaseClient = createClient(url ?? '', anonKey ?? '', {
-  auth: {
-    // The frontend manages its own session via Zustand (authStore).
-    // Disable Supabase Auth persistence so the two don't fight.
-    persistSession: false,
-    autoRefreshToken: false,
-  },
+  auth: AUTH_OPTIONS,
   global: { fetch: trackedFetch },
+});
+
+/** Silent client for background polls — uses native fetch so the progress bar is never triggered. */
+export const supabaseSilent: SupabaseClient = createClient(url ?? '', anonKey ?? '', {
+  auth: AUTH_OPTIONS,
 });
 
 /**

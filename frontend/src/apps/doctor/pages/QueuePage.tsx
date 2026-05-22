@@ -174,6 +174,7 @@ export function QueuePage(): JSX.Element {
         page,
         limit,
         sort,
+        silent,
       });
 
       // Diff against last snapshot to detect status moves; first load

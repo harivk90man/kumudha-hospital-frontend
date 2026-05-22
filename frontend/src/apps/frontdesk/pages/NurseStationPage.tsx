@@ -149,6 +149,7 @@ export function NurseStationPage(): JSX.Element {
         page,
         limit,
         pinnedKeys: pinnedKeys.size > 0 ? [...pinnedKeys] : undefined,
+        silent,
       });
 
       // Flash rows whose queueStatus changed since last poll

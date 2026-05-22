@@ -1,6 +1,6 @@
 ﻿import { httpClient } from '@/lib/http/httpClient';
 import type { Gender } from '@/features/patient';
-import { supabase } from '@/lib/supabase/supabaseClient';
+import { supabase, supabaseSilent } from '@/lib/supabase/supabaseClient';
 import type {
   CaseSummary,
   DoctorQueueGroup,
@@ -178,11 +178,11 @@ const supabaseRowToQueueEntry = (r: SbQueueRow): QueueEntry => {
  * has run (consultations.locked_at is set), so they no longer belong
  * in the live "Consultation queue".
  */
-const fetchDoneCases = async (doctorId?: string): Promise<QueueEntry[]> => {
+const fetchDoneCases = async (doctorId?: string, client = supabase): Promise<QueueEntry[]> => {
   // Use last 24h of visit_date so a doctor running late doesn't lose visits.
   const todayIso = new Date().toISOString().slice(0, 10);
   const yesterdayIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  let q = supabase
+  let q = client
     .from('op_visits')
     .select(`
       id, op_number, chief_complaint, doctor_id, created_at, closed_at,
@@ -245,13 +245,15 @@ export const fetchQueue = async (params: QueueListParams = {}): Promise<QueueEnt
   void params.limit;
   void params.sort;
 
+  const client = params.silent ? supabaseSilent : supabase;
+
   // Branch to the "done" pull when the caller is asking for finished visits.
   // The live-queue join below would exclude closed encounters by design.
   const wantsDone =
     params.status === 'consultation_done' ||
     (params.statuses?.length === 1 && params.statuses[0] === 'consultation_done');
   if (wantsDone) {
-    let rows = await fetchDoneCases(params.doctorId);
+    let rows = await fetchDoneCases(params.doctorId, client);
     if (params.q) {
       const q = params.q.toLowerCase();
       rows = rows.filter(
@@ -268,7 +270,7 @@ export const fetchQueue = async (params: QueueListParams = {}): Promise<QueueEnt
   // (QueuePage sends user.id for doctor / chief_doctor roles) so each
   // doctor sees only their own patients. 'all' or undefined falls
   // through unfiltered for owner / chief_doctor overview surfaces.
-  let opQ = supabase
+  let opQ = client
     .from('op_visits')
     .select(`
       id, op_number, chief_complaint, doctor_id, created_at,
@@ -941,11 +943,14 @@ export const fetchLiveQueue = async (params: {
   page?: number;
   limit?: number;
   pinnedKeys?: string[];
+  /** When true, uses the silent Supabase client so the progress bar is not triggered. */
+  silent?: boolean;
 } = {}): Promise<PageResult<LiveQueueEntry>> => {
   const today = new Date().toISOString().slice(0, 10);
   const requestedDate = params.date ?? today;
   const isToday = requestedDate === today;
   const isPast  = requestedDate < today;
+  const client  = params.silent ? supabaseSilent : supabase;
 
   try {
     const rows: LiveQueueEntry[] = [];
@@ -953,7 +958,7 @@ export const fetchLiveQueue = async (params: {
     // ── A) Live op_visit rows (today only — past closed visits + future
     //       not-yet-paid appointments don't have op_visits we care about).
     if (isToday) {
-      let opQuery = supabase
+      let opQuery = client
         .from('op_visits')
         .select(`
           id, op_number, doctor_id, created_at, appointment_id,
@@ -998,7 +1003,7 @@ export const fetchLiveQueue = async (params: {
     // ── B) Appointment rows — today's booked/arrived (not yet paid)
     //       AND every future-date appointment. Past dates show all
     //       statuses so the front desk can audit the day.
-    let apptQuery = supabase
+    let apptQuery = client
       .from('appointments')
       .select(`
         id, appointment_no, scheduled_at, status, reason,
