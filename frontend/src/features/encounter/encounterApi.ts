@@ -122,6 +122,11 @@ interface SbQueueRow {
     departments: { dept_name: string } | null } | null;
   patient_states: { entered_at: string;
     stations: { station_type: string } | null }[];
+  // Embedded after the retrofit so the queue shows the real D-NN
+  // token (issued at payment time) instead of the old OP-T-<last2digits>
+  // synthetic. Optional — the synthetic is still emitted as a fallback
+  // for any row that somehow doesn't have a token row yet.
+  tokens: { token_number: string }[];
 }
 
 const supabaseRowToQueueEntry = (r: SbQueueRow): QueueEntry => {
@@ -131,9 +136,10 @@ const supabaseRowToQueueEntry = (r: SbQueueRow): QueueEntry => {
   const enteredAt = ps?.entered_at ?? r.created_at;
   const minutes = Math.max(0, Math.round((Date.now() - new Date(enteredAt).getTime()) / 60_000));
   const p = r.patients;
+  const realToken = r.tokens?.[0]?.token_number;
   return {
     opNumber: r.op_number,
-    tokenNumber: `OP-T-${r.op_number.slice(-2)}`,
+    tokenNumber: realToken ?? `OP-T-${r.op_number.slice(-2)}`,
     patient: {
       id: p?.id ?? '',
       uhid: p?.uhid ?? '',
@@ -174,7 +180,8 @@ const fetchDoneCases = async (doctorId?: string): Promise<QueueEntry[]> => {
       id, op_number, chief_complaint, doctor_id, created_at, closed_at,
       patients!op_visits_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
       users:users!op_visits_doctor_id_fkey ( id, full_name, departments!fk_users_department ( dept_name ) ),
-      consultations!inner ( locked_at )
+      consultations!inner ( locked_at ),
+      tokens ( token_number )
     `)
     .gte('visit_date', yesterdayIso)
     .lte('visit_date', todayIso)
@@ -195,12 +202,14 @@ const fetchDoneCases = async (doctorId?: string): Promise<QueueEntry[]> => {
     users: { id: string; full_name: string;
       departments: { dept_name: string } | null } | null;
     consultations: Array<{ locked_at: string | null }>;
+    tokens: Array<{ token_number: string }>;
   }
   return (data as unknown as SbDoneRow[]).map((r): QueueEntry => {
     const p = r.patients;
+    const realToken = r.tokens?.[0]?.token_number;
     return {
       opNumber: r.op_number,
-      tokenNumber: `OP-T-${r.op_number.slice(-2)}`,
+      tokenNumber: realToken ?? `OP-T-${r.op_number.slice(-2)}`,
       patient: {
         id: p?.id ?? '', uhid: p?.uhid ?? '',
         firstName: p?.first_name ?? '', lastName: p?.last_name ?? '',
@@ -257,7 +266,8 @@ export const fetchQueue = async (params: QueueListParams = {}): Promise<QueueEnt
       id, op_number, chief_complaint, doctor_id, created_at,
       patients!op_visits_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
       users:users!op_visits_doctor_id_fkey ( id, full_name, departments!fk_users_department ( dept_name ) ),
-      patient_states!inner ( entered_at, stations ( station_type ) )
+      patient_states!inner ( entered_at, stations ( station_type ) ),
+      tokens ( token_number )
     `)
     .is('closed_at', null)
     .is('deleted_at', null)
