@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { CalendarClock, Check, UserPlus } from 'lucide-react';
+import { CalendarClock, CalendarPlus, Check, UserPlus } from 'lucide-react';
 import { StatusPill } from '@/components/data-display';
 import { Card, WorkspacePageLayout } from '@/components/layout';
 import {
@@ -28,8 +28,8 @@ import { fetchAllergySuggestions, fetchConditionSuggestions } from '@/features/p
 import { HttpError } from '@/lib/http/httpError';
 import type { BackendError } from '@/lib/http/httpError';
 import { useNotificationsStore } from '@/store/notificationsStore';
-import { type Appointment } from '@/features/appointments';
-import { NewBookingForm } from '../components/NewBookingForm';
+import { type Appointment, type AppointmentSlot } from '@/features/appointments';
+import { NewBookingForm, type NewBookingFormHandle } from '../components/NewBookingForm';
 import {
   newPatientSchema,
   type NewPatientFormValues,
@@ -47,6 +47,12 @@ export function RegistrationPage(): JSX.Element {
   const [bookedAppointment, setBookedAppointment] = useState<Appointment | null>(null);
   const [allergySuggestions, setAllergySuggestions] = useState<string[]>([]);
   const [conditionSuggestions, setConditionSuggestions] = useState<string[]>([]);
+  // Step 2 (booking) — drive the header toolbar's primary action via the
+  // NewBookingForm imperative handle so the "Book appointment" button
+  // lives in the page header, not at the bottom of the inline form.
+  const bookingFormRef = useRef<NewBookingFormHandle | null>(null);
+  const [pickedSlot, setPickedSlot] = useState<AppointmentSlot | null>(null);
+  const [bookingInFlight, setBookingInFlight] = useState<boolean>(false);
 
   /* ---------- UHID lookup ---------- */
   const [lookupValue, setLookupValue] = useState<string>('');
@@ -138,7 +144,13 @@ export function RegistrationPage(): JSX.Element {
   };
 
   const onBooked = (apt: Appointment): void => {
+    setBookingInFlight(false);
     setBookedAppointment(apt);
+  };
+
+  const triggerBookingFromHeader = (): void => {
+    setBookingInFlight(true);
+    bookingFormRef.current?.triggerBooking();
   };
 
   useUnsavedChangesGuard(registerIsDirty);
@@ -192,7 +204,17 @@ export function RegistrationPage(): JSX.Element {
       }
     : bookedAppointment
     ? { label: 'Register another', onClick: startOver }
-    : undefined;
+    : {
+        // Step 2 — patient saved, booking slot grid open. Lives in the
+        // page header so the CTA is in the same spot as on step 1
+        // ("Register") and step 3 ("Register another").
+        label: 'Book appointment',
+        loadingLabel: 'Booking...',
+        loading: bookingInFlight,
+        disabled: bookingInFlight || !pickedSlot,
+        icon: <CalendarPlus className="h-4 w-4" />,
+        onClick: triggerBookingFromHeader,
+      };
 
   const secondaryAction = !selectedPatient
     ? {
@@ -426,9 +448,13 @@ export function RegistrationPage(): JSX.Element {
             </span>
           </div>
           <NewBookingForm
+            ref={bookingFormRef}
             initialPatient={selectedPatient}
             onBooked={onBooked}
             onClose={startOver}
+            onSlotChange={setPickedSlot}
+            onBookingError={() => setBookingInFlight(false)}
+            hideBookButton
           />
         </>
       )}
