@@ -20,7 +20,9 @@ export {
   resolveLineDiscount,
   recordShiftOpenInDb,
   recordShiftCloseInDb,
+  fetchActiveCashSession,
 } from './billingApi';
+export type { ActiveCashSession } from './billingApi';
 export { InvoicePaymentPanel } from './components/InvoicePaymentPanel';
 export { PaymentPage } from './PaymentPage';
 export {

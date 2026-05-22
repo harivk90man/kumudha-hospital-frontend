@@ -23,6 +23,7 @@ import {
   ANALYTICS_CATEGORIES,
   ANALYTICS_CATEGORY_LABEL,
   DEFAULT_COUNTER_ID,
+  fetchActiveCashSession,
   fetchInvoices,
   fetchPayments,
   recordShiftCloseInDb,
@@ -205,6 +206,44 @@ export function ShiftPage(): JSX.Element {
     const id = window.setInterval(() => setNow(new Date()), 60_000);
     return () => window.clearInterval(id);
   }, []);
+
+  // Cross-machine sync: pull the canonical open session from Supabase on
+  // mount + every minute. If another terminal has opened the till (or a
+  // seed full_day session exists) and this browser's local Zustand store
+  // doesn't yet know about it, mirror it locally so the lock state and
+  // banner update consistently across machines.
+  useEffect(() => {
+    let alive = true;
+    const sync = async (): Promise<void> => {
+      const dbSession = await fetchActiveCashSession(counterId);
+      if (!alive || !dbSession) return;
+      const localActive = openFor(counterId, shift.shiftType, shift.shiftDate);
+      if (localActive) return;  // local already has an open record
+      // Treat a 'full_day' DB session as covering whichever shift the
+      // user is viewing; otherwise only mirror when labels match.
+      const labelCovers =
+        dbSession.sessionLabel === 'full_day' ||
+        dbSession.sessionLabel === shift.shiftType;
+      if (!labelCovers) return;
+      recordOpen({
+        id:            dbSession.id,
+        counterId,
+        shiftType:     shift.shiftType,
+        shiftDate:     shift.shiftDate,
+        openedAt:      dbSession.openedAt,
+        openedByName:  dbSession.openedByName,
+        openedByRole:  'cashier',
+        openingFloat:  dbSession.openingFloat,
+      });
+    };
+    void sync();
+    const t = window.setInterval(() => { void sync(); }, 30_000);
+    return () => {
+      alive = false;
+      window.clearInterval(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [counterId, shift.shiftType, shift.shiftDate]);
 
   useEffect(() => {
     let alive = true;

@@ -200,6 +200,59 @@ export const recordShiftOpenInDb = async (
   }
 };
 
+/**
+ * Pull the currently-open cash_session for a counter from Supabase.
+ * Used by ShiftPage on mount so a second machine sees that Machine 1
+ * has already opened the till — the local Zustand store lives per-
+ * browser, so without this hydrate step each tab would render its
+ * own truth.
+ */
+export interface ActiveCashSession {
+  id:             string;
+  sessionLabel:   string;     // 'morning' | 'evening' | 'night' | 'full_day' | 'custom'
+  businessDate:   string;     // yyyy-mm-dd
+  openedAt:       string;
+  openedByName:   string;
+  openingFloat:   number;
+}
+
+export const fetchActiveCashSession = async (
+  feCounterId: string,
+): Promise<ActiveCashSession | null> => {
+  try {
+    const counterUuid = await resolveCounterUuid(feCounterId);
+    if (!counterUuid) return null;
+    const { data, error } = await supabase
+      .from('cash_sessions')
+      .select(`
+        id, session_label, business_date, opened_at, opening_float,
+        opened_user:users!cash_sessions_opened_by_fkey ( full_name )
+      `)
+      .eq('counter_id', counterUuid)
+      .eq('status', 'open')
+      .is('deleted_at', null)
+      .order('opened_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data) return null;
+    const row = data as unknown as {
+      id: string; session_label: string; business_date: string;
+      opened_at: string; opening_float: number;
+      opened_user: { full_name: string } | null;
+    };
+    return {
+      id:           row.id,
+      sessionLabel: row.session_label,
+      businessDate: row.business_date,
+      openedAt:     row.opened_at,
+      openedByName: row.opened_user?.full_name ?? 'Cashier',
+      openingFloat: Number(row.opening_float ?? 0),
+    };
+  } catch {
+    return null;
+  }
+};
+
 interface ShiftCloseDbInput {
   feCounterId:    string;
   shiftType:      'morning' | 'evening';
