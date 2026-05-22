@@ -709,6 +709,26 @@ export const createInvoice = async (input: CreateInvoiceInput): Promise<Invoice>
   const approverId = await resolveApproverId();
   const useApproved = approverId !== null && approverId !== DEMO_USER_ID;
 
+  // Resolve the op_visit UUID from the input.opNumber so the invoice
+  // row links back to the visit. Without this the invoice writes with
+  // op_visit_id=NULL and fetchInvoiceByOpNumber (which joins on
+  // op_visit_id) can never find it — the screen renders "No invoice
+  // found" right after a successful payAppointment.
+  let opVisitId: string | null = null;
+  if (input.opNumber) {
+    try {
+      const { data: opvRow } = await supabase
+        .from('op_visits')
+        .select('id')
+        .eq('op_number', input.opNumber)
+        .is('deleted_at', null)
+        .maybeSingle();
+      opVisitId = (opvRow as { id: string } | null)?.id ?? null;
+    } catch {
+      opVisitId = null;
+    }
+  }
+
   // Try to persist; on any failure, fall back to mock state only so the UI still works.
   // Retry on uq_invoices_number (23505) collisions — two cashiers writing
   // at the same moment can both compute the same max+1; the loop bumps
@@ -723,6 +743,7 @@ export const createInvoice = async (input: CreateInvoiceInput): Promise<Invoice>
           invoice_number: invoiceNumber,
           invoice_type: stationToInvoiceType[input.station] ?? 'op',
           patient_id: input.patientId,
+          op_visit_id: opVisitId,
           invoice_date: new Date().toISOString().slice(0, 10),
           subtotal: totals.subtotal,
           total_line_discount: 0,
