@@ -218,7 +218,7 @@ const DB_TO_FE_RAD_STATUS: Record<string, RadiologyOrderQueueEntry['status']> = 
  * for the demo we attach a known-good Wikimedia Commons sample so the
  * doctor can actually view an x-ray when they open a released report.
  */
-const PROCEDURE_DEMO_IMAGES: Record<string, string[]> = {
+export const PROCEDURE_DEMO_IMAGES: Record<string, string[]> = {
   'XR-CHE': [
     'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c8/Chest_Xray_PA_3-8-2010.png/640px-Chest_Xray_PA_3-8-2010.png',
   ],

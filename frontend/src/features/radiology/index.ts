@@ -12,6 +12,7 @@ export {
   recordRadiologyResult,
   releaseRadiologyOrder,
   updateRadiologyOrderPriority,
+  PROCEDURE_DEMO_IMAGES,
 } from './radiologyApi';
 export type {
   RadiologyOrder,

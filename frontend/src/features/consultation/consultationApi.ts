@@ -19,6 +19,7 @@ import { mockQueue } from '@/features/encounter/__mocks__/encounterMocks';
 import type { RxItem, RxQueueEntry } from '@/features/pharmacy';
 import type { LabOrder, LabResultFlag, OrderStatus as LabOrderStatus } from '@/features/lab';
 import type { Modality, RadiologyOrder } from '@/features/radiology';
+import { PROCEDURE_DEMO_IMAGES } from '@/features/radiology';
 
 const delay = <T>(value: T, ms = 250): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), ms));
@@ -183,7 +184,13 @@ const blankContextFromSupabase = async (
           follow_up_required, follow_up_date, locked_at,
           prescriptions ( id, status, prescription_items ( id, medicine_id, medicine_name_snapshot, dosage, frequency, duration_days, quantity_prescribed, sequence_no ) )
         ),
-        lab_orders ( id, status, priority, created_at, lab_order_items ( id, lab_tests ( test_code, test_name ) ) ),
+        lab_orders ( id, status, priority, created_at,
+          lab_order_items (
+            id,
+            lab_tests ( test_code, test_name ),
+            lab_results ( value_raw, value_numeric, unit, flag )
+          )
+        ),
         radiology_orders ( id, status, priority, created_at, imaging_completed_at, released_at, radiology_procedures ( procedure_code, procedure_name, modality, body_part ), radiology_reports ( findings, impression ) )
       `)
       .eq('op_number', opNumber)
@@ -215,7 +222,16 @@ const blankContextFromSupabase = async (
       }>;
       lab_orders: Array<{
         id: string; status: string; priority: string; created_at: string;
-        lab_order_items: Array<{ id: string; lab_tests: { test_code: string; test_name: string } | null }>;
+        lab_order_items: Array<{
+          id: string;
+          lab_tests: { test_code: string; test_name: string } | null;
+          lab_results: Array<{
+            value_raw: string | null;
+            value_numeric: number | string | null;
+            unit: string | null;
+            flag: string | null;
+          }>;
+        }>;
       }>;
       radiology_orders: Array<{
         id: string; status: string; priority: string; created_at: string;
@@ -269,36 +285,67 @@ const blankContextFromSupabase = async (
         severity: 'ok' as PrescriptionItem['severity'],
       }));
 
-    const labOrders = row.lab_orders.map((o) => {
-      const item = o.lab_order_items[0];
-      const t = item?.lab_tests;
-      return {
-        id: o.id,
-        orderedAt: o.created_at,
-        status: (o.status === 'released' ? 'reported'
-              : o.status === 'reporting_pending' ? 'in_progress'
-              : o.status) as import('@/features/lab').LabOrder['status'],
-        testCode: t?.test_code ?? '—',
-        testName: t?.test_name ?? '—',
-        clinicalPriority: (o.priority ?? 'routine') as 'routine' | 'urgent' | 'stat',
-      };
-    });
+    // Fan out lab_order_items so each test is its own LabOrder row in the
+    // panel. Past-visit dialog needs `resultValue` / `resultUnit` / `flag`
+    // / `resultSummary` populated; without these the dialog opens but
+    // shows the "Report pending" fallback.
+    const labOrders: LabOrder[] = [];
+    for (const o of row.lab_orders) {
+      const mappedStatus: LabOrder['status'] =
+        o.status === 'released' ? 'reported'
+        : o.status === 'reporting_pending' ? 'in_progress'
+        : (o.status as LabOrder['status']);
+      if (o.lab_order_items.length === 0) {
+        labOrders.push({
+          id: o.id,
+          orderedAt: o.created_at,
+          status: mappedStatus,
+          testCode: '—',
+          testName: '—',
+          clinicalPriority: (o.priority ?? 'routine') as 'routine' | 'urgent' | 'stat',
+        });
+        continue;
+      }
+      for (const it of o.lab_order_items) {
+        const t = it.lab_tests;
+        const res = it.lab_results[0];
+        const numeric = res?.value_numeric != null ? String(res.value_numeric) : undefined;
+        labOrders.push({
+          id: it.id,
+          orderedAt: o.created_at,
+          status: mappedStatus,
+          testCode: t?.test_code ?? '—',
+          testName: t?.test_name ?? '—',
+          clinicalPriority: (o.priority ?? 'routine') as 'routine' | 'urgent' | 'stat',
+          resultSummary: res?.value_raw ?? undefined,
+          resultValue: numeric ?? res?.value_raw ?? undefined,
+          resultUnit: res?.unit ?? undefined,
+          flag: (res?.flag as LabResultFlag | undefined) ?? undefined,
+        });
+      }
+    }
 
-    const radiologyOrders = row.radiology_orders.map((o) => {
+    const radiologyOrders = row.radiology_orders.map((o): RadiologyOrder => {
       const rpt = o.radiology_reports[0];
-      const modality = (o.radiology_procedures?.modality ?? 'other');
+      const procCode = o.radiology_procedures?.procedure_code ?? '';
+      const mappedStatus: RadiologyOrder['status'] =
+        o.status === 'imaging_in_progress' ? 'in_progress'
+        : o.status === 'imaging_completed' || o.status === 'reporting_pending' ? 'in_progress'
+        : o.status === 'released' ? 'reported'
+        : (o.status as RadiologyOrder['status']);
+      const isViewable = mappedStatus === 'reported' || o.status === 'released';
       return {
         id: o.id,
         orderedAt: o.created_at,
-        status: (o.status === 'imaging_in_progress' ? 'in_progress'
-              : o.status === 'imaging_completed' || o.status === 'reporting_pending' ? 'in_progress'
-              : o.status === 'released' ? 'reported'
-              : o.status) as import('@/features/radiology').RadiologyOrder['status'],
-        testCode: o.radiology_procedures?.procedure_code ?? '—',
+        status: mappedStatus,
+        testCode: procCode || '—',
         testName: o.radiology_procedures?.procedure_name ?? '—',
-        modality: modality as import('@/features/radiology').RadiologyOrder['modality'],
+        modality: (o.radiology_procedures?.modality ?? 'other') as Modality,
         clinicalPriority: (o.priority ?? 'routine') as 'routine' | 'urgent' | 'stat',
         resultSummary: rpt?.impression ?? undefined,
+        // Reuse the demo-image map already used by the radiology worklist
+        // so a released X-ray shows the actual film in the dialog.
+        imagesUrl: isViewable ? PROCEDURE_DEMO_IMAGES[procCode] : undefined,
       };
     });
 
@@ -559,14 +606,17 @@ const sbToLabOrders = (orders: SbVisitHistoryRow['lab_orders']): LabOrder[] => {
 const sbToRadiologyOrders = (orders: SbVisitHistoryRow['radiology_orders']): RadiologyOrder[] =>
   orders.map((o) => {
     const rpt = o.radiology_reports[0];
+    const procCode = o.radiology_procedures?.procedure_code ?? '';
+    const isViewable = o.status === 'reported' || o.status === 'released';
     return {
       id: o.id,
       orderedAt: o.created_at,
       status: toLabStatus(o.status),
-      testCode: o.radiology_procedures?.procedure_code ?? '—',
+      testCode: procCode || '—',
       testName: o.radiology_procedures?.procedure_name ?? '—',
       modality: (o.radiology_procedures?.modality ?? 'other') as Modality,
       resultSummary: rpt?.impression ?? rpt?.findings ?? undefined,
+      imagesUrl: isViewable ? PROCEDURE_DEMO_IMAGES[procCode] : undefined,
     };
   });
 

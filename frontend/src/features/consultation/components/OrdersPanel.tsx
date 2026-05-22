@@ -348,8 +348,12 @@ export function OrdersPanel({
                         || order.status === 'partially_reported'
                         || Boolean(order.resultSummary)
                         || Boolean(order.reportPdfUrl)) && (
-                        <button
-                          type="button"
+                        /* span + role="button" instead of <button> so a
+                           parent <fieldset disabled={viewOnly}> can't
+                           inert the View click on past-visit consults. */
+                        <span
+                          role="button"
+                          tabIndex={0}
                           onClick={() =>
                             setViewingReport(
                               kind === 'lab'
@@ -357,12 +361,22 @@ export function OrdersPanel({
                                 : { kind: 'radiology', order: order as RadiologyOrder, patient },
                             )
                           }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setViewingReport(
+                                kind === 'lab'
+                                  ? { kind: 'lab',       order: order as LabOrder,       patient }
+                                  : { kind: 'radiology', order: order as RadiologyOrder, patient },
+                              );
+                            }
+                          }}
                           aria-label={`Open report for ${order.testName}`}
                           title="Open report"
-                          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
                           <Paperclip className="h-3.5 w-3.5" />
-                        </button>
+                        </span>
                       )}
                       <button
                         type="button"
