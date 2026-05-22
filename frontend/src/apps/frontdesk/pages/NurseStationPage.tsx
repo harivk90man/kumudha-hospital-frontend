@@ -43,9 +43,11 @@ import {
 } from '@/features/appointments';
 import {
   fetchLiveQueue,
+  LIVE_QUEUE_SORT_WHITELIST,
   type LiveQueueEntry,
   type LiveQueueStatus,
 } from '@/features/encounter';
+import { sortRows } from '@/utils/listQuery';
 import { useNotificationsStore } from '@/store/notificationsStore';
 import { ShiftLockedBanner, useShiftLock } from '@/features/billing';
 import { cn } from '@/utils/cn';
@@ -83,7 +85,7 @@ export function NurseStationPage(): JSX.Element {
   const [params, setParams] = useSearchParams();
   const page        = Math.max(1, Number(params.get('page'))  || 1);
   const limit       = Math.max(1, Number(params.get('limit')) || 8);
-  const sort        = params.get('sort') || 'waitingSince';
+  const sort        = params.get('sort') || 'queuePos';
   const doctorFilter = params.get('doctor') || 'all';
   const queueQ      = params.get('queueQ') ?? '';
 
@@ -356,6 +358,22 @@ export function NurseStationPage(): JSX.Element {
     return meta;
   }, [rows]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const sortedPaidRows = useMemo(() => {
+    const desc  = sort.startsWith('-');
+    const field = desc ? sort.slice(1) : sort;
+    if (field === 'queuePos') {
+      return [...paidRows].sort((a, b) => {
+        const qa = queueMeta.get(rowKey(a))?.qPos ?? null;
+        const qb = queueMeta.get(rowKey(b))?.qPos ?? null;
+        if (qa === null && qb === null) return 0;
+        if (qa === null) return 1;
+        if (qb === null) return -1;
+        return desc ? qb - qa : qa - qb;
+      });
+    }
+    return sortRows(paidRows, sort, LIVE_QUEUE_SORT_WHITELIST);
+  }, [paidRows, sort, queueMeta]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col gap-4 overflow-hidden md:h-screen md:gap-5">
       <div className="px-4 pt-5 md:px-6 md:pt-6">
@@ -556,7 +574,11 @@ export function NurseStationPage(): JSX.Element {
                 </colgroup>
                 <thead>
                   <tr className="border-b text-left text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                    {isToday && <th className="px-3 py-2.5">Q#</th>}
+                    {isToday && (
+                      <SortableTH field="queuePos" sort={sort} onSort={(s) => setParam('sort', s ?? null)}>
+                        Q#
+                      </SortableTH>
+                    )}
                     <SortableTH field="tokenNumber" sort={sort} onSort={(s) => setParam('sort', s ?? null)}>
                       {isToday ? 'Token' : 'Slot'}
                     </SortableTH>
@@ -739,7 +761,7 @@ export function NurseStationPage(): JSX.Element {
                   ))}
 
                   {/* Queue rows — today: awaiting_vitals | awaiting_doctor; future: booked */}
-                  {paidRows.map((row, idx) => {
+                  {sortedPaidRows.map((row, idx) => {
                     const vitalsPending = row.queueStatus === 'awaiting_vitals';
                     return (
                       <tr
