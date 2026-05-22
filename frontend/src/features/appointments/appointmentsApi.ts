@@ -207,19 +207,26 @@ const APPOINTMENT_SELECT =
   '*, patient:patients!inner(*), doctor:users!appointments_doctor_id_fkey!inner(id, full_name, department_id, departments!fk_users_department(dept_name))';
 
 /**
- * Build appointment_no in the form `APT-YYYY-NNNNN` using the appointment
- * id suffix. We do a simple "count today + 1" rather than a sequence
- * table — close-enough for the demo, real backend uses an atomic seq.
+ * Build `APT-YYYY-NNNNN` from the max numeric suffix already in the
+ * table. Same rationale as nextOpNumber — count-of-rows breaks when a
+ * seeded batch uses non-sequential numbers (e.g. APT-2026-DAILY-NNN
+ * alongside the strict 5-digit pattern).
  */
 async function nextAppointmentNo(): Promise<string> {
   const year = new Date().getFullYear();
-  const yearStart = new Date(year, 0, 1).toISOString();
-  const { count, error } = await supabase
+  const { data, error } = await supabase
     .from('appointments')
-    .select('id', { count: 'exact', head: true })
-    .gte('created_at', yearStart);
+    .select('appointment_no')
+    .like('appointment_no', `APT-${year}-_____`)
+    .order('appointment_no', { ascending: false })
+    .limit(1)
+    .maybeSingle();
   if (error) throw new Error(error.message);
-  const next = (count ?? 0) + 1;
+  let next = 1;
+  if (data) {
+    const m = String((data as { appointment_no: string }).appointment_no).match(/APT-\d{4}-(\d+)$/);
+    if (m) next = parseInt(m[1], 10) + 1;
+  }
   return `APT-${year}-${String(next).padStart(5, '0')}`;
 }
 
@@ -364,16 +371,31 @@ export interface PayAppointmentResult {
   tokenNumber: string;
 }
 
-/** `OP-YYYY-NNNNN`, padded counter from today's op_visit rows. */
+/**
+ * Build the next `OP-YYYY-NNNNN` number from the *max* numeric-suffix
+ * row already in the table, not the row count. The earlier count-based
+ * scheme broke when op_numbers were inserted out of sequence (the v3
+ * seed used `OP-2026-BULK-NNNN` / `OP-2026-LIVE-NNN` numbers alongside
+ * the strict NNNNN ones, so count(*) over-shot the real max).
+ *
+ * If a collision still happens (two concurrent payments) we'll retry
+ * inside payAppointment.
+ */
 async function nextOpNumber(): Promise<string> {
   const year = new Date().getFullYear();
-  const yearStart = new Date(year, 0, 1).toISOString();
-  const { count, error } = await supabase
+  const { data, error } = await supabase
     .from('op_visits')
-    .select('id', { count: 'exact', head: true })
-    .gte('created_at', yearStart);
+    .select('op_number')
+    .like('op_number', `OP-${year}-_____`)  // 5 underscores = match the NNNNN slot only
+    .order('op_number', { ascending: false })
+    .limit(1)
+    .maybeSingle();
   if (error) throw new Error(error.message);
-  const next = (count ?? 0) + 1;
+  let next = 1;
+  if (data) {
+    const m = String((data as { op_number: string }).op_number).match(/OP-\d{4}-(\d+)$/);
+    if (m) next = parseInt(m[1], 10) + 1;
+  }
   return `OP-${year}-${String(next).padStart(5, '0')}`;
 }
 
@@ -413,26 +435,42 @@ export const payAppointment = async (
   if (apptError) throw new Error(apptError.message);
   if (!apptData) throw new Error('Appointment not found.');
 
-  const opNumber = await nextOpNumber();
   const visitDate = (apptData.scheduled_at as string).slice(0, 10);
   const complaint = chiefComplaint ?? (apptData.reason as string | null) ?? null;
 
-  const { data: opVisit, error: opError } = await supabase
-    .from('op_visits')
-    .insert({
-      op_number:        opNumber,
-      patient_id:       apptData.patient_id,
-      appointment_id:   apptData.id,
-      doctor_id:        apptData.doctor_id,
-      visit_date:       visitDate,
-      chief_complaint:  complaint,
-      created_by:       DEMO_USER_ID,
-      updated_by:       DEMO_USER_ID,
-      version:          0,
-    })
-    .select('id, op_number')
-    .single();
-  if (opError) throw new Error(opError.message);
+  // Insert the op_visit with up to 5 retries on the uq_op_visits_number
+  // unique-violation. nextOpNumber computes max+1, but two concurrent
+  // pay attempts (or a stale read) can still race for the same number.
+  let opVisit: { id: string; op_number: string } | null = null;
+  let opErrorMessage: string | null = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const opNumber = await nextOpNumber();
+    const { data, error } = await supabase
+      .from('op_visits')
+      .insert({
+        op_number:        opNumber,
+        patient_id:       apptData.patient_id,
+        appointment_id:   apptData.id,
+        doctor_id:        apptData.doctor_id,
+        visit_date:       visitDate,
+        chief_complaint:  complaint,
+        created_by:       DEMO_USER_ID,
+        updated_by:       DEMO_USER_ID,
+        version:          0,
+      })
+      .select('id, op_number')
+      .maybeSingle();
+    if (!error && data) {
+      opVisit = data as { id: string; op_number: string };
+      break;
+    }
+    opErrorMessage = error?.message ?? 'op_visit insert failed';
+    // 23505 = unique_violation. PostgREST surfaces it as a string in
+    // error.message + code='23505'. Retry; any other failure aborts.
+    const code = (error as unknown as { code?: string } | null)?.code;
+    if (code !== '23505') break;
+  }
+  if (!opVisit) throw new Error(opErrorMessage ?? 'op_visit insert failed');
 
   const tk = await nextDoctorToken(apptData.doctor_id as string);
   const { error: tokenError } = await supabase
