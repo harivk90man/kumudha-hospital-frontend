@@ -151,7 +151,7 @@ export function RadiologyResultEntryPage(): JSX.Element {
       )}
 
       {!loading && !order && (
-        <Card>
+        <Card className="ring-0 rounded-none border-y border-hairline">
           <p className="py-6 text-center text-sm text-muted-foreground">
             Order not found.
           </p>
@@ -159,7 +159,7 @@ export function RadiologyResultEntryPage(): JSX.Element {
       )}
 
       {order && (
-        <Card>
+        <Card className="ring-0 rounded-none border-y border-hairline">
           {isReadOnly ? (
             <RadiologyReportReadOnlyView order={order} />
           ) : (
