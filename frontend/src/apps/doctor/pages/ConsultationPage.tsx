@@ -708,7 +708,10 @@ export function ConsultationPage(): JSX.Element {
               onNavigate={scrollToSection}
               onHistory={() => setShowHistory((v) => !v)}
               showingHistory={showHistory}
-              showHistoryButton={!viewOnly}
+              // Patient History stays available in past-visit mode too —
+              // the doctor often lands on a past visit via search and
+              // wants to jump to an even older visit from the same patient.
+              showHistoryButton={true}
             />
           </aside>
 
@@ -724,6 +727,12 @@ export function ConsultationPage(): JSX.Element {
                     const params = new URLSearchParams();
                     if (carryFrom) params.set('from', carryFrom);
                     params.set('section', 'sec-notes');
+                    // Close the history panel so the new visit's
+                    // consultation content actually renders. Without
+                    // this the URL changes but the user keeps seeing
+                    // the same history list, making it feel like the
+                    // page reopened the latest visit.
+                    setShowHistory(false);
                     navigate(`/doctor/consultation/${op}?${params.toString()}`);
                   }}
                   selectedOpNumber={null}
