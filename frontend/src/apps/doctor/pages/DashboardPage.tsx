@@ -65,10 +65,18 @@ export function DashboardPage(): JSX.Element {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Scope the dashboard's queue panel to the logged-in doctor so a
+  // doctor doesn't see another doctor's patients on their landing page.
+  // Owner / admin fall through unfiltered (overview).
+  const scopedDoctorId =
+    user && (user.role === 'doctor' || user.role === 'chief_doctor')
+      ? user.id
+      : undefined;
+
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    Promise.all([fetchDashboard(), fetchQueue()])
+    Promise.all([fetchDashboard(), fetchQueue({ doctorId: scopedDoctorId })])
       .then(([payload, queue]) => {
         if (alive) {
           setData({ payload, queue });
@@ -82,7 +90,8 @@ export function DashboardPage(): JSX.Element {
     return () => {
       alive = false;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scopedDoctorId]);
 
   /**
    * Patient-flow funnel for "the doctor's queue" — registered → vitals

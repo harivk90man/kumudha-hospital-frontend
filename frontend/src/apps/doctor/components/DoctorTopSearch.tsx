@@ -9,6 +9,7 @@ import {
   type CaseSummary,
   type EncounterStatusName,
 } from '@/features/encounter';
+import { useAuth } from '@/features/auth';
 
 type Mode = 'patient' | 'cases';
 
@@ -52,6 +53,14 @@ const formatConsultedRelative = (iso: string): string => {
  * Cases mode the palette doesn't support.
  */
 export function DoctorTopSearch(): JSX.Element {
+  // Patient-mode active-encounter lookup needs to be scoped to this
+  // doctor so the search doesn't route them into another doctor's
+  // consultation. Owner / admin fall through unfiltered (overview).
+  const { user } = useAuth();
+  const scopedDoctorId =
+    user && (user.role === 'doctor' || user.role === 'chief_doctor')
+      ? user.id
+      : undefined;
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -111,6 +120,7 @@ export function DoctorTopSearch(): JSX.Element {
     const r = await fetchQueuePaged({
       q: p.uhid,
       statuses: ACTIVE_ENCOUNTER_STATUSES,
+      doctorId: scopedDoctorId,
       page: 1,
       limit: 5,
     });
