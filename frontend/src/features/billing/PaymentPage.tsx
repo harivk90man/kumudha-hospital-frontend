@@ -329,6 +329,16 @@ export function PaymentPage(): JSX.Element {
   };
 
   const fullyPaid = invoice ? invoice.balance <= 0 : false;
+
+  // After a successful payment / appointment-pay, send the cashier back
+  // to the OP coordination page with the op_number so the row can be
+  // scrolled into view + flashed. Pre-payment cancellations route to
+  // the bare home path so we don't focus a row that hasn't moved yet.
+  const justPaidOpNumber =
+    (apptResult?.opNumber) || (invoice && fullyPaid ? opNumber : '');
+  const returnPath = justPaidOpNumber
+    ? `/frontdesk/station?focus=${encodeURIComponent(justPaidOpNumber)}`
+    : homePath;
   const readOnlyLines = invoice
     ? invoice.status === 'paid' || invoice.status === 'cancelled'
     : true;
@@ -374,7 +384,7 @@ export function PaymentPage(): JSX.Element {
               type="button"
               variant="ghost"
               size="sm"
-              onClick={() => navigate(homePath)}
+              onClick={() => navigate(returnPath)}
               className="-ml-2 mb-1 h-7 px-2 text-muted-foreground hover:text-foreground"
             >
               <ArrowLeft className="h-3.5 w-3.5" /> Back
@@ -422,10 +432,10 @@ export function PaymentPage(): JSX.Element {
                 type="button"
                 variant="outline"
                 className="w-44 justify-center"
-                onClick={() => navigate(homePath)}
+                onClick={() => navigate(returnPath)}
                 disabled={submitting}
               >
-                Cancel
+                {justPaidOpNumber ? 'Back to queue' : 'Cancel'}
               </Button>
             </div>
           )}

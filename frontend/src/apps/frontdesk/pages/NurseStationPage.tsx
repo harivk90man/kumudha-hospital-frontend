@@ -104,6 +104,14 @@ export function NurseStationPage(): JSX.Element {
   const [selectedDate, setSelectedDate] = useState<string>(todayIso());
   const isToday = selectedDate === todayIso();
 
+  /* ---------- Focus-on-return (after a successful payment) ----------
+   * PaymentPage redirects back with ?focus=<opNumber>. State + ref are
+   * declared here; the effect that depends on `rows` lives further down
+   * after the queue fetch state.
+   */
+  const [focusedOp, setFocusedOp] = useState<string | null>(params.get('focus'));
+  const scrolledOpRef = useRef<string | null>(null);
+
   /* ---------- Doctor list ---------- */
   const [doctors, setDoctors] = useState<DoctorOption[]>([]);
   useEffect(() => { void fetchBookableDoctors().then(setDoctors); }, []);
@@ -169,6 +177,35 @@ export function NurseStationPage(): JSX.Element {
     const id = window.setInterval(() => void reload(true), POLL_INTERVAL_MS);
     return () => window.clearInterval(id);
   }, [isToday, doctorFilter, queueQ, page, limit]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Focus-on-return scroll: when `rows` updates after the queue load,
+  // find the row whose data-op matches `focusedOp` and centre it.
+  // Only fires once per focus value — a poll-driven re-render won't
+  // yank the page away from what the cashier is reading.
+  useEffect(() => {
+    if (!focusedOp) return;
+    if (scrolledOpRef.current === focusedOp) return;
+    const t = window.setTimeout(() => {
+      const el = document.querySelector<HTMLElement>(`tr[data-op="${focusedOp}"]`);
+      if (el) {
+        el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        scrolledOpRef.current = focusedOp;
+        // Strip ?focus= so refreshing the URL doesn't re-trigger.
+        const np = new URLSearchParams(params);
+        np.delete('focus');
+        setParams(np, { replace: true });
+      }
+    }, 60);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusedOp, rows]);
+
+  // Drop the flash after 6s so the page returns to its normal look.
+  useEffect(() => {
+    if (!focusedOp) return;
+    const t = window.setTimeout(() => setFocusedOp(null), 6_000);
+    return () => window.clearTimeout(t);
+  }, [focusedOp]);
 
   // Split rows by source/status:
   //   bookedRows       — appointments that haven't arrived yet (Check-in CTA)
@@ -542,7 +579,11 @@ export function NurseStationPage(): JSX.Element {
                     return (
                       <tr
                         key={rowKey(row)}
-                        className="border-b align-middle last:border-b-0 transition-colors hover:bg-muted/30"
+                        data-op={row.opNumber ?? ''}
+                        className={cn(
+                          'border-b align-middle last:border-b-0 transition-colors hover:bg-muted/30',
+                          focusedOp && row.opNumber === focusedOp && 'animate-flash-once bg-success/10 ring-2 ring-success/40',
+                        )}
                       >
                         {isToday && (
                           <td className="px-3 py-2.5 text-muted-foreground tabular-nums">—</td>
@@ -621,9 +662,11 @@ export function NurseStationPage(): JSX.Element {
                   {isToday && pendingPayment.map((row) => (
                     <tr
                       key={rowKey(row)}
+                      data-op={row.opNumber ?? ''}
                       className={cn(
                         'border-b align-middle last:border-b-0 bg-warning/5 transition-colors hover:bg-warning/10',
                         recentlyChanged.has(rowKey(row)) && 'animate-flash-once',
+                        focusedOp && row.opNumber === focusedOp && 'animate-flash-once bg-success/10 ring-2 ring-success/40',
                       )}
                     >
                       <td className="px-3 py-2.5 text-muted-foreground tabular-nums">—</td>
@@ -701,9 +744,11 @@ export function NurseStationPage(): JSX.Element {
                     return (
                       <tr
                         key={rowKey(row)}
+                        data-op={row.opNumber ?? ''}
                         className={cn(
                           'border-b align-middle last:border-b-0 transition-colors hover:bg-primary/[0.04]',
                           idx % 2 === 1 && 'bg-muted/20',
+                          focusedOp && row.opNumber === focusedOp && 'animate-flash-once bg-success/10 ring-2 ring-success/40',
                           recentlyChanged.has(rowKey(row)) && 'animate-flash-once',
                         )}
                       >
