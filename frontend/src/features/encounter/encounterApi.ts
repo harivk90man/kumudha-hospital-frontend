@@ -164,11 +164,11 @@ const supabaseRowToQueueEntry = (r: SbQueueRow): QueueEntry => {
  * has run (consultations.locked_at is set), so they no longer belong
  * in the live "Consultation queue".
  */
-const fetchDoneCases = async (): Promise<QueueEntry[]> => {
+const fetchDoneCases = async (doctorId?: string): Promise<QueueEntry[]> => {
   // Use last 24h of visit_date so a doctor running late doesn't lose visits.
   const todayIso = new Date().toISOString().slice(0, 10);
   const yesterdayIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const { data, error } = await supabase
+  let q = supabase
     .from('op_visits')
     .select(`
       id, op_number, chief_complaint, doctor_id, created_at, closed_at,
@@ -182,6 +182,8 @@ const fetchDoneCases = async (): Promise<QueueEntry[]> => {
     .is('deleted_at', null)
     .order('created_at', { ascending: false })
     .limit(100);
+  if (doctorId && doctorId !== 'all') q = q.eq('doctor_id', doctorId);
+  const { data, error } = await q;
   if (error || !data) return [];
 
   interface SbDoneRow {
@@ -232,12 +234,7 @@ export const fetchQueue = async (params: QueueListParams = {}): Promise<QueueEnt
     params.status === 'consultation_done' ||
     (params.statuses?.length === 1 && params.statuses[0] === 'consultation_done');
   if (wantsDone) {
-    let rows = await fetchDoneCases();
-    if (params.doctorId && params.doctorId !== 'all') {
-      // The mock-doctor map keys off op_number; for DB rows we don't have
-      // that mapping. Skip the filter when we can't resolve it safely.
-      void params.doctorId;
-    }
+    let rows = await fetchDoneCases(params.doctorId);
     if (params.q) {
       const q = params.q.toLowerCase();
       rows = rows.filter(
@@ -250,7 +247,11 @@ export const fetchQueue = async (params: QueueListParams = {}): Promise<QueueEnt
     return rows;
   }
 
-  const { data, error } = await supabase
+  // Live queue. Scope to the logged-in doctor when doctorId is passed
+  // (QueuePage sends user.id for doctor / chief_doctor roles) so each
+  // doctor sees only their own patients. 'all' or undefined falls
+  // through unfiltered for owner / chief_doctor overview surfaces.
+  let opQ = supabase
     .from('op_visits')
     .select(`
       id, op_number, chief_complaint, doctor_id, created_at,
@@ -263,6 +264,10 @@ export const fetchQueue = async (params: QueueListParams = {}): Promise<QueueEnt
     .is('patient_states.left_at', null)
     .order('created_at', { ascending: true })
     .limit(100);
+  if (params.doctorId && params.doctorId !== 'all') {
+    opQ = opQ.eq('doctor_id', params.doctorId);
+  }
+  const { data, error } = await opQ;
 
   if (error) return delay(mockQueue.slice(0, 8));
   let rows = ((data ?? []) as unknown as SbQueueRow[]).map(supabaseRowToQueueEntry);
