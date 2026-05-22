@@ -460,6 +460,37 @@ export function PaymentPage(): JSX.Element {
             {/* Appointment mode before payment: show charge preview + form */}
             {isApptMode && !apptResult && !loading ? (
               <>
+                {/* Method + Ref no on top of the table — matches the
+                    invoice-mode layout below so the cashier reaches for
+                    the same fields in the same place regardless of
+                    entry point. Amount stays at the bottom alongside
+                    the discount / pay-in-full link. */}
+                <form id={PAYMENT_FORM_ID} onSubmit={handleSubmit(onPay)}>
+                  <div className="flex flex-wrap items-end gap-6 pb-4">
+                    <div className="min-w-[8rem]">
+                      <FormSelect
+                        variant="flat" label="Method"
+                        error={errors.method?.message}
+                        {...register('method')}
+                      >
+                        <option value="cash">Cash</option>
+                        <option value="upi">UPI</option>
+                        <option value="card">Card</option>
+                        <option value="netbanking">Net banking</option>
+                        <option value="insurance">Insurance</option>
+                      </FormSelect>
+                    </div>
+                    <div className="min-w-[10rem]">
+                      <FormInput
+                        variant="flat" label="Ref no."
+                        placeholder={watchedMethod === 'upi' ? 'UPI txn ref *' : 'Ref no. (optional)'}
+                        error={errors.referenceNo?.message}
+                        {...register('referenceNo')}
+                      />
+                    </div>
+                  </div>
+                </form>
+
                 {/* Charge preview — read-only, shows what will be billed */}
                 {apptPreview && (() => {
                   const gross = apptPreview.unitPrice;
@@ -525,54 +556,37 @@ export function PaymentPage(): JSX.Element {
                 {payError && (
                   <FormErrorContainer title="Action failed." description={payError} />
                 )}
-                <form id={PAYMENT_FORM_ID} onSubmit={handleSubmit(onPay)}>
-                  <div className="flex flex-wrap items-end justify-end gap-6 pb-4">
-                    <div className="min-w-[8rem]">
-                      <FormSelect
-                        variant="flat" label="Method"
-                        error={errors.method?.message}
-                        {...register('method')}
-                      >
-                        <option value="cash">Cash</option>
-                        <option value="upi">UPI</option>
-                        <option value="card">Card</option>
-                        <option value="netbanking">Net banking</option>
-                        <option value="insurance">Insurance</option>
-                      </FormSelect>
-                    </div>
-                    <div className="min-w-[10rem]">
-                      <FormInput
-                        variant="flat" label="Ref no."
-                        placeholder={watchedMethod === 'upi' ? 'UPI txn ref *' : 'Ref no. (optional)'}
-                        error={errors.referenceNo?.message}
-                        {...register('referenceNo')}
-                      />
-                    </div>
-                    <div className="min-w-[8rem]">
-                      <FormInput
-                        variant="flat" label="Amount" type="number"
-                        error={errors.amount?.message}
-                        {...register('amount')}
-                      />
-                      {apptPreview && (() => {
-                        const gross = apptPreview.unitPrice;
-                        const disc = resolveLineDiscount(apptDiscountValue > 0 ? { kind: apptDiscountKind, value: apptDiscountValue } : undefined, gross);
-                        const net = gross - disc;
-                        return (
-                          <div className="flex items-center gap-3 mt-0.5">
-                            <span className="text-xs text-muted-foreground">Balance {formatCurrency(net)}</span>
-                            <button type="button" className="text-xs text-primary underline-offset-2 hover:underline" onClick={() => setValue('amount', net)}>
-                              Pay in full
-                            </button>
-                          </div>
-                        );
-                      })()}
-                      <span className="text-[11px] text-muted-foreground/70">
-                        Enter less for a partial payment — balance stays open.
-                      </span>
-                    </div>
+                {/* Amount lives under the table because it depends on the
+                    discount the cashier just keyed in. Hooked into the
+                    same #PAYMENT_FORM_ID form via the `form` attribute
+                    so the top-of-page Confirm-payment toolbar button
+                    submits Method + Ref + Amount together. */}
+                <div className="flex flex-wrap items-end justify-end gap-6 pb-4">
+                  <div className="min-w-[8rem]">
+                    <FormInput
+                      form={PAYMENT_FORM_ID}
+                      variant="flat" label="Amount" type="number"
+                      error={errors.amount?.message}
+                      {...register('amount')}
+                    />
+                    {apptPreview && (() => {
+                      const gross = apptPreview.unitPrice;
+                      const disc = resolveLineDiscount(apptDiscountValue > 0 ? { kind: apptDiscountKind, value: apptDiscountValue } : undefined, gross);
+                      const net = gross - disc;
+                      return (
+                        <div className="flex items-center gap-3 mt-0.5">
+                          <span className="text-xs text-muted-foreground">Balance {formatCurrency(net)}</span>
+                          <button type="button" className="text-xs text-primary underline-offset-2 hover:underline" onClick={() => setValue('amount', net)}>
+                            Pay in full
+                          </button>
+                        </div>
+                      );
+                    })()}
+                    <span className="text-[11px] text-muted-foreground/70">
+                      Enter less for a partial payment — balance stays open.
+                    </span>
                   </div>
-                </form>
+                </div>
               </>
             ) : loading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
