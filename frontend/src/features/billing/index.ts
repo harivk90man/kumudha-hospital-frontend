@@ -10,6 +10,7 @@ export {
   fetchInvoices,
   fetchInvoicesPaged,
   fetchInvoice,
+  fetchInvoiceByOpNumber,
   createInvoice,
   updateInvoice,
   recordPayment,

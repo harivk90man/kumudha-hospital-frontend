@@ -16,7 +16,7 @@ import { homeForRole, roleHas, useAuth } from '@/features/auth';
 import { fetchQueue } from '@/features/encounter';
 import {
   createInvoice,
-  fetchInvoices,
+  fetchInvoiceByOpNumber,
   fetchPayments,
   fetchServices,
   recordPayment,
@@ -149,8 +149,11 @@ export function PaymentPage(): JSX.Element {
   const reload = async (): Promise<void> => {
     setLoading(true);
     try {
-      let match =
-        (await fetchInvoices({ q: opNumber })).find((i) => i.opNumber === opNumber) ?? null;
+      // op_number -> op_visit_id -> invoices. The old fetchInvoices({q})
+      // path substring-matched against invoice_number (INV-…) which
+      // could never resolve an op_number (OP-…) — see
+      // fetchInvoiceByOpNumber TSDoc for the full story.
+      let match = await fetchInvoiceByOpNumber(opNumber);
       if (!match) {
         const queue = await fetchQueue({ q: opNumber });
         const entry = queue.find((q) => q.opNumber === opNumber);
@@ -165,8 +168,7 @@ export function PaymentPage(): JSX.Element {
               station: 'front_desk',
               lines: [{ serviceId: consult.id, quantity: 1 }],
             });
-            match =
-              (await fetchInvoices({ q: opNumber })).find((i) => i.opNumber === opNumber) ?? null;
+            match = await fetchInvoiceByOpNumber(opNumber);
           }
         }
       }

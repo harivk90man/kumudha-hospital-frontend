@@ -524,6 +524,53 @@ export const fetchInvoice = async (id: string): Promise<Invoice | null> => {
 };
 
 /**
+ * Look up the invoice attached to a given op_visit. Resolves the
+ * op_visit by op_number first (UNIQUE in DB), then queries invoices
+ * by op_visit_id. Returns null when:
+ *   - the op_number doesn't resolve (typo / wrong route param), or
+ *   - the op_visit exists but no invoice has been written yet.
+ *
+ * Replaces the old `fetchInvoices({ q: opNumber })` substring pattern,
+ * which filtered against `invoice_number` (INV-…) and could never
+ * match an op_number (OP-…). That filter was the silent reason the
+ * PaymentPage rendered "No invoice found" even after createInvoice
+ * had successfully written the row.
+ */
+export const fetchInvoiceByOpNumber = async (
+  opNumber: string,
+): Promise<Invoice | null> => {
+  try {
+    const { data: opvRow } = await supabase
+      .from('op_visits')
+      .select('id')
+      .eq('op_number', opNumber)
+      .is('deleted_at', null)
+      .maybeSingle();
+    const opVisitId = (opvRow as { id: string } | null)?.id;
+    if (!opVisitId) return null;
+
+    const { data, error } = await supabase
+      .from('invoices')
+      .select(`
+        id, invoice_number, invoice_type, patient_id, op_visit_id,
+        subtotal, total_tax, total_amount, amount_paid, balance,
+        payment_status, created_at, finalized_at,
+        patients ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
+        op_visits ( op_number )
+      `)
+      .eq('op_visit_id', opVisitId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data) return null;
+    return mapInvoice(data as unknown as SupabaseInvoiceRow);
+  } catch {
+    return null;
+  }
+};
+
+/**
  * Resolve an "approver" UUID different from the bootstrap admin so the
  * invoice's chk_invoices_sod constraint (created_by <> approved_by)
  * doesn't reject the row. Prefers an owner / chief_doctor; falls back
