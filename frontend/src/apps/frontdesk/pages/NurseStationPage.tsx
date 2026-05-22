@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   CalendarClock,
+  CalendarPlus,
   CheckCircle2,
   Eye,
   FlaskConical,
@@ -35,12 +36,18 @@ import {
   searchPatientsByMobile,
   type PatientSummary,
 } from '@/features/patient';
-import { fetchBookableDoctors } from '@/features/appointments';
+import {
+  cancelAppointment,
+  checkInAppointment,
+  fetchBookableDoctors,
+  markNoShow,
+} from '@/features/appointments';
 import {
   fetchLiveQueue,
   type LiveQueueEntry,
   type LiveQueueStatus,
 } from '@/features/encounter';
+import { useNotificationsStore } from '@/store/notificationsStore';
 import { ShiftLockedBanner, useShiftLock } from '@/features/billing';
 import { cn } from '@/utils/cn';
 
@@ -50,12 +57,14 @@ const formatSlot = (iso: string): string =>
   new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 
 const STATUS_LABEL: Record<LiveQueueStatus, string> = {
+  booked:          'Booked',
   pending_payment: 'Awaiting payment',
   awaiting_vitals: 'Awaiting vitals',
   awaiting_doctor: 'Awaiting doctor',
 };
 
 const STATUS_TONE: Record<LiveQueueStatus, StatusPillProps['tone']> = {
+  booked:          'neutral',
   pending_payment: 'danger',
   awaiting_vitals: 'warning',
   awaiting_doctor: 'info',
@@ -162,16 +171,82 @@ export function NurseStationPage(): JSX.Element {
     return () => window.clearInterval(id);
   }, [isToday, doctorFilter, queueQ, page, limit]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Split rows: unpaid rows shown in the amber "awaiting payment" band;
-  // paid rows (awaiting_vitals | awaiting_doctor) in the main table body.
+  // Split rows by source/status:
+  //   bookedRows       — appointments that haven't arrived yet (Check-in CTA)
+  //   pendingPayment   — checked-in OR walk-in op_visit not yet paid (Pay CTA)
+  //   paidRows         — paid op_visits at vitals / doctor station
+  const bookedRows = useMemo(
+    () => rows.filter((r) => r.queueStatus === 'booked'),
+    [rows],
+  );
   const pendingPayment = useMemo(
     () => rows.filter((r) => r.queueStatus === 'pending_payment'),
     [rows],
   );
   const paidRows = useMemo(
-    () => rows.filter((r) => r.queueStatus !== 'pending_payment'),
+    () => rows.filter((r) => r.queueStatus === 'awaiting_vitals' || r.queueStatus === 'awaiting_doctor'),
     [rows],
   );
+
+  /* ---------- Appointment-row actions (Check-in / Cancel / No-show) ---------- */
+  const pushNotification = useNotificationsStore((s) => s.push);
+  const [rowBusy, setRowBusy] = useState<Set<string>>(new Set());
+  const setBusy = (id: string, busy: boolean): void =>
+    setRowBusy((s) => {
+      const next = new Set(s);
+      if (busy) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+
+  const onCheckIn = async (apptId: string): Promise<void> => {
+    setBusy(apptId, true);
+    try {
+      await checkInAppointment(apptId);
+      pushNotification({ type: 'success', title: 'Checked in', message: 'Patient marked as arrived.' });
+      await reload(true);
+    } catch (e) {
+      pushNotification({
+        type: 'error', title: 'Check-in failed',
+        message: e instanceof Error ? e.message : 'Try again.',
+      });
+    } finally {
+      setBusy(apptId, false);
+    }
+  };
+
+  const onCancelAppt = async (apptId: string): Promise<void> => {
+    if (!window.confirm('Cancel this appointment?')) return;
+    setBusy(apptId, true);
+    try {
+      await cancelAppointment(apptId, 'Cancelled at front desk');
+      pushNotification({ type: 'success', title: 'Cancelled', message: 'Appointment cancelled.' });
+      await reload(true);
+    } catch (e) {
+      pushNotification({
+        type: 'error', title: 'Cancel failed',
+        message: e instanceof Error ? e.message : 'Try again.',
+      });
+    } finally {
+      setBusy(apptId, false);
+    }
+  };
+
+  const onMarkNoShow = async (apptId: string): Promise<void> => {
+    setBusy(apptId, true);
+    try {
+      await markNoShow(apptId);
+      pushNotification({ type: 'success', title: 'No-show', message: 'Appointment marked as no-show.' });
+      await reload(true);
+    } catch (e) {
+      pushNotification({
+        type: 'error', title: 'Mark no-show failed',
+        message: e instanceof Error ? e.message : 'Try again.',
+      });
+    } finally {
+      setBusy(apptId, false);
+    }
+  };
 
   /* ---------- Patient lookup ---------- */
   const [lookupValue, setLookupValue]   = useState<string>('');
@@ -277,6 +352,11 @@ export function NurseStationPage(): JSX.Element {
           <Button asChild className="w-44 justify-center">
             <Link to="/frontdesk/register?returnTo=/frontdesk/station">
               <UserPlus /> Register new patient
+            </Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link to="/frontdesk/register?returnTo=/frontdesk/station">
+              <CalendarPlus /> New booking
             </Link>
           </Button>
           <Button asChild variant="outline">
@@ -441,7 +521,7 @@ export function NurseStationPage(): JSX.Element {
                   {isToday && <col className="w-16" />}
                   <col className="w-32" />
                   {isToday && <col className="w-24" />}
-                  {isToday && <col className="w-44" />}
+                  <col className="w-44" />
                 </colgroup>
                 <thead>
                   <tr className="border-b text-left text-xs font-bold uppercase tracking-wide text-muted-foreground">
@@ -454,10 +534,95 @@ export function NurseStationPage(): JSX.Element {
                     {isToday && <th className="px-3 py-2.5">Vitals</th>}
                     <SortableTH field="queueStatus" sort={sort} onSort={(s) => setParam('sort', s ?? null)}>Status</SortableTH>
                     {isToday && <th className="px-3 py-2.5">ETA</th>}
-                    {isToday && <th className="px-3 py-2.5 text-right">Actions</th>}
+                    <th className="px-3 py-2.5 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
+                  {/* Booked appointments — patient hasn't arrived yet.
+                      Today's view shows them above pending-payment so the
+                      receptionist can check them in. Future-date view: this
+                      is the only band that shows. */}
+                  {bookedRows.map((row) => {
+                    const apptId = row.appointmentId;
+                    const busy = apptId ? rowBusy.has(apptId) : false;
+                    return (
+                      <tr
+                        key={rowKey(row)}
+                        className="border-b align-middle last:border-b-0 transition-colors hover:bg-muted/30"
+                      >
+                        {isToday && (
+                          <td className="px-3 py-2.5 text-muted-foreground tabular-nums">—</td>
+                        )}
+                        <td className="px-3 py-2.5">
+                          <span className="font-mono text-[13px] tabular-nums font-medium">
+                            {formatSlot(row.scheduledAt)}
+                          </span>
+                          {row.appointmentNo && (
+                            <div className="font-mono text-xxs text-muted-foreground tabular-nums">
+                              {row.appointmentNo}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="text-[13px] leading-tight text-foreground">{row.patient.fullName}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {row.patient.uhid} · {row.patient.gender.toUpperCase()} · {row.patient.ageYears}y
+                          </div>
+                          {row.patient.allergies.length > 0 && (
+                            <div className="inline-flex items-center gap-1 text-xxs font-medium text-danger">
+                              <ShieldAlert className="h-3 w-3" />
+                              Allergy: {row.patient.allergies.map((a) => a.allergen).join(', ')}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="text-[12px] leading-tight">{row.doctorName}</div>
+                          {row.department && <div className="text-xxs text-muted-foreground">{row.department}</div>}
+                        </td>
+                        {isToday && (
+                          <td className="px-3 py-2.5 text-muted-foreground">—</td>
+                        )}
+                        <td className="px-3 py-2.5">
+                          <StatusPill tone="neutral" size="sm">Booked</StatusPill>
+                        </td>
+                        {isToday && (
+                          <td className="px-3 py-2.5 text-muted-foreground">—</td>
+                        )}
+                        <td className="px-3 py-2.5 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {isToday && (
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="w-20 justify-center"
+                                onClick={() => apptId && void onCheckIn(apptId)}
+                                disabled={!apptId || busy}
+                              >
+                                {busy ? <Spinner size="sm" /> : 'Check in'}
+                              </Button>
+                            )}
+                            <RowActionsMenu label={`More actions for ${row.patient.fullName}`}>
+                              <RowActionsItem asChild>
+                                <Link to={`/patient/${row.patient.uhid}`}><Eye /> View / edit patient</Link>
+                              </RowActionsItem>
+                              {isToday && (
+                                <RowActionsItem onClick={() => { if (apptId) void onMarkNoShow(apptId); }}>
+                                  Mark no-show
+                                </RowActionsItem>
+                              )}
+                              <RowActionsItem
+                                destructive
+                                onClick={() => { if (apptId) void onCancelAppt(apptId); }}
+                              >
+                                Cancel appointment
+                              </RowActionsItem>
+                            </RowActionsMenu>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+
                   {/* Pending payment — amber band (today only) */}
                   {isToday && pendingPayment.map((row) => (
                     <tr

@@ -851,6 +851,65 @@ export const liveToQueueEntry = (live: LiveQueueEntry): QueueEntry => {
  * TODO: remove the future-date mock branch when GET /api/queue?date=<future>
  * returns real appointment rows from the backend.
  */
+/**
+ * Map a DB station_type to the FE LiveQueueStatus value.
+ * The 'doctor' station maps to awaiting_doctor; 'vitals' maps to
+ * awaiting_vitals; 'billing' / 'front_desk' map to pending_payment
+ * (front-desk-station rows live in that band so the cashier sees
+ * them). Anything downstream of the doctor station is dropped from
+ * this view — the live queue surface is the front-desk / nurse
+ * workspace, not the pharmacy / lab queues.
+ */
+const STATION_TO_LIVE_STATUS: Partial<Record<string, LiveQueueStatus>> = {
+  front_desk:      'pending_payment',
+  billing:         'pending_payment',
+  vitals:          'awaiting_vitals',
+  doctor:          'awaiting_doctor',
+};
+
+interface SbLiveOpVisitRow {
+  id: string; op_number: string; doctor_id: string; created_at: string;
+  appointment_id: string | null;
+  patients: {
+    id: string; uhid: string; first_name: string; last_name: string;
+    gender: string; date_of_birth: string | null; mobile: string | null;
+    blood_group: string | null;
+  } | null;
+  users: { id: string; full_name: string;
+    departments: { dept_name: string } | null } | null;
+  patient_states: Array<{ entered_at: string; stations: { station_type: string } | null }>;
+  tokens: Array<{ token_number: string }>;
+  appointments: { id: string; appointment_no: string; scheduled_at: string } | null;
+}
+
+interface SbLiveAppointmentRow {
+  id: string; appointment_no: string; scheduled_at: string; status: string;
+  reason: string | null;
+  patients: {
+    id: string; uhid: string; first_name: string; last_name: string;
+    gender: string; date_of_birth: string | null; mobile: string | null;
+    blood_group: string | null;
+  } | null;
+  users: { id: string; full_name: string;
+    departments: { dept_name: string } | null } | null;
+}
+
+const mapPatientShape = (
+  p: SbLiveOpVisitRow['patients'] | SbLiveAppointmentRow['patients'],
+): LiveQueueEntry['patient'] => p ? {
+  id:         p.id,
+  uhid:       p.uhid,
+  fullName:   `${p.first_name} ${p.last_name}`.trim(),
+  gender:     (p.gender ?? 'o').toUpperCase(),
+  ageYears:   ageFromDobIso(p.date_of_birth ?? null),
+  mobile:     p.mobile ?? '',
+  bloodGroup: p.blood_group,
+  allergies:  [],
+} : {
+  id: '', uhid: '', fullName: '—', gender: 'o', ageYears: 0, mobile: '',
+  bloodGroup: null, allergies: [],
+};
+
 export const fetchLiveQueue = async (params: {
   date?: string;
   doctorId?: string;
@@ -861,18 +920,150 @@ export const fetchLiveQueue = async (params: {
 } = {}): Promise<PageResult<LiveQueueEntry>> => {
   const today = new Date().toISOString().slice(0, 10);
   const requestedDate = params.date ?? today;
+  const isToday = requestedDate === today;
+  const isPast  = requestedDate < today;
 
-  if (requestedDate > today) {
-    return delay(buildFutureAppointmentsMock(params), 150);
+  try {
+    const rows: LiveQueueEntry[] = [];
+
+    // ── A) Live op_visit rows (today only — past closed visits + future
+    //       not-yet-paid appointments don't have op_visits we care about).
+    if (isToday) {
+      let opQuery = supabase
+        .from('op_visits')
+        .select(`
+          id, op_number, doctor_id, created_at, appointment_id,
+          patients!op_visits_patient_id_fkey ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
+          users:users!op_visits_doctor_id_fkey ( id, full_name, departments!fk_users_department ( dept_name ) ),
+          patient_states!inner ( entered_at, stations ( station_type ) ),
+          tokens ( token_number ),
+          appointments ( id, appointment_no, scheduled_at )
+        `)
+        .is('closed_at', null)
+        .is('deleted_at', null)
+        .is('patient_states.left_at', null)
+        .order('created_at', { ascending: true })
+        .limit(200);
+      if (params.doctorId && params.doctorId !== 'all') {
+        opQuery = opQuery.eq('doctor_id', params.doctorId);
+      }
+      const { data: opData, error: opErr } = await opQuery;
+      if (opErr) throw new Error(opErr.message);
+
+      for (const r of (opData ?? []) as unknown as SbLiveOpVisitRow[]) {
+        const stationType = r.patient_states[0]?.stations?.station_type ?? 'doctor';
+        const queueStatus = STATION_TO_LIVE_STATUS[stationType];
+        if (!queueStatus) continue; // skip rows beyond the front-desk surface
+        const scheduledAt = r.appointments?.scheduled_at ?? r.created_at;
+        rows.push({
+          appointmentId: r.appointment_id,
+          appointmentNo: r.appointments?.appointment_no ?? null,
+          opNumber:      r.op_number,
+          tokenNumber:   r.tokens[0]?.token_number ?? null,
+          patient:       mapPatientShape(r.patients),
+          doctorId:      r.doctor_id,
+          doctorName:    r.users?.full_name ?? '',
+          department:    r.users?.departments?.dept_name ?? null,
+          scheduledAt,
+          queueStatus,
+          waitingSince:  r.patient_states[0]?.entered_at ?? r.created_at,
+        });
+      }
+    }
+
+    // ── B) Appointment rows — today's booked/arrived (not yet paid)
+    //       AND every future-date appointment. Past dates show all
+    //       statuses so the front desk can audit the day.
+    let apptQuery = supabase
+      .from('appointments')
+      .select(`
+        id, appointment_no, scheduled_at, status, reason,
+        patients!inner ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
+        users:users!appointments_doctor_id_fkey!inner ( id, full_name, departments!fk_users_department ( dept_name ) )
+      `)
+      .gte('scheduled_at', `${requestedDate}T00:00:00`)
+      .lte('scheduled_at', `${requestedDate}T23:59:59`)
+      .is('deleted_at', null)
+      .order('scheduled_at', { ascending: true })
+      .limit(200);
+    if (params.doctorId && params.doctorId !== 'all') {
+      apptQuery = apptQuery.eq('doctor_id', params.doctorId);
+    }
+    if (isToday) {
+      // Today: only show appointments that haven't been paid yet
+      // (booked or arrived). Completed appointments already have an
+      // op_visit row above, which is the authoritative live state.
+      apptQuery = apptQuery.in('status', ['booked', 'arrived']);
+    }
+    const { data: apptData, error: apptErr } = await apptQuery;
+    if (apptErr) throw new Error(apptErr.message);
+
+    // De-dup: skip appointments that already have a live op_visit row
+    // (today only — for future / past, no op_visit dedupe is needed).
+    const opVisitAppointmentIds = new Set(
+      rows.map((r) => r.appointmentId).filter((id): id is string => Boolean(id)),
+    );
+
+    for (const a of (apptData ?? []) as unknown as SbLiveAppointmentRow[]) {
+      if (opVisitAppointmentIds.has(a.id)) continue;
+      const queueStatus: LiveQueueStatus =
+        a.status === 'arrived' ? 'pending_payment' : 'booked';
+      rows.push({
+        appointmentId: a.id,
+        appointmentNo: a.appointment_no,
+        opNumber:      null,
+        tokenNumber:   null,
+        patient:       mapPatientShape(a.patients),
+        doctorId:      a.users?.id ?? '',
+        doctorName:    a.users?.full_name ?? '',
+        department:    a.users?.departments?.dept_name ?? null,
+        scheduledAt:   a.scheduled_at,
+        queueStatus,
+        waitingSince:  a.scheduled_at,
+      });
+    }
+
+    // Filters / search
+    let filtered = rows;
+    if (params.queueStatus) {
+      filtered = filtered.filter((r) => r.queueStatus === params.queueStatus);
+    }
+    if (params.q) {
+      const q = params.q.toLowerCase();
+      filtered = filtered.filter(
+        (r) =>
+          r.patient.fullName.toLowerCase().includes(q) ||
+          r.patient.uhid.toLowerCase().includes(q) ||
+          (r.opNumber ?? '').toLowerCase().includes(q) ||
+          (r.tokenNumber ?? '').toLowerCase().includes(q) ||
+          (r.appointmentNo ?? '').toLowerCase().includes(q) ||
+          r.patient.mobile.toLowerCase().includes(q),
+      );
+    }
+
+    // Sort: live rows by waitingSince (FIFO), appointment rows by
+    // scheduledAt. The default sort applied here keeps everything in
+    // chronological order; the page can re-sort via its own column hooks.
+    filtered.sort((a, b) =>
+      new Date(a.waitingSince).getTime() - new Date(b.waitingSince).getTime(),
+    );
+
+    const page  = params.page  ?? 1;
+    const limit = params.limit ?? 20;
+    const start = (page - 1) * limit;
+    void isPast; // reserved for future "show completed too" pass
+    return {
+      rows: filtered.slice(start, start + limit),
+      total: filtered.length,
+      page,
+      limit,
+    };
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[fetchLiveQueue] DB fetch failed; falling back to mock:', e);
+    if (requestedDate > today) return buildFutureAppointmentsMock(params);
+    return buildLiveQueueMock(params);
   }
-
-  // DEMO MODE: the live OPD queue is fed by op_visits + patient_states
-  // (Module 10 in v3 schema). For tomorrow's demo we don't have that data
-  // flowing yet, so we return the same mock rows downstream features
-  // (vitals page, doctor queue) read from. Skips the httpClient call to
-  // localhost:8080 entirely — the global error interceptor used to push
-  // four CORS-error toasts every poll.
-  return delay(buildLiveQueueMock(params), 80);
 };
 
 const LIVE_STATUS_MAP: Partial<Record<EncounterStatusName, LiveQueueStatus>> = {

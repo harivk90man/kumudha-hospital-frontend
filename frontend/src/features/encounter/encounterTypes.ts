@@ -239,8 +239,25 @@ export interface OpVisitCreated {
 
 /* ---------- Live queue — real backend (GET /api/queue) ---------- */
 
-/** queueStatus values returned by GET /api/queue. */
-export type LiveQueueStatus = 'pending_payment' | 'awaiting_vitals' | 'awaiting_doctor';
+/**
+ * queueStatus values returned by GET /api/queue.
+ *
+ *  - `booked`           — appointment booked, patient hasn't arrived yet
+ *                         (no op_visit row, no payment, no token). Today's
+ *                         pre-arrival list + every future-date row.
+ *  - `pending_payment`  — patient has checked in (`appointments.status='arrived'`)
+ *                         OR a walk-in op_visit was created but the consult
+ *                         fee hasn't been collected yet. No token issued.
+ *  - `awaiting_vitals`  — paid, op_visit + token exist, patient_states is at
+ *                         the vitals station awaiting the nurse.
+ *  - `awaiting_doctor`  — vitals captured, patient_states is at the doctor
+ *                         station awaiting the consult.
+ */
+export type LiveQueueStatus =
+  | 'booked'
+  | 'pending_payment'
+  | 'awaiting_vitals'
+  | 'awaiting_doctor';
 
 /**
  * One row from GET /api/queue. Replaces the mock QueueEntry for the
