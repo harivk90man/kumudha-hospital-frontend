@@ -13,18 +13,23 @@ import {
 import type { UserRole } from '@/features/auth/authTypes';
 import { cn } from '@/utils/cn';
 
+// Per-tone dark variants — `bg-{c}-500/20 text-{c}-300` keeps the hue
+// recognisable but lifts contrast against the dark page chrome.
 const ALL_ROLES: { code: UserRole; label: string; tone: string }[] = [
-  { code: 'frontdesk',    label: 'Front desk',     tone: 'bg-slate-100 text-slate-800' },
-  { code: 'doctor',       label: 'Doctor',         tone: 'bg-violet-100 text-violet-800' },
-  { code: 'chief_doctor', label: 'Chief doctor',   tone: 'bg-indigo-100 text-indigo-800' },
-  { code: 'pharma',       label: 'Pharmacy',       tone: 'bg-teal-100 text-teal-800' },
-  { code: 'inventory',    label: 'Inventory',      tone: 'bg-amber-100 text-amber-800' },
-  { code: 'lab_radio',    label: 'Lab / Radiology', tone: 'bg-sky-100 text-sky-800' },
-  { code: 'owner',        label: 'Owner',          tone: 'bg-rose-100 text-rose-800' },
+  { code: 'frontdesk',    label: 'Front desk',     tone: 'bg-slate-100  text-slate-800  dark:bg-slate-500/20  dark:text-slate-200' },
+  { code: 'doctor',       label: 'Doctor',         tone: 'bg-violet-100 text-violet-800 dark:bg-violet-500/20 dark:text-violet-300' },
+  { code: 'chief_doctor', label: 'Chief doctor',   tone: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-500/20 dark:text-indigo-300' },
+  { code: 'pharma',       label: 'Pharmacy',       tone: 'bg-teal-100   text-teal-800   dark:bg-teal-500/20   dark:text-teal-300' },
+  { code: 'inventory',    label: 'Inventory',      tone: 'bg-amber-100  text-amber-800  dark:bg-amber-500/20  dark:text-amber-300' },
+  { code: 'lab_radio',    label: 'Lab / Radiology', tone: 'bg-sky-100    text-sky-800    dark:bg-sky-500/20    dark:text-sky-300' },
+  { code: 'owner',        label: 'Owner',          tone: 'bg-rose-100   text-rose-800   dark:bg-rose-500/20   dark:text-rose-300' },
 ];
 
 const roleMeta = (role: UserRole) =>
-  ALL_ROLES.find((r) => r.code === role) ?? { code: role, label: role, tone: 'bg-slate-100 text-slate-800' };
+  ALL_ROLES.find((r) => r.code === role) ?? {
+    code: role, label: role,
+    tone: 'bg-slate-100 text-slate-800 dark:bg-slate-500/20 dark:text-slate-200',
+  };
 
 export function UsersPage(): JSX.Element {
   const [users, setUsers] = useState<UserWithRoles[]>([]);
@@ -104,7 +109,7 @@ export function UsersPage(): JSX.Element {
       </div>
 
       {error && (
-        <div className="rounded-md border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+        <div className="rounded-md border border-danger/40 bg-danger/15 px-4 py-3 text-sm text-danger">
           {error}
         </div>
       )}

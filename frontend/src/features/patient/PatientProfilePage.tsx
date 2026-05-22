@@ -170,7 +170,7 @@ export function PatientProfilePage(): JSX.Element {
                   icon={<Users className="h-4 w-4 text-muted-foreground" />}
                   title="Linked family"
                   count={linked.length}
-                  accentClass="border-l-gray-300"
+                  accentClass="border-l-border"
                 >
                   {linked.length > 0 ? (
                     <FamilyList linked={linked} fromUhid={patient.uhid} />
@@ -422,7 +422,7 @@ function VisitRow({
 /* ---------- Clinical sidebar cards ---------- */
 
 function SidebarCard({
-  icon, title, count, children, accentClass = 'border-l-gray-200',
+  icon, title, count, children, accentClass = 'border-l-border',
 }: {
   icon: JSX.Element;
   title: string;
@@ -451,7 +451,7 @@ function AllergyPills({ items }: { items: string[] }): JSX.Element {
     <ul className="flex flex-wrap gap-1.5">
       {items.map((item) => (
         <li key={item}>
-          <span className="inline-flex items-center rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-medium text-red-700">
+          <span className="inline-flex items-center rounded-full bg-danger/15 px-2.5 py-0.5 text-xs font-medium text-danger">
             {item}
           </span>
         </li>
@@ -465,7 +465,7 @@ function ChronicPills({ items }: { items: string[] }): JSX.Element {
     <ul className="flex flex-wrap gap-1.5">
       {items.map((item) => (
         <li key={item}>
-          <span className="inline-flex items-center rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+          <span className="inline-flex items-center rounded-full bg-warning/15 px-2.5 py-0.5 text-xs font-medium text-warning">
             {item}
           </span>
         </li>
@@ -481,7 +481,7 @@ function FamilyList({ linked, fromUhid }: { linked: LinkedPatient[]; fromUhid: s
         <li key={l.patient.uhid}>
           <Link
             to={`/patient/${l.patient.uhid}?from=${fromUhid}`}
-            className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-gray-50"
+            className="flex items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-muted/50"
           >
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted/60 text-muted-foreground">
               <User className="h-3.5 w-3.5" />

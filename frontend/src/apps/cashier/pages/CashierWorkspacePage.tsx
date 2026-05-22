@@ -286,12 +286,12 @@ const RECENT_PAYMENTS: RecentPayment[] = [
 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 const BILL_TYPE_COLORS: Record<BillType, string> = {
-  consult:  'bg-blue-100 text-blue-700',
-  lab:      'bg-purple-100 text-purple-700',
-  pharma:   'bg-teal-100 text-teal-700',
-  advance:  'bg-indigo-100 text-indigo-700',
-  due:      'bg-red-100 text-red-700',
-  refund:   'bg-orange-100 text-orange-700',
+  consult:  'bg-blue-100   text-blue-700   dark:bg-blue-500/20   dark:text-blue-300',
+  lab:      'bg-purple-100 text-purple-700 dark:bg-purple-500/20 dark:text-purple-300',
+  pharma:   'bg-teal-100   text-teal-700   dark:bg-teal-500/20   dark:text-teal-300',
+  advance:  'bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300',
+  due:      'bg-red-100    text-red-700    dark:bg-red-500/20    dark:text-red-300',
+  refund:   'bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300',
 } as const;
 
 const BILL_TYPE_LABEL: Record<BillType, string> = {
@@ -326,10 +326,10 @@ const STATUS_LABEL: Record<QueueStatus, string> = {
 };
 
 const PAY_MODE_STYLES: Record<Exclude<PayMode, 'split'>, string> = {
-  cash:      'ring-green-500 bg-green-50 text-green-700',
-  upi:       'ring-blue-500 bg-blue-50 text-blue-700',
-  card:      'ring-violet-500 bg-violet-50 text-violet-700',
-  insurance: 'ring-amber-500 bg-amber-50 text-amber-700',
+  cash:      'ring-green-500  bg-green-50  text-green-700  dark:bg-green-500/15  dark:text-green-300',
+  upi:       'ring-blue-500   bg-blue-50   text-blue-700   dark:bg-blue-500/15   dark:text-blue-300',
+  card:      'ring-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300',
+  insurance: 'ring-amber-500  bg-amber-50  text-amber-700  dark:bg-amber-500/15  dark:text-amber-300',
 } as const;
 
 function computeLineNet(line: WorkspaceInvoiceLine): number {
@@ -1187,7 +1187,7 @@ function QueueCard({ patient, isSelected, onSelect, density }: QueueCardProps): 
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-start gap-2 min-w-0">
           {/* Token */}
-          <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-700 px-1.5 py-0.5 text-[10px] font-semibold flex-shrink-0 mt-0.5">
+          <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300 px-1.5 py-0.5 text-[10px] font-semibold flex-shrink-0 mt-0.5">
             {patient.token}
           </span>
           <div className="min-w-0">
@@ -1236,7 +1236,7 @@ function QueueCard({ patient, isSelected, onSelect, density }: QueueCardProps): 
           </>
         )}
         {patient.urgent && (
-          <span className="ml-auto inline-flex items-center rounded-full bg-red-100 text-red-700 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide">
+          <span className="ml-auto inline-flex items-center rounded-full bg-danger/15 text-danger px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide">
             Urgent
           </span>
         )}
@@ -1870,13 +1870,13 @@ function PaymentSuccessContent({
       <div className="flex gap-3 justify-center">
         <div className="flex flex-col items-center gap-1">
           <span className="text-[11px] uppercase tracking-wider text-muted-foreground">OPID</span>
-          <span className="font-mono text-sm font-semibold bg-blue-100 text-blue-700 px-3 py-1 rounded-lg">
+          <span className="font-mono text-sm font-semibold bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300 px-3 py-1 rounded-lg">
             {result.opId}
           </span>
         </div>
         <div className="flex flex-col items-center gap-1">
           <span className="text-[11px] uppercase tracking-wider text-muted-foreground">Token</span>
-          <span className="font-mono text-sm font-semibold bg-amber-100 text-amber-700 px-3 py-1 rounded-lg">
+          <span className="font-mono text-sm font-semibold bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300 px-3 py-1 rounded-lg">
             {result.token}
           </span>
         </div>
