@@ -364,7 +364,8 @@ export function ConsultationPage(): JSX.Element {
   }, []);
 
   const viewOnly = isLocked;
-  const pastVisitDate = data?.lockedAt ? data.startedAt ?? data.lockedAt : null;
+  const pastVisitDate = data?.lockedAt ?? null;
+  const isLatestOp = visits.length === 0 || visits[0].opNumber === opNumber;
 
   useEffect(() => {
     if (data) void fetchVisitHistory(data.patient.uhid).then(setVisits);
@@ -437,22 +438,25 @@ export function ConsultationPage(): JSX.Element {
   // ── Breadcrumb ───────────────────────────────────────────────────────────────
 
   const breadcrumb = useMemo<BreadcrumbItem[]>(() => {
-    if (viewOnly) {
+    const base = { label: 'Consultation', to: '/doctor/queue' };
+    if (fromOp) {
+      // Navigated via Patient History panel — show date as last crumb
       const dateLabel = pastVisitDate
         ? new Date(pastVisitDate).toLocaleDateString(undefined, {
             day: '2-digit', month: 'short', year: 'numeric',
           })
         : opNumber;
-      const crumbs: BreadcrumbItem[] = [{ label: 'Consultation', to: '/doctor/queue' }];
-      if (fromOp) crumbs.push({ label: fromOp, to: `/doctor/consultation/${fromOp}` });
-      crumbs.push({ label: dateLabel, to: '' });
-      return crumbs;
+      return [base, { label: 'Patient History', to: `/doctor/consultation/${fromOp}` }, { label: dateLabel, to: '' }];
     }
-    return [
-      { label: 'Consultation', to: '/doctor/queue' },
-      { label: opNumber, to: '' },
-    ];
-  }, [opNumber, viewOnly, fromOp, pastVisitDate]);
+    if (!isLatestOp) {
+      // Done tab — this OP is not the latest; show OP number as last crumb
+      return [base, { label: 'Patient History', to: `/doctor/consultation/${visits[0].opNumber}` }, { label: opNumber, to: '' }];
+    }
+    if (showHistory) {
+      return [base, { label: 'Patient History', to: '' }];
+    }
+    return [base, { label: opNumber, to: '' }];
+  }, [opNumber, fromOp, pastVisitDate, isLatestOp, visits, showHistory]);
 
   // ── Loading / error ──────────────────────────────────────────────────────────
 
@@ -543,13 +547,19 @@ export function ConsultationPage(): JSX.Element {
                 weekday: 'short', day: '2-digit', month: 'short', year: 'numeric',
               })}
             </span>
-            {fromOp && (
+            {fromOp ? (
               <Button size="sm" variant="outline"
                 className="border-amber-500/40 text-amber-900 hover:bg-amber-500/10 dark:text-amber-200"
                 onClick={() => navigate(`/doctor/consultation/${fromOp}`)}>
-                <ArrowLeft className="h-3.5 w-3.5" /> Return to {fromOp}
+                <ArrowLeft className="h-3.5 w-3.5" /> Return to current visit
               </Button>
-            )}
+            ) : !isLatestOp ? (
+              <Button size="sm" variant="outline"
+                className="border-amber-500/40 text-amber-900 hover:bg-amber-500/10 dark:text-amber-200"
+                onClick={() => navigate(`/doctor/consultation/${visits[0].opNumber}`)}>
+                <ArrowLeft className="h-3.5 w-3.5" /> Return to latest OP
+              </Button>
+            ) : null}
           </div>
         )}
 
@@ -708,10 +718,7 @@ export function ConsultationPage(): JSX.Element {
               onNavigate={scrollToSection}
               onHistory={() => setShowHistory((v) => !v)}
               showingHistory={showHistory}
-              // Patient History stays available in past-visit mode too —
-              // the doctor often lands on a past visit via search and
-              // wants to jump to an even older visit from the same patient.
-              showHistoryButton={true}
+              showHistoryButton={!showHistory}
             />
           </aside>
 
@@ -723,7 +730,7 @@ export function ConsultationPage(): JSX.Element {
                 <VisitHistoryPanel
                   visits={visits}
                   onSelect={(op) => {
-                    const carryFrom = fromOp ?? (viewOnly ? null : opNumber);
+                    const carryFrom = fromOp ?? opNumber;
                     const params = new URLSearchParams();
                     if (carryFrom) params.set('from', carryFrom);
                     params.set('section', 'sec-notes');
