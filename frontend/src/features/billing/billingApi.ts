@@ -416,6 +416,26 @@ const mapPatient = (p: SupabaseInvoiceRow['patients']): PatientSummary => {
   } as PatientSummary;
 };
 
+/**
+ * Inverse of feCategoryToItemType (further below). DB `invoice_items.item_type`
+ * is the schema-side enum ('consultation', 'lab_test', 'radiology', ...);
+ * the FE InvoiceLine.category uses ServiceCategory. Falls back to 'other'
+ * for unknown values so the line still renders.
+ */
+const DB_TO_FE_LINE_CATEGORY = (itemType: string): ServiceCategory => {
+  switch (itemType) {
+    case 'consultation': return 'consultation';
+    case 'lab_test':
+    case 'lab_panel':    return 'lab';
+    case 'radiology':    return 'radiology';
+    case 'drug':         return 'pharmacy';
+    case 'procedure':    return 'procedure';
+    case 'room_charge':
+    case 'nursing':      return 'admission';
+    default:             return 'other';
+  }
+};
+
 const mapInvoice = (r: SupabaseInvoiceRow): Invoice => {
   const total = Number(r.total_amount);
   const paid  = Number(r.amount_paid);
@@ -555,7 +575,13 @@ export const fetchInvoiceByOpNumber = async (
         subtotal, total_tax, total_amount, amount_paid, balance,
         payment_status, created_at, finalized_at,
         patients ( id, uhid, first_name, last_name, gender, date_of_birth, mobile, blood_group ),
-        op_visits ( op_number )
+        op_visits ( op_number ),
+        invoice_items (
+          id, service_id, item_type, item_name, quantity,
+          unit_price, total_price, cgst_pct, sgst_pct, igst_pct,
+          line_discount_pct, line_discount_amount, line_discount_reason,
+          sequence_no
+        )
       `)
       .eq('op_visit_id', opVisitId)
       .is('deleted_at', null)
@@ -563,7 +589,37 @@ export const fetchInvoiceByOpNumber = async (
       .limit(1)
       .maybeSingle();
     if (error || !data) return null;
-    return mapInvoice(data as unknown as SupabaseInvoiceRow);
+    const inv = mapInvoice(data as unknown as SupabaseInvoiceRow);
+    // mapInvoice intentionally returns lines:[] for list views; for the
+    // PaymentPage we need the actual lines so the cashier sees what
+    // they're billing for. Map invoice_items into the FE InvoiceLine
+    // shape from the same row.
+    interface SbInvItem {
+      id: string; service_id: string | null;
+      item_type: string; item_name: string;
+      quantity: number; unit_price: number; total_price: number;
+      cgst_pct: number; sgst_pct: number; igst_pct: number;
+      line_discount_pct: number; line_discount_amount: number;
+      line_discount_reason: string | null;
+      sequence_no: number;
+    }
+    const items = ((data as unknown as { invoice_items?: SbInvItem[] })
+      .invoice_items ?? []).slice().sort((a, b) => a.sequence_no - b.sequence_no);
+    inv.lines = items.map((it) => ({
+      id: it.id,
+      serviceId: it.service_id ?? '',
+      serviceCode: '',
+      serviceName: it.item_name,
+      category: DB_TO_FE_LINE_CATEGORY(it.item_type),
+      unitPrice: Number(it.unit_price),
+      quantity: Number(it.quantity),
+      gstPct: Number(it.cgst_pct) + Number(it.sgst_pct) + Number(it.igst_pct),
+      lineDiscount: Number(it.line_discount_amount) > 0
+        ? { kind: 'amt' as const, value: Number(it.line_discount_amount) }
+        : undefined,
+      lineTotal: Number(it.total_price),
+    }));
+    return inv;
   } catch {
     return null;
   }
