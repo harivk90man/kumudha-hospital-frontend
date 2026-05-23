@@ -4,6 +4,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { RevenuePage } from './pages/RevenuePage';
 import { OperationsPage } from './pages/OperationsPage';
 import { UsersPage } from './pages/UsersPage';
+import { PricingPage } from './pages/PricingPage';
 
 export const ownerRoutes: RouteObject[] = [
   {
@@ -14,6 +15,7 @@ export const ownerRoutes: RouteObject[] = [
       { path: 'dashboard',  element: <DashboardPage /> },
       { path: 'revenue',    element: <RevenuePage /> },
       { path: 'operations', element: <OperationsPage /> },
+      { path: 'pricing',    element: <PricingPage /> },
       { path: 'users',      element: <UsersPage /> },
     ],
   },
