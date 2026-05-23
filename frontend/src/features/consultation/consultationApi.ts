@@ -42,6 +42,37 @@ const delay = <T>(value: T, ms = 250): Promise<T> =>
   new Promise((resolve) => setTimeout(() => resolve(value), ms));
 
 /**
+ * PostgREST serialises bytea as a `\xhex` string (e.g. "\\x89504e47…").
+ * Turn that into a `data:<mime>;base64,…` URL so an <img> can render it
+ * inline. Returns null when the input isn't a valid bytea hex literal —
+ * caller falls back to the hardcoded demo image in that case.
+ */
+const byteaHexToDataUrl = (
+  byteaHex: string | null | undefined,
+  mime: string,
+): string | null => {
+  if (!byteaHex) return null;
+  // Strip the leading `\x` (PostgREST default bytea encoding).
+  const hex = byteaHex.startsWith('\\x') ? byteaHex.slice(2) : byteaHex;
+  if (!/^[0-9a-fA-F]+$/.test(hex) || hex.length % 2 !== 0) return null;
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i += 1) {
+    bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+  }
+  // Build base64 in 8KB chunks so the call stack doesn't blow up on
+  // large X-ray files passed via String.fromCharCode(...spread).
+  let binary = '';
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(
+      null,
+      Array.from(bytes.subarray(i, i + chunkSize)),
+    );
+  }
+  return `data:${mime};base64,${btoa(binary)}`;
+};
+
+/**
  * Doses-per-day from a free-text frequency string. Handles:
  *   - Dash patterns: '1-0-1' → 2, '1-1-1' → 3, '1-1-1-1' → 4
  *   - Named:         OD/QD/HS/SOS/STAT → 1, BD/BID → 2, TDS/TID → 3, QID → 4
@@ -295,7 +326,7 @@ const blankContextFromSupabase = async (
             lab_results ( value_raw, value_numeric, unit, flag )
           )
         ),
-        radiology_orders ( id, status, priority, created_at, imaging_completed_at, released_at, radiology_procedures ( procedure_code, procedure_name, modality, body_part ), radiology_reports ( findings, impression ) )
+        radiology_orders ( id, status, priority, created_at, imaging_completed_at, released_at, radiology_procedures ( procedure_code, procedure_name, modality, body_part ), radiology_reports ( findings, impression ), radiology_attachments ( file_data, file_type, sequence_no ) )
       `)
       .eq('op_number', opNumber)
       .is('deleted_at', null)
@@ -342,6 +373,11 @@ const blankContextFromSupabase = async (
         imaging_completed_at: string | null; released_at: string | null;
         radiology_procedures: { procedure_code: string; procedure_name: string; modality: string; body_part: string } | null;
         radiology_reports: Array<{ findings: string | null; impression: string | null }>;
+        radiology_attachments: Array<{
+          file_data: string | null;
+          file_type: string;
+          sequence_no: number;
+        }>;
       }>;
     }
     const row = data as unknown as OpVisitRow;
@@ -438,6 +474,20 @@ const blankContextFromSupabase = async (
         : o.status === 'released' ? 'reported'
         : (o.status as RadiologyOrder['status']);
       const isViewable = mappedStatus === 'reported' || o.status === 'released';
+
+      // Prefer the actual files the radiology tech uploaded
+      // (radiology_attachments.file_data bytea). PostgREST returns bytea
+      // as a `\xhex` string — convert to a base64 data URL the dialog's
+      // <img> can render directly. Fall back to the hardcoded demo
+      // image when no attachment is present.
+      const attachments = (o.radiology_attachments ?? [])
+        .slice()
+        .sort((a, b) => a.sequence_no - b.sequence_no);
+      const uploadedUrls = attachments
+        .map((a) => byteaHexToDataUrl(a.file_data, a.file_type))
+        .filter((u): u is string => u !== null);
+      const fallback = isViewable ? PROCEDURE_DEMO_IMAGES[procCode] : undefined;
+
       return {
         id: o.id,
         orderedAt: o.created_at,
@@ -447,9 +497,7 @@ const blankContextFromSupabase = async (
         modality: (o.radiology_procedures?.modality ?? 'other') as Modality,
         clinicalPriority: (o.priority ?? 'routine') as 'routine' | 'urgent' | 'stat',
         resultSummary: rpt?.impression ?? undefined,
-        // Reuse the demo-image map already used by the radiology worklist
-        // so a released X-ray shows the actual film in the dialog.
-        imagesUrl: isViewable ? PROCEDURE_DEMO_IMAGES[procCode] : undefined,
+        imagesUrl: uploadedUrls.length > 0 ? uploadedUrls : fallback,
       };
     });
 

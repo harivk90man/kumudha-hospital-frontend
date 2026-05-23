@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Check, Paperclip, Plus, X } from 'lucide-react';
+import { Check, Eye, Plus, X } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import {
   fetchLabCatalog,
@@ -348,9 +348,17 @@ export function OrdersPanel({
                         || order.status === 'partially_reported'
                         || Boolean(order.resultSummary)
                         || Boolean(order.reportPdfUrl)) && (
-                        /* span + role="button" instead of <button> so a
-                           parent <fieldset disabled={viewOnly}> can't
-                           inert the View click on past-visit consults. */
+                        /* Labelled View trigger. Two reasons it's a span
+                           with role=button + pointer-events-auto rather
+                           than a <button>:
+                             1. The parent <fieldset disabled={viewOnly}>
+                                auto-disables descendant <button>s on
+                                past-visit reads, which would kill the
+                                only way the doctor can open the report.
+                             2. ConsultationPage adds `pointer-events-none`
+                                on the same fieldset in view-only mode;
+                                pointer-events-auto here re-enables clicks
+                                just on this trigger. */
                         <span
                           role="button"
                           tabIndex={0}
@@ -371,11 +379,11 @@ export function OrdersPanel({
                               );
                             }
                           }}
-                          aria-label={`Open report for ${order.testName}`}
-                          title="Open report"
-                          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                          aria-label={`View report for ${order.testName}`}
+                          title="View report"
+                          className="pointer-events-auto inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-hairline bg-primary/5 px-2.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                         >
-                          <Paperclip className="h-3.5 w-3.5" />
+                          <Eye className="h-3.5 w-3.5" /> View
                         </span>
                       )}
                       <button
