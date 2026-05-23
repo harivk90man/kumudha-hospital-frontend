@@ -92,7 +92,11 @@ export const usePreferences = create<PreferencesState>()(
   persist(
     (set) => ({
       theme: 'system',
-      accent: 'temenos',
+      // Teal is the Modern Clean brand accent (h=178). Was 'temenos' (navy)
+      // historically; flipping the default + bumping the persist key
+      // below so existing users with a saved v4 value get re-defaulted.
+      accent: 'teal',
+      // White sidebar — pairs cleanly with the teal accent buttons.
       primary: 'white',
       fontSize: 'md',
       avatarUrl: '',
@@ -103,7 +107,11 @@ export const usePreferences = create<PreferencesState>()(
       setAvatarUrl: (avatarUrl) => set({ avatarUrl }),
     }),
     {
-      name: 'hms.preferences.v4',
+      // Bumped from v4 → v5 to force the new teal+white default to take
+      // effect for existing users (whose stored v4 value still says
+      // 'temenos'). They keep all other settings since each user opens
+      // a fresh persist scope.
+      name: 'hms.preferences.v5',
     },
   ),
 );
