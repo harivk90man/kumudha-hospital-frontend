@@ -145,10 +145,15 @@ begin
   select id into v_till from cash_counters where counter_code = 'TILL-1' limit 1;
   if v_till is null then raise exception 'TILL-1 counter missing — bootstrap data not loaded'; end if;
 
-  -- Open today's morning session if not already
+  -- Reuse any already-open session for this cashier (schema enforces
+  -- uq_cash_sessions_cashier_active — one open per cashier, regardless
+  -- of date). The seeded bootstrap admin already had a stale open
+  -- session from a prior day; we just point v_today_session at it so
+  -- today's payments can flow through it. If no open session exists at
+  -- all, we open a fresh one.
   select id into v_today_session
     from cash_sessions
-   where counter_id = v_till and business_date = date '2026-05-23' and status = 'open' limit 1;
+   where opened_by = bs and status = 'open' limit 1;
   if v_today_session is null then
     insert into cash_sessions (
       counter_id, session_number, session_label, business_date,
@@ -205,7 +210,7 @@ begin
     v_uhid := 'KH-2026-DEMO-' || lpad(i::text, 3, '0');
     insert into patients (
       uhid, first_name, last_name, gender, date_of_birth, mobile,
-      address_line1, city, state, pincode, blood_group,
+      address, blood_group,
       created_by, updated_by
     ) values (
       v_uhid,
@@ -214,8 +219,12 @@ begin
       patient_genders[((i - 1) % array_length(patient_genders, 1)) + 1],
       date '1955-01-01' + ((random() * 22000)::int * interval '1 day'),
       '98' || lpad((10000000 + i * 137)::text, 8, '0'),
-      (i || ' Demo Street'),
-      'Chennai', 'Tamil Nadu', '600001',
+      jsonb_build_object(
+        'line1', i || ' Demo Street',
+        'city', 'Chennai',
+        'state', 'Tamil Nadu',
+        'pincode', '600001'
+      ),
       (array['A+','B+','O+','AB+','A-','O-'])[((i - 1) % 6) + 1],
       bs, bs
     );
@@ -322,11 +331,13 @@ begin
         v_close_ts + interval '2 hours', bs, v_visit_ts + interval '30 minutes', bs
       ) returning id into v_lab_order;
 
-      -- 1-2 lab_order_items
+      -- 1-2 lab_order_items. Pick distinct test indices per (i, j) so
+      -- two iterations on the same order can't collide on the
+      -- uq_lab_order_items_test (lab_order_id, lab_test_id) constraint.
       for j in 1..(1 + (random() * 1)::int) loop
         v_lab_test := (array[v_lab_cbc, v_lab_bsf, v_lab_lipid, v_lab_hba1c,
-                             v_lab_creat, v_lab_crp, v_lab_tsh])[((random() * 6)::int) + 1];
-        v_lab_unit := (array['cells/mm3','mg/dL','mg/dL','%','mg/dL','mg/L','mIU/L'])[((random() * 6)::int) + 1];
+                             v_lab_creat, v_lab_crp, v_lab_tsh])[1 + ((i * 3 + j - 1) % 7)];
+        v_lab_unit := (array['cells/mm3','mg/dL','mg/dL','%','mg/dL','mg/L','mIU/L'])[1 + ((i * 3 + j - 1) % 7)];
         insert into lab_order_items (
           lab_order_id, lab_test_id, status, sequence_no, created_by
         ) values (
@@ -408,13 +419,8 @@ begin
       bs
     );
 
-    insert into payments (
-      invoice_id, amount, method, status, received_at, received_by,
-      cash_session_id, created_by
-    ) values (
-      v_inv, v_amount, 'cash', 'completed', v_visit_ts + interval '10 minutes', bs,
-      null, bs
-    );
+    -- (payments row skipped — invoices.amount_paid set directly above
+    --  so owner-revenue queries still see the historical income.)
 
     -- 70% get pharmacy dispense (skip drug_stock_id complexity: insert directly with one drug)
     if random() < 0.7 then
@@ -457,24 +463,19 @@ begin
         bs
       );
 
-      insert into payments (
-        invoice_id, amount, method, status, received_at, received_by, created_by
-      ) values (
-        v_inv, round(v_amount * 1.05, 2), 'cash', 'completed',
-        v_close_ts + interval '45 minutes', bs, bs
-      );
+      -- (payments row skipped — pharmacy invoice.amount_paid set directly above)
     end if;
 
     -- Past appointment row tied to this op_visit (for history page completeness)
     v_appt_seq := i;
     insert into appointments (
-      appointment_no, patient_id, doctor_id, scheduled_at, slot_date,
-      duration_minutes, status, visit_type, source, reason,
+      appointment_no, patient_id, doctor_id, scheduled_at,
+      status, visit_type, source, reason,
       created_by, created_at, updated_by
     ) values (
       'APT-2026-D' || lpad(v_appt_seq::text, 5, '0'),
-      v_pat, v_doc, v_visit_ts, v_visit_date,
-      15, 'completed', 'opd', 'walk_in', v_complaint,
+      v_pat, v_doc, v_visit_ts,
+      'completed', 'follow_up', 'walk_in', v_complaint,
       bs, v_visit_ts - interval '30 minutes', bs
     );
   end loop;
@@ -508,13 +509,13 @@ begin
     end if;
 
     insert into appointments (
-      appointment_no, patient_id, doctor_id, scheduled_at, slot_date,
-      duration_minutes, status, visit_type, source, reason,
+      appointment_no, patient_id, doctor_id, scheduled_at,
+      status, visit_type, source, reason,
       created_by, created_at, updated_by
     ) values (
       'APT-2026-T' || lpad(v_appt_seq::text, 5, '0'),
-      v_pat, v_doc, v_scheduled_at, date '2026-05-23',
-      15, appt_status, 'opd',
+      v_pat, v_doc, v_scheduled_at,
+      appt_status, 'new',
       (array['walk_in','phone','online'])[((i - 1) % 3) + 1],
       complaints[1 + ((i - 1) % array_length(complaints, 1))],
       bs,
@@ -566,13 +567,9 @@ begin
           bs, v_scheduled_at, bs
         ) returning id into v_inv;
 
-        insert into payments (
-          invoice_id, amount, method, status, received_at, received_by,
-          cash_session_id, created_by
-        ) values (
-          v_inv, 500.00, 'cash', 'completed', v_scheduled_at + interval '12 minutes', bs,
-          v_today_session, bs
-        );
+        -- (payments row skipped — invoice already has amount_paid set;
+        --  today's session is referenced via v_today_session in case a
+        --  later flow needs it.)
       end if;
 
       insert into invoice_items (
@@ -594,13 +591,13 @@ begin
     v_scheduled_at := date '2026-05-24' + ((9 * 60 + (i - 1) * 30) * interval '1 minute');
 
     insert into appointments (
-      appointment_no, patient_id, doctor_id, scheduled_at, slot_date,
-      duration_minutes, status, visit_type, source, reason,
+      appointment_no, patient_id, doctor_id, scheduled_at,
+      status, visit_type, source, reason,
       created_by, created_at, updated_by
     ) values (
       'APT-2026-F' || lpad(v_appt_seq::text, 5, '0'),
-      v_pat, v_doc, v_scheduled_at, date '2026-05-24',
-      15, 'booked', 'opd',
+      v_pat, v_doc, v_scheduled_at,
+      'booked', 'new',
       (array['walk_in','phone','online'])[((i - 1) % 3) + 1],
       complaints[1 + ((i + 3) % array_length(complaints, 1))],
       bs, '2026-05-23 12:00:00+05:30', bs
@@ -614,13 +611,13 @@ begin
     v_scheduled_at := date '2026-05-25' + ((10 * 60 + (i - 1) * 30) * interval '1 minute');
 
     insert into appointments (
-      appointment_no, patient_id, doctor_id, scheduled_at, slot_date,
-      duration_minutes, status, visit_type, source, reason,
+      appointment_no, patient_id, doctor_id, scheduled_at,
+      status, visit_type, source, reason,
       created_by, created_at, updated_by
     ) values (
       'APT-2026-G' || lpad(v_appt_seq::text, 5, '0'),
-      v_pat, v_doc, v_scheduled_at, date '2026-05-25',
-      15, 'booked', 'opd',
+      v_pat, v_doc, v_scheduled_at,
+      'booked', 'new',
       (array['walk_in','phone','online'])[((i - 1) % 3) + 1],
       complaints[1 + ((i + 7) % array_length(complaints, 1))],
       bs, '2026-05-23 12:00:00+05:30', bs

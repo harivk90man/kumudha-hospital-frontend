@@ -19,7 +19,7 @@ begin
     from patients where uhid like 'KH-2026-DEMO-%';
 
   if demo_patient_ids is null or array_length(demo_patient_ids, 1) is null then
-    raise notice 'No demo data found (no KH-2026-DEMO-% patients). Nothing to clean.';
+    raise notice 'No demo data found. Nothing to clean.';
     return;
   end if;
 

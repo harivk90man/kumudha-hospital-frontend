@@ -994,6 +994,39 @@ const persistPaymentToDb = async (
       })
       .eq('id', input.invoiceId);
 
+    // When this invoice is now fully paid, advance any downstream lab /
+    // radiology orders on the same op_visit out of their pre-payment
+    // states (`ordered` / `awaiting_payment`) into `paid` so the
+    // diagnostic worklists can flip from "Collect payment" to "Open" /
+    // "Capture" without an extra manual step. Idempotent: orders that
+    // are already past `paid` are not touched (filter on status IN).
+    if (newPaymentStatus === 'paid') {
+      try {
+        const { data: invFull } = await supabase
+          .from('invoices')
+          .select('op_visit_id')
+          .eq('id', input.invoiceId)
+          .is('deleted_at', null)
+          .maybeSingle();
+        const opVisitId = (invFull as { op_visit_id: string | null } | null)?.op_visit_id;
+        if (opVisitId) {
+          await supabase
+            .from('lab_orders')
+            .update({ status: 'paid', updated_by: DEMO_USER_ID })
+            .eq('op_visit_id', opVisitId)
+            .in('status', ['ordered', 'awaiting_payment']);
+          await supabase
+            .from('radiology_orders')
+            .update({ status: 'paid', updated_by: DEMO_USER_ID })
+            .eq('op_visit_id', opVisitId)
+            .in('status', ['ordered', 'awaiting_payment']);
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[recordPayment] downstream order flip failed:', e);
+      }
+    }
+
     return {
       paymentId,
       nextDbStatus: newPaymentStatus,

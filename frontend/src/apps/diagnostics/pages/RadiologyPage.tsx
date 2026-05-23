@@ -297,7 +297,13 @@ export function RadiologyPage(): JSX.Element {
                             </Link>
                           </Button>
                         )}
-                        {o.status === 'awaiting_payment' && (
+                        {(o.status === 'ordered' || o.status === 'awaiting_payment') && (
+                          /* Both states mean 'needs payment from the desk':
+                             `ordered` is what lockConsultation writes when
+                             the doctor finalises; `awaiting_payment` is the
+                             explicit "waiting on cashier" state. Treating
+                             them identically here lets the desk collect
+                             without an intermediate transition step. */
                           <Button
                             type="button"
                             size="sm"
