@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import ReactDOM from 'react-dom';
 import { FileText, FlaskConical, Scan, X } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import type { LabOrder, LabResultFlag } from '@/features/lab';
@@ -61,13 +62,29 @@ export function ReportViewerDialog({ value, onClose }: ReportViewerDialogProps):
 
   if (!value) return null;
 
+  const openImageUrl = (url: string): void => {
+    if (url.startsWith('data:')) {
+      const [header, base64Data] = url.split(',');
+      const mimeType = header.match(/:(.*?);/)?.[1] ?? 'image/jpeg';
+      const bytes = atob(base64Data);
+      const byteArray = new Uint8Array(bytes.length);
+      for (let i = 0; i < bytes.length; i++) byteArray[i] = bytes.charCodeAt(i);
+      const blob = new Blob([byteArray], { type: mimeType });
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    } else {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  };
+
   const { kind, order, patient } = value;
   const Icon = kind === 'lab' ? FlaskConical : Scan;
   const reportLabel = kind === 'lab' ? 'Laboratory Report' : 'Radiology Report';
   const labOrder = kind === 'lab' ? (order as LabOrder) : null;
   const radOrder = kind === 'radiology' ? (order as RadiologyOrder) : null;
 
-  return (
+  return ReactDOM.createPortal(
     <div
       role="dialog"
       aria-modal="true"
@@ -221,9 +238,8 @@ export function ReportViewerDialog({ value, onClose }: ReportViewerDialogProps):
                       <a
                         key={`${url}-${idx}`}
                         href={url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="group block overflow-hidden rounded border border-hairline bg-black/5 transition-shadow hover:shadow-md"
+                        onClick={(e) => { e.preventDefault(); openImageUrl(url); }}
+                        className="group block cursor-pointer overflow-hidden rounded border border-hairline bg-black/5 transition-shadow hover:shadow-md"
                         aria-label={`Open image ${idx + 1} in new tab`}
                       >
                         <img
@@ -253,6 +269,7 @@ export function ReportViewerDialog({ value, onClose }: ReportViewerDialogProps):
           This is a sample report viewer — the real backend renders the lab/radiologist's signed PDF.
         </footer>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
