@@ -145,7 +145,12 @@ const ROLE_CAPABILITIES: Record<UserRole, Capability[]> = {
   chief_doctor: ['open_shift', 'close_shift'],
   pharma:       [],
   inventory:    [],
-  lab_radio:    [],
+  // Radiology / lab desks collect payment for their own studies inline
+  // (Collect Payment button on the awaiting_payment row) so the patient
+  // doesn't have to walk to the front-desk cashier mid-flow. Mirrors
+  // the front-desk's take_payment grant; close_shift stays with the
+  // dedicated cashier seat.
+  lab_radio:    ['take_payment'],
   // Owner has full till oversight (open + close); the take-payment seat
   // belongs to whoever is physically at the desk.
   owner:        ['open_shift', 'close_shift'],

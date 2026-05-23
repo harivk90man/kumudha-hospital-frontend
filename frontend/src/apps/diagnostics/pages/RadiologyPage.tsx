@@ -324,7 +324,7 @@ export function RadiologyPage(): JSX.Element {
                                 : undefined
                             }
                           >
-                            <CreditCard /> Collect Payment
+                            <CreditCard /> Payment
                           </Button>
                         )}
                       </div>
