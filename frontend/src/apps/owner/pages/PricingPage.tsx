@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, Coins, Pill, SlidersHorizontal, Search } from 'lucide-react';
 import { Breadcrumb } from '@/components/data-display';
 import { Card, CardHeader, CardTitle } from '@/components/layout';
@@ -131,6 +131,36 @@ function ServicesSection(): JSX.Element {
     );
   }, [rows, q]);
 
+  // Group + order so the cashier-facing rates are always near the top.
+  // Consultation first (it's the daily reference), then lab, then
+  // radiology, then anything else.
+  const GROUP_ORDER: { key: string; label: string; matches: (t: string) => boolean }[] = [
+    { key: 'consultation', label: 'Consultations',
+      matches: (t) => t === 'consultation' || t === 'procedure' },
+    { key: 'lab',          label: 'Lab tests',
+      matches: (t) => t === 'lab_test' || t === 'lab_panel' || t === 'lab' },
+    { key: 'radiology',    label: 'Radiology',
+      matches: (t) => t === 'radiology' || t === 'imaging' },
+    { key: 'other',        label: 'Other',
+      matches: () => true },
+  ];
+
+  const grouped = useMemo(() => {
+    const remaining = [...filtered];
+    const out: { label: string; rows: ServicePricingRow[] }[] = [];
+    for (const g of GROUP_ORDER) {
+      const matches: ServicePricingRow[] = [];
+      for (let i = remaining.length - 1; i >= 0; i -= 1) {
+        if (g.matches(remaining[i].serviceType)) {
+          matches.unshift(remaining[i]);
+          remaining.splice(i, 1);
+        }
+      }
+      if (matches.length > 0) out.push({ label: g.label, rows: matches });
+    }
+    return out;
+  }, [filtered]);
+
   return (
     <Card>
       <CardHeader>
@@ -149,7 +179,7 @@ function ServicesSection(): JSX.Element {
         </div>
       ) : error ? (
         <p className="text-sm text-danger">{error}</p>
-      ) : filtered.length === 0 ? (
+      ) : grouped.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">
           {q ? 'No services match the search.' : 'No services configured.'}
         </p>
@@ -167,14 +197,23 @@ function ServicesSection(): JSX.Element {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((row) => (
-                <ServiceRow
-                  key={row.id}
-                  initial={row}
-                  onSaved={(saved) =>
-                    setRows((prev) => prev.map((r) => (r.id === saved.id ? saved : r)))
-                  }
-                />
+              {grouped.map((group) => (
+                <Fragment key={group.label}>
+                  <tr className="border-b bg-muted/30">
+                    <td colSpan={6} className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      {group.label}
+                    </td>
+                  </tr>
+                  {group.rows.map((row) => (
+                    <ServiceRow
+                      key={row.id}
+                      initial={row}
+                      onSaved={(saved) =>
+                        setRows((prev) => prev.map((r) => (r.id === saved.id ? saved : r)))
+                      }
+                    />
+                  ))}
+                </Fragment>
               ))}
             </tbody>
           </table>
