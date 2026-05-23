@@ -53,6 +53,16 @@ export interface TopService {
   amount: number;
 }
 
+/** payments.payment_mode CHECK enum (cash / card / upi / cheque / net_banking / other). */
+export type PaymentMode = 'cash' | 'card' | 'upi' | 'cheque' | 'net_banking' | 'other';
+
+export interface PaymentModeBreakdown {
+  mode: PaymentMode;
+  amount: number;
+  share: number;
+  paymentCount: number;
+}
+
 /* ---------- DB-row shapes ---------- */
 
 interface AggInvoiceRow {
@@ -216,6 +226,48 @@ export const fetchRevenueByDepartment = async (
       share: grand > 0 ? v.amount / grand : 0,
       doctorCount: v.doctors.size,
       invoiceCount: v.invoiceCount,
+    }))
+    .sort((a, b) => b.amount - a.amount);
+};
+
+/**
+ * Collected revenue split by payment mode (cash / UPI / card / cheque / etc.).
+ * Aggregates the `payments` table directly — every collected rupee on a
+ * `direction = 'in'` payment row contributes. Refunds (`direction = 'out'`)
+ * are excluded so the totals match the 'Collected' headline tile.
+ */
+export const fetchRevenueByPaymentMode = async (
+  range: DateRange,
+): Promise<PaymentModeBreakdown[]> => {
+  const { data, error } = await supabase
+    .from('payments')
+    .select('payment_mode, amount, payment_direction, created_at, deleted_at')
+    .gte('created_at', dayLo(range.from))
+    .lte('created_at', dayHi(range.to))
+    .eq('payment_direction', 'in')
+    .is('deleted_at', null);
+  if (error) throw new Error(error.message);
+
+  const rows = (data ?? []) as unknown as Array<{
+    payment_mode: string;
+    amount: string | number;
+  }>;
+
+  const acc = new Map<PaymentMode, { amount: number; count: number }>();
+  for (const r of rows) {
+    const mode = (r.payment_mode as PaymentMode) ?? 'other';
+    const cur = acc.get(mode) ?? { amount: 0, count: 0 };
+    cur.amount += Number(r.amount);
+    cur.count  += 1;
+    acc.set(mode, cur);
+  }
+  const grand = Array.from(acc.values()).reduce((s, v) => s + v.amount, 0);
+  return Array.from(acc.entries())
+    .map(([mode, v]) => ({
+      mode,
+      amount: v.amount,
+      share: grand > 0 ? v.amount / grand : 0,
+      paymentCount: v.count,
     }))
     .sort((a, b) => b.amount - a.amount);
 };

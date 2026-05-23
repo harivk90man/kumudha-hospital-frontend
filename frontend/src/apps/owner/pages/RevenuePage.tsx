@@ -29,11 +29,13 @@ import {
   fetchRevenueByCategory,
   fetchRevenueByDepartment,
   fetchRevenueByDoctor,
+  fetchRevenueByPaymentMode,
   fetchRevenueOverview,
   fetchTopServices,
   type CategoryBreakdown,
   type DepartmentBreakdown,
   type DoctorBreakdown,
+  type PaymentModeBreakdown,
   type RevenueOverview,
   type TopService,
 } from '../ownerApi';
@@ -59,8 +61,18 @@ interface DataBundle {
   byCategory: CategoryBreakdown[];
   byDepartment: DepartmentBreakdown[];
   byDoctor: DoctorBreakdown[];
+  byPaymentMode: PaymentModeBreakdown[];
   topServices: TopService[];
 }
+
+const PAYMENT_MODE_LABEL: Record<PaymentModeBreakdown['mode'], string> = {
+  cash:        'Cash',
+  card:        'Card',
+  upi:         'UPI',
+  cheque:      'Cheque',
+  net_banking: 'Net banking',
+  other:       'Other',
+};
 
 const isPreset = (s: string | null): s is DateRangePreset =>
   s === 'today' ||
@@ -102,11 +114,12 @@ export function RevenuePage(): JSX.Element {
       fetchRevenueByCategory(cur),
       fetchRevenueByDepartment(cur),
       fetchRevenueByDoctor(cur),
+      fetchRevenueByPaymentMode(cur),
       fetchTopServices(cur),
     ])
-      .then(([current, previous, byCategory, byDepartment, byDoctor, topServices]) => {
+      .then(([current, previous, byCategory, byDepartment, byDoctor, byPaymentMode, topServices]) => {
         if (alive) {
-          setBundle({ current, previous, byCategory, byDepartment, byDoctor, topServices });
+          setBundle({ current, previous, byCategory, byDepartment, byDoctor, byPaymentMode, topServices });
         }
       })
       .finally(() => {
@@ -189,7 +202,7 @@ export function RevenuePage(): JSX.Element {
     );
   }
 
-  const { current, previous, byCategory, byDepartment, byDoctor, topServices } = bundle;
+  const { current, previous, byCategory, byDepartment, byDoctor, byPaymentMode, topServices } = bundle;
   const billedDelta = pctChange(current.billed, previous.billed);
   const collectedDelta = pctChange(current.collected, previous.collected);
   const invoicesDelta = pctChange(current.invoiceCount, previous.invoiceCount);
@@ -366,6 +379,65 @@ export function RevenuePage(): JSX.Element {
           )}
         </Card>
       </section>
+
+      {/* ---------- Collections by payment mode ----------
+           Sourced from the payments table (direction='in') in the
+           current date range — answers the cashier's recurring "how
+           much in cash today?" / "how much via UPI?" drill-down. */}
+      <Card>
+        <CardHeader>
+          <CardTitle>
+            <span className="inline-flex items-center gap-2">
+              <Coins className="h-4 w-4 text-muted-foreground" />
+              Collections by payment mode
+            </span>
+          </CardTitle>
+          <CardLabel>{byPaymentMode.length}</CardLabel>
+        </CardHeader>
+        {byPaymentMode.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No payments collected in this period. Once the cashier records
+            cash / UPI / card receipts the breakdown shows here.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <Donut
+              slices={byPaymentMode.map<DonutSlice>((m, i) => ({
+                key: m.mode,
+                label: PAYMENT_MODE_LABEL[m.mode],
+                value: m.amount,
+                ...sliceTone(i),
+              }))}
+              size={150}
+              centreLabel={formatCurrency(
+                byPaymentMode.reduce((s, m) => s + m.amount, 0),
+              )}
+              centreSub="Collected"
+              className="shrink-0 self-center"
+            />
+            <ul className="flex min-w-0 flex-1 flex-col gap-3">
+              {byPaymentMode.map((m, i) => (
+                <li key={m.mode} className="flex flex-col gap-1">
+                  <div className="flex items-baseline justify-between gap-2 text-sm">
+                    <span className="inline-flex items-center gap-1.5 font-medium">
+                      <span
+                        className={cn('h-2 w-2 rounded-full', sliceTone(i).dot)}
+                        aria-hidden="true"
+                      />
+                      {PAYMENT_MODE_LABEL[m.mode]}
+                    </span>
+                    <span className="font-mono tabular-nums">{formatCurrency(m.amount)}</span>
+                  </div>
+                  <ProgressBar value={m.share} />
+                  <span className="text-xs text-muted-foreground">
+                    {m.paymentCount} payment{m.paymentCount === 1 ? '' : 's'} · {(m.share * 100).toFixed(1)}% share
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </Card>
 
       {/* ---------- Revenue by doctor ---------- */}
       <Card>
