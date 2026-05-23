@@ -213,17 +213,31 @@ export function ReportViewerDialog({ value, onClose }: ReportViewerDialogProps):
                   <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     Images
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  {/* Render the X-ray (data URL or remote) inline so the
+                      doctor sees the film directly. Each image is also
+                      a link to open the full-size version in a new tab. */}
+                  <div className="flex flex-wrap gap-3">
                     {radOrder.imagesUrl.map((url, idx) => (
                       <a
-                        key={url}
+                        key={`${url}-${idx}`}
                         href={url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 rounded border border-hairline bg-muted/40 px-2 py-1 text-xs text-foreground hover:bg-muted"
+                        className="group block overflow-hidden rounded border border-hairline bg-black/5 transition-shadow hover:shadow-md"
+                        aria-label={`Open image ${idx + 1} in new tab`}
                       >
-                        <FileText className="h-3 w-3" />
-                        Image {idx + 1}
+                        <img
+                          src={url}
+                          alt={`Image ${idx + 1}`}
+                          className="block max-h-72 w-auto max-w-full object-contain"
+                          loading="lazy"
+                        />
+                        <span className="flex items-center justify-between gap-2 border-t border-hairline px-2 py-1 text-[10px] text-muted-foreground group-hover:text-foreground">
+                          <span className="inline-flex items-center gap-1">
+                            <FileText className="h-3 w-3" /> Image {idx + 1}
+                          </span>
+                          <span>Open full size</span>
+                        </span>
                       </a>
                     ))}
                   </div>
