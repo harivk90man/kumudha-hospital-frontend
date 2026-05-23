@@ -18,7 +18,19 @@ export function PharmacyLayout(): JSX.Element {
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
-  if (user && !user.allRoles.includes('pharma') && !isSuperRole(user.role)) {
+  // Doctors + chief doctors are allowed in too — they don't run the
+  // pharmacy day-to-day, but the doctor dashboard's notification bell
+  // deep-links to /pharmacy/alerts when stock is blocking new
+  // prescriptions. Without this carve-out the link bounces back to
+  // home and the alert is unreachable. They keep their own sidebar
+  // chrome via pickRoleChrome below.
+  const allowed = user && (
+    user.allRoles.includes('pharma')
+    || user.allRoles.includes('doctor')
+    || user.allRoles.includes('chief_doctor')
+    || isSuperRole(user.role)
+  );
+  if (!allowed) {
     return <Navigate to="/" replace />;
   }
 
