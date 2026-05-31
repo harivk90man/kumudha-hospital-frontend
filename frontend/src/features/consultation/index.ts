@@ -18,6 +18,7 @@ export {
 export { useConsultationContext } from './hooks/useConsultationContext';
 
 export { VitalsPanel } from './components/VitalsPanel';
+export { VitalsEditSheet } from './components/VitalsEditSheet';
 export { ConsultationNotesForm } from './components/ConsultationNotesForm';
 export { DiagnosisForm } from './components/DiagnosisForm';
 export { FollowUpAdvicePanel } from './components/FollowUpAdvicePanel';

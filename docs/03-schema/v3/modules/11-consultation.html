@@ -56,7 +56,7 @@
       <span class="badge bg-info">L3 audit</span>
       <span class="badge bg-warning text-dark">soft-delete</span>
     </h2>
-    <p>Snapshot of vital signs at a point in time. Captured by the nurse at the pre-consultation desk before the doctor sees the patient. Multiple rows per visit are allowed — e.g. BP recheck after medication. <code>created_by</code> (from the uniform block) identifies the recording nurse; <code>created_at</code> is the recording timestamp — no separate <code>recorded_by</code> / <code>recorded_at</code> columns needed.</p>
+    <p>Snapshot of vital signs at a point in time. Captured by the nurse at the pre-consultation desk before the doctor sees the patient. <strong>One row per OP visit</strong> (DB-enforced via partial UNIQUE); the doctor can amend the same row in-place from the consultation view if the nurse mistyped a value, with the change auto-logged via L1/L3 audit. Multiple rows are allowed only for future IP/ICU contexts where <code>op_visit_id IS NULL</code> (e.g. hourly BP rechecks on an inpatient). <code>created_by</code> (from the uniform block) identifies the recording staff; <code>created_at</code> is the recording timestamp — no separate <code>recorded_by</code> / <code>recorded_at</code> columns needed.</p>
     <p><code>bmi</code> is a generated column — automatically computed whenever both <code>weight_kg</code> and <code>height_cm</code> are present.</p>
 
     <h5>Columns (table-specific; uniform block also present)</h5>
@@ -89,6 +89,7 @@
     <h5>Constraints &amp; Indexes</h5>
     <ul class="small">
       <li><code>pk_vitals</code> — PRIMARY KEY (id)</li>
+      <li><code>uq_vitals_op_visit</code> — UNIQUE (op_visit_id) WHERE <code>op_visit_id IS NOT NULL AND deleted_at IS NULL</code> &nbsp;<span class="text-muted">— one vitals row per OP visit; IP contexts (op_visit_id NULL) may have multiple readings</span></li>
       <li><code>chk_vitals_bp_systolic</code> — CHECK <code>bp_systolic IS NULL OR bp_systolic BETWEEN 60 AND 300</code></li>
       <li><code>chk_vitals_bp_diastolic</code> — CHECK <code>bp_diastolic IS NULL OR bp_diastolic BETWEEN 30 AND 200</code></li>
       <li><code>chk_vitals_pulse</code> — CHECK <code>pulse_rate IS NULL OR pulse_rate BETWEEN 20 AND 300</code></li>

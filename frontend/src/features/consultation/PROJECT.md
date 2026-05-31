@@ -10,6 +10,7 @@ The doctor's clinical capture for an encounter: notes, diagnoses, vitals, prescr
 - `<ConsultationStepper>` — step bar (notes → diagnosis → prescription → orders → advice).
 - `<PrescriptionBuilder>`, `<OrdersPanel>` — workspace panels for the steps.
 - Past visits open in the **same** consultation page in read-only mode (locked encounter → fieldset disabled, view-only footer with Amend + Return). No separate drawer.
+- Vitals amendment — the doctor can amend the single OP vitals row in-place via `<VitalsEditSheet>` (pencil button on the chip strip). Per schema-11 §1, OP enforces one row per visit (partial UNIQUE on `op_visit_id`); IP/ICU contexts allow multiple readings (out of scope for this page). DB-level L1/L3 audit captures the field diff — no reason required.
 
 ## Stores
 

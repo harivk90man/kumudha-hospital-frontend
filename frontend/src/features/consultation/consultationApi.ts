@@ -5,6 +5,7 @@ import type {
   PrescriptionItem,
   PrescriptionTemplate,
   VisitHistoryItem,
+  Vitals,
 } from './consultationTypes';
 import { mockDoctor } from '@/features/auth/__mocks__/authMocks';
 import {
@@ -610,6 +611,38 @@ export const updateConsultation = async (
     syncRxToPharmacy(opNumber, next);
   }
 
+  return delay(next);
+};
+
+/**
+ * Doctor amends the single OP vitals row (schema-11 §1 — 1-per-OP UNIQUE).
+ * Real backend: PATCH `/api/doctor/consultations/:opNumber/vitals`. The DB
+ * L1/L3 audit captures every field change automatically, so no reason is
+ * required at the API layer. BMI is server-computed (generated column);
+ * any client-supplied bmi is ignored.
+ */
+export const updateVitals = async (
+  opNumber: string,
+  patch: Partial<Vitals>,
+): Promise<ConsultationContext> => {
+  const current = liveConsultations[opNumber] ?? (await fetchConsultation(opNumber));
+  const prev = current.latestVitals;
+  const merged: Vitals = {
+    // Preserve identity + provenance from the existing row.
+    recordedAt:      prev?.recordedAt ?? new Date().toISOString(),
+    recordedBy:      prev?.recordedBy ?? 'unknown',
+    ...prev,
+    ...patch,
+  };
+  // BMI is generated on the DB whenever weight + height are present.
+  if (merged.weightKg != null && merged.heightCm != null && merged.heightCm > 0) {
+    const m = merged.heightCm / 100;
+    merged.bmi = Math.round((merged.weightKg / (m * m)) * 100) / 100;
+  } else {
+    merged.bmi = undefined;
+  }
+  const next: ConsultationContext = { ...current, latestVitals: merged, opNumber };
+  liveConsultations[opNumber] = next;
   return delay(next);
 };
 

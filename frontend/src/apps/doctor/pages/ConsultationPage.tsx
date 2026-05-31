@@ -13,6 +13,7 @@ import {
   History,
   Lock,
   MessageSquare,
+  Pencil,
   Phone,
   Pill,
   Scale,
@@ -40,6 +41,7 @@ import {
   OrdersPanel,
   PrescriptionBuilder,
   VisitHistoryPanel,
+  VitalsEditSheet,
   fetchVisitHistory,
   useConsultationContext,
   type Diagnosis,
@@ -143,7 +145,7 @@ function VitalChip({ icon, label, value, unit, alert }: VitalChipProps): JSX.Ele
 
 // ── VitalsRow ──────────────────────────────────────────────────────────────────
 
-function VitalsRow({ vitals }: { vitals: Vitals }): JSX.Element {
+function VitalsRow({ vitals, onEdit }: { vitals: Vitals; onEdit?: () => void }): JSX.Element {
   const tempAlert: AlertLevel | undefined =
     vitals.temperatureF == null ? undefined :
     vitals.temperatureF > 103   ? 'danger'  :
@@ -207,11 +209,24 @@ function VitalsRow({ vitals }: { vitals: Vitals }): JSX.Element {
       {vitals.painScore != null && (
         <VitalChip icon={<Gauge className="h-3.5 w-3.5" />}       label="Pain"           value={`${vitals.painScore}/10`}             unit=""     alert={painAlert} />
       )}
-      {vitals.recordedAt && (
-        <span className="ml-auto text-[11px] text-muted-foreground/60 tabular-nums">
-          Vitals taken: {formatTime(vitals.recordedAt)}
-        </span>
-      )}
+      <div className="ml-auto flex items-center gap-2">
+        {vitals.recordedAt && (
+          <span className="text-[11px] text-muted-foreground/60 tabular-nums">
+            Vitals taken: {formatTime(vitals.recordedAt)}
+          </span>
+        )}
+        {onEdit && (
+          <button
+            type="button"
+            onClick={onEdit}
+            title="Edit vitals"
+            aria-label="Edit vitals"
+            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -345,10 +360,11 @@ export function ConsultationPage(): JSX.Element {
 
   const {
     data, loading, error, isLocked,
-    patch, lock, amend, pendingDraft, draftSavedAt, restoreDraft, dismissDraft,
+    patch, updateVitals, lock, amend, pendingDraft, draftSavedAt, restoreDraft, dismissDraft,
   } = useConsultationContext(opNumber);
 
-  const [amendOpen,     setAmendOpen]     = useState(false);
+  const [amendOpen,       setAmendOpen]       = useState(false);
+  const [vitalsEditOpen,  setVitalsEditOpen]  = useState(false);
   const [visits,        setVisits]        = useState<VisitHistoryItem[]>([]);
   const [busy,          setBusy]          = useState(false);
   const [criticalOpen,  setCriticalOpen]  = useState(false);
@@ -651,7 +667,10 @@ export function ConsultationPage(): JSX.Element {
         {/* Vitals chips */}
         {data.latestVitals && (
           <div className="border-t border-hairline bg-primary/[0.03] px-4 py-2 md:px-6">
-            <VitalsRow vitals={data.latestVitals} />
+            <VitalsRow
+              vitals={data.latestVitals}
+              onEdit={viewOnly ? undefined : () => setVitalsEditOpen(true)}
+            />
           </div>
         )}
 
@@ -841,6 +860,13 @@ export function ConsultationPage(): JSX.Element {
         history={(data.amendments ?? []).map((a) => ({
           id: a.id, reason: a.reason, amendedAt: a.amendedAt,
         }))}
+      />
+
+      <VitalsEditSheet
+        open={vitalsEditOpen}
+        onClose={() => setVitalsEditOpen(false)}
+        initial={data.latestVitals}
+        onSubmit={(patch) => updateVitals(patch)}
       />
     </div>
   );

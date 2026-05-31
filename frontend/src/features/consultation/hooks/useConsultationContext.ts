@@ -8,11 +8,13 @@ import {
   restoreDraft as apiRestoreDraft,
   saveDraft,
   updateConsultation,
+  updateVitals as apiUpdateVitals,
 } from '../consultationApi';
 import type {
   ConsultationContext,
   ConsultationContextBase,
   ConsultationDraft,
+  Vitals,
 } from '../consultationTypes';
 
 interface UseConsultationContextResult {
@@ -23,6 +25,8 @@ interface UseConsultationContextResult {
   isLocked: boolean;
   refresh: () => Promise<void>;
   patch: (partial: Partial<ConsultationContext>) => Promise<void>;
+  /** Amend the single OP vitals row (schema-11 §1). Server-side audit captures the diff. */
+  updateVitals: (input: Partial<Vitals>) => Promise<void>;
   /* ---- Lock + amend (TSD-07 §4.2) ---- */
   /** Set `lockedAt` and freeze the consultation. */
   lock: () => Promise<void>;
@@ -119,6 +123,19 @@ export const useConsultationContext = (opNumber: string): UseConsultationContext
     [opNumber, scheduleAutosave],
   );
 
+  /**
+   * Vitals amend — calls the dedicated PATCH endpoint. No autosave reschedule
+   * needed: the PATCH itself persists; the draft autosave only covers fields
+   * inside the consultation row (notes / diagnoses / Rx / advice / etc.).
+   */
+  const updateVitals = useCallback(
+    async (input: Partial<Vitals>): Promise<void> => {
+      const next = await apiUpdateVitals(opNumber, input);
+      setData(next);
+    },
+    [opNumber],
+  );
+
   const restoreDraft = useCallback(async (): Promise<void> => {
     const draft = await apiRestoreDraft(opNumber);
     if (!draft) {
@@ -172,6 +189,7 @@ export const useConsultationContext = (opNumber: string): UseConsultationContext
     isLocked,
     refresh,
     patch,
+    updateVitals,
     lock,
     amend,
     pendingDraft,
