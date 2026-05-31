@@ -7,3 +7,4 @@ export { FormErrorContainer } from './FormErrorContainer';
 export { ChipInput } from './ChipInput';
 export { DatePicker } from './DatePicker';
 export { UhidSearchInput } from './UhidSearchInput';
+export { Combobox, type ComboboxOption, type ComboboxProps } from './Combobox';

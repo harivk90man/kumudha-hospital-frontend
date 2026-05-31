@@ -501,17 +501,8 @@ export function ConsultationPage(): JSX.Element {
     patch({ diagnoses: data.diagnoses.map((d) => d.id === updated.id ? updated : d) });
   const removeDiagnosis        = async (id: string): Promise<void> =>
     patch({ diagnoses: data.diagnoses.filter((d) => d.id !== id) });
-  const addPrescriptionItem    = async (item: PrescriptionItem): Promise<void> =>
-    patch({ prescriptionItems: [...data.prescriptionItems, item] });
-  const removePrescriptionItem = async (id: string): Promise<void> =>
-    patch({ prescriptionItems: data.prescriptionItems.filter((i) => i.id !== id) });
-  const updatePrescriptionItem  = async (item: PrescriptionItem): Promise<void> =>
-    patch({ prescriptionItems: data.prescriptionItems.map((i) => i.id === item.id ? item : i) });
-  const loadTemplate           = async (items: PrescriptionItem[]): Promise<void> => {
-    const stamped = items.map((i) => ({
-      ...i, id: `pi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    }));
-    await patch({ prescriptionItems: [...data.prescriptionItems, ...stamped] });
+  const handlePrescriptionChange = (items: PrescriptionItem[]): void => {
+    void patch({ prescriptionItems: items });
   };
 
   const onComplete = async (): Promise<void> => {
@@ -794,12 +785,9 @@ export function ConsultationPage(): JSX.Element {
                   <SectionCard id="sec-prescription" icon={Pill} title="Prescription"
                     isOpen={openSections.has('sec-prescription')} onToggle={() => toggleSection('sec-prescription')}>
                     <PrescriptionBuilder
-                      items={data.prescriptionItems}
+                      initialItems={data.prescriptionItems}
                       allergies={data.patient.allergies ?? []}
-                      onAddItem={addPrescriptionItem}
-                      onRemoveItem={removePrescriptionItem}
-                      onUpdateItem={updatePrescriptionItem}
-                      onLoadTemplate={loadTemplate}
+                      onPrescriptionChange={handlePrescriptionChange}
                     />
                   </SectionCard>
 

@@ -12,6 +12,7 @@ export const prescriptionItemSchema = z.object({
   frequency: z.string().min(1, 'Frequency is required'),
   route: z.string().min(1, 'Route is required').default('PO'),
   durationDays: z.coerce.number().int().min(1, 'Duration ≥ 1 day').max(180),
+  foodTiming: z.enum(['After food', 'Before food', 'With food', 'Empty stomach']).default('After food'),
   quantityPrescribed: z.coerce.number().int().min(0).optional(),
   instructions: z.string().optional().default(''),
   /** Required only when prescribing a medicine with severity=expired|out_of_stock. */

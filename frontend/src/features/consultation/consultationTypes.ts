@@ -108,6 +108,9 @@ export interface Diagnosis {
  */
 export type Frequency = string;
 
+/** Meal-relative administration timing — maps to schema-11 `prescription_items.food_timing`. */
+export type FoodTiming = 'After food' | 'Before food' | 'With food' | 'Empty stomach';
+
 export const STANDARD_FREQUENCIES = [
   'OD', 'BD', 'TDS', 'QID', 'HS', 'SOS', 'STAT',
   '1-0-0', '0-0-1', '1-0-1', '1-1-1', '1-1-1-1',
@@ -123,15 +126,43 @@ export interface PrescriptionItem {
   frequency: Frequency;
   route: string;             // "PO"
   durationDays: number;
+  /** Meal-relative timing. Defaults to 'after_food'. NULL = not applicable (eye drops, IV, etc.). */
+  foodTiming?: FoodTiming;
   /** TSD-07 §4.5 — display order within the Rx. */
   sequenceNo?: number;
   /** TSD-07 §4.5 — total qty doctor wrote. Pharmacy fills `dispensedQty`. */
   quantityPrescribed?: number;
   /** Updated by pharmacy at dispense. Read-only on the doctor side. */
   dispensedQty?: number;
+  /** Additional label notes (avoid driving, crush before taking, etc.). Meal timing belongs in foodTiming. */
   instructions?: string;
   severity: StockSeverity;
   /* ---- Stock-block override audit (per BRD/TSD-10 §6 decision) ---- */
+  overrideReason?: string;
+  overriddenBy?: Uuid;
+  overriddenAt?: Iso8601;
+}
+
+/**
+ * UI-only row shape for the prescription table. Extends PrescriptionItem to allow
+ * partial/draft state (medicine not yet picked). `medicineId === ''` = draft row.
+ * Lives in prescriptionTableStore — never persisted directly.
+ */
+export interface PrescriptionItemRow {
+  rowId: string;                 // stable UI key (never sent to server)
+  id?: Uuid;                     // server ID — undefined for new unsaved rows
+  medicineId: string;            // '' = draft
+  medicineNameSnapshot: string;
+  strength: string;
+  dosage: string;
+  frequency: string;
+  route: string;
+  durationDays: number | null;   // null = not yet entered
+  foodTiming: FoodTiming;
+  instructions?: string;
+  severity: StockSeverity;
+  quantityPrescribed?: number;
+  dispensedQty?: number;
   overrideReason?: string;
   overriddenBy?: Uuid;
   overriddenAt?: Iso8601;

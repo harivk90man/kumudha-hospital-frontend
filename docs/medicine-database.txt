@@ -1,0 +1,1 @@
+https://www.1mg.com/pwa-dweb-api/api/v4/drug_skus/by_prefix?prefix_term=b&page=3&per_page=30
