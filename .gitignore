@@ -2,7 +2,7 @@ node_modules
 dist
 dist-ssr
 *.local
-
+.mcp.json
 # Env files (commit only .env.example)
 .env
 .env.local

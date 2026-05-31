@@ -1,11 +1,11 @@
 import { z } from 'zod';
 
 export const followUpSchema = z.object({
-  afterDays: z.coerce
-    .number({ invalid_type_error: 'Pick a number of days' })
-    .int()
-    .min(1, 'At least 1 day')
-    .max(365, 'Max 365 days'),
+  /** ISO yyyy-mm-dd. Empty string allowed (means no follow-up scheduled). */
+  followUpDate: z
+    .string()
+    .regex(/^(\d{4}-\d{2}-\d{2})?$/, 'Pick a valid date')
+    .default(''),
   modality: z.enum(['in_person', 'tele']),
   notes: z.string().optional().default(''),
 });

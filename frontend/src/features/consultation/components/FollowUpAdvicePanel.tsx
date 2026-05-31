@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import type { FollowUpFormValues } from '../schemas/adviceSchemas';
 import type { FollowUpAdvice } from '../consultationTypes';
+import { FollowUpDateField } from './FollowUpDateField';
 
 interface FollowUpAdvicePanelProps {
   initial?: FollowUpAdvice;
@@ -17,16 +18,23 @@ const labelClass = 'text-[11px] font-medium uppercase tracking-wider text-muted-
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 
+/** today + 7 days as ISO yyyy-mm-dd. */
+const defaultFollowUpDate = (): string => {
+  const d = new Date(); d.setDate(d.getDate() + 7);
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
 export function FollowUpAdvicePanel({
   initial,
   onSubmit,
   className,
 }: FollowUpAdvicePanelProps): JSX.Element {
-  const { register, watch } = useForm<FollowUpFormValues>({
+  const { control, register, watch } = useForm<FollowUpFormValues>({
     defaultValues: {
-      afterDays: initial?.afterDays ?? 7,
-      modality: initial?.modality ?? 'in_person',
-      notes: initial?.notes ?? '',
+      followUpDate: initial?.followUpDate ?? defaultFollowUpDate(),
+      modality:     initial?.modality     ?? 'in_person',
+      notes:        initial?.notes        ?? '',
     },
   });
 
@@ -52,13 +60,13 @@ export function FollowUpAdvicePanel({
       <div className="grid gap-5">
 
         <label className="flex flex-col gap-1.5">
-          <span className={labelClass}>Follow-up after (days)</span>
-          <input
-            type="number"
-            min={1}
-            max={365}
-            {...register('afterDays')}
-            className={fieldClass}
+          <span className={labelClass}>Follow-up after</span>
+          <Controller
+            control={control}
+            name="followUpDate"
+            render={({ field }) => (
+              <FollowUpDateField value={field.value} onChange={field.onChange} />
+            )}
           />
         </label>
 

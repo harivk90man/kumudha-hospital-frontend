@@ -224,7 +224,8 @@ export interface DoctorRecommendation {
 export type FollowUpModality = 'in_person' | 'tele';
 
 export interface FollowUpAdvice {
-  afterDays: number;
+  /** ISO yyyy-mm-dd. Maps to schema-11 `consultations.follow_up_date`. */
+  followUpDate: string;
   notes?: string;
   modality: FollowUpModality;
 }
