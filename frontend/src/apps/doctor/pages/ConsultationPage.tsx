@@ -373,10 +373,12 @@ export function ConsultationPage(): JSX.Element {
 
   // Reset view state when navigating between consultations (same component instance).
   const didInitialScroll = useRef(false);
+  const autoOpenedRef = useRef<Set<SectionId>>(new Set());
   useEffect(() => {
     setShowHistory(false);
     setOpenSections(new Set(['sec-notes' as SectionId]));
     didInitialScroll.current = false;
+    autoOpenedRef.current = new Set();
   }, [opNumber]);
   useEffect(() => {
     if (!data || !sectionParam || didInitialScroll.current) return;
@@ -388,18 +390,21 @@ export function ConsultationPage(): JSX.Element {
   }, [data]);
 
   // Auto-open sections that already have content (progressive fill).
+  // `autoOpenedRef` ensures each section is auto-opened at most once — so a
+  // user collapse sticks across subsequent autosaves / data updates.
   useEffect(() => {
     if (!data) return;
-    setOpenSections((prev) => {
-      const next = new Set(prev);
-      if (data.diagnoses.length > 0)                                          next.add('sec-diagnosis');
-      if (data.labOrders.length > 0 || data.radiologyOrders.length > 0)      next.add('sec-orders');
-      if (data.prescriptionItems.length > 0)                                  next.add('sec-prescription');
-      if (data.followUp || (data.recommendationsNotes ?? '').trim().length > 0) next.add('sec-advice');
-      // Past encounters: open everything so the doctor can read the full record.
-      if (isLocked) SECTIONS.forEach((s) => next.add(s.id));
-      return next;
-    });
+    const tryAutoOpen = (id: SectionId, condition: boolean): void => {
+      if (!condition || autoOpenedRef.current.has(id)) return;
+      autoOpenedRef.current.add(id);
+      setOpenSections((prev) => (prev.has(id) ? prev : new Set([...prev, id])));
+    };
+    tryAutoOpen('sec-diagnosis',    data.diagnoses.length > 0);
+    tryAutoOpen('sec-orders',       data.labOrders.length > 0 || data.radiologyOrders.length > 0);
+    tryAutoOpen('sec-prescription', data.prescriptionItems.length > 0);
+    tryAutoOpen('sec-advice',       !!data.followUp || (data.recommendationsNotes ?? '').trim().length > 0);
+    // Past encounters: open everything so the doctor can read the full record.
+    if (isLocked) SECTIONS.forEach((s) => tryAutoOpen(s.id, true));
   }, [data, isLocked]);
 
   // Track showHistory in a ref so the scroll callback doesn't go stale.

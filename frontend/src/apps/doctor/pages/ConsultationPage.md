@@ -37,6 +37,27 @@ chained past-visit hops.
 - Journey timeline (past visits only): `fetchJourneyEvents(opNumber)` lazy-loaded into `journey` state when `viewOnly` flips true.
 - Critical notifications: come pre-joined on `data.criticalNotifications` (composite over `notifications` + `lab_results` + `lab_orders`). Hidden in view-only mode.
 
+## State sources
+
+This page is the composition point for several different state mechanisms — each used for a deliberate reason. New state belongs in the column whose lifecycle matches it.
+
+| Source | Kind | Holds | Lifecycle |
+|---|---|---|---|
+| `useConsultationContext(opNumber)` | Custom hook | Server-synced `ConsultationContext` — notes, diagnoses, prescription items, vitals, follow-up, recommendations, lock state, drafts — plus the autosave loop | Per-page; resets on `opNumber` change |
+| `useAuth()` | Hook | Current doctor identity | App-session |
+| `prescriptionTableStore` *(via `<PrescriptionBuilder>`)* | **Zustand** — [`features/consultation/prescriptionTableStore.ts`](../../../features/consultation/prescriptionTableStore.ts) | Prescription row list (committed + draft rows the inline table edits). Feature-internal — not re-exported from `index.ts`. | Singleton; reset by `initRows()` on prescription-section mount |
+| `useState` × 8 (`openSections`, `busy`, `amendOpen`, `criticalOpen`, `showHistory`, `activeSection`, `visits`, `tick`) | React local | Pure UI: section open/close, modal flags, busy spinner, visit-history cache, "saved Xs ago" rerender tick | Unmounts with the page |
+| `useRef` × 3 (`didInitialScroll`, `showHistoryRef`, `autoOpenedRef`) | React local | Scroll-restoration latch + stale-callback shield + "sections already auto-opened once" memo so user collapses survive autosaves | Unmounts with the page |
+
+**Decision tree for adding new state** (per CLAUDE.md §3.7):
+
+```
+Is it server-persisted?           → TanStack Query (or useConsultationContext today)
+Is it shared by 2+ components?    → Zustand store (feature-scoped)
+Is it state + side-effects?       → Custom hook (internally uses the above)
+Otherwise                         → useState / useRef
+```
+
 ## Top-of-page (always visible)
 
 | Section | Where | Notes |
