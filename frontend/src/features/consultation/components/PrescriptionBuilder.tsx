@@ -86,10 +86,11 @@ interface MedicineSearchCellProps {
 
 function MedicineSearchCell({ row, onPick }: MedicineSearchCellProps): JSX.Element {
   const isDraft = row.medicineId === '';
-  const [searching, setSearching] = useState(isDraft);
-  const [query,     setQuery]     = useState(isDraft ? '' : `${row.medicineNameSnapshot} ${row.strength}`);
-  const [results,   setResults]   = useState<Medicine[]>([]);
-  const searchRef                 = useRef<HTMLInputElement>(null);
+  const [searching,  setSearching]  = useState(isDraft);
+  const [query,      setQuery]      = useState(isDraft ? '' : `${row.medicineNameSnapshot} ${row.strength}`);
+  const [results,    setResults]    = useState<Medicine[]>([]);
+  const [focusedIdx, setFocusedIdx] = useState<number>(-1);
+  const searchRef                   = useRef<HTMLInputElement>(null);
 
   // When the user swaps medicine on a committed row (button → search input),
   // focus the input and pre-select its text so typing replaces it cleanly.
@@ -107,6 +108,7 @@ function MedicineSearchCell({ row, onPick }: MedicineSearchCellProps): JSX.Eleme
 
   const handleSearch = (q: string): void => {
     setQuery(q);
+    setFocusedIdx(-1);                                  // fresh query → clear highlight
     if (q.length < 2) { setResults([]); return; }
     void searchMedicines(q).then(setResults);
   };
@@ -115,11 +117,40 @@ function MedicineSearchCell({ row, onPick }: MedicineSearchCellProps): JSX.Eleme
     setSearching(false);
     setQuery(`${m.name} ${m.strength}`);
     setResults([]);
+    setFocusedIdx(-1);
     onPick(m);
   };
 
   const handleBlur = (): void => {
-    if (!isDraft) { setSearching(false); setResults([]); }
+    if (!isDraft) { setSearching(false); setResults([]); setFocusedIdx(-1); }
+  };
+
+  /**
+   * ↓/↑ — move the highlight inside the dropdown
+   * Enter on a highlighted result — pick it (then bubble so the row's Enter
+   *   handler advances focus to the next field, Dosage)
+   * Enter with no highlight — bubble untouched so the row handler advances
+   * Escape — close the dropdown
+   */
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (e.key === 'ArrowDown') {
+      if (results.length === 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setFocusedIdx((i) => Math.min(i + 1, results.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      if (results.length === 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setFocusedIdx((i) => Math.max(i - 1, 0));
+    } else if (e.key === 'Enter' && focusedIdx >= 0 && results[focusedIdx]) {
+      e.preventDefault();                                // don't stopPropagation — let row advance
+      handlePick(results[focusedIdx]);
+    } else if (e.key === 'Escape' && results.length > 0) {
+      e.stopPropagation();
+      setResults([]);
+      setFocusedIdx(-1);
+    }
   };
 
   if (searching || isDraft) {
@@ -132,6 +163,7 @@ function MedicineSearchCell({ row, onPick }: MedicineSearchCellProps): JSX.Eleme
           value={query}
           onChange={(e) => handleSearch(e.target.value)}
           onBlur={handleBlur}
+          onKeyDown={handleKeyDown}
           autoFocus={isDraft}
           autoComplete="off"
         />
@@ -140,13 +172,17 @@ function MedicineSearchCell({ row, onPick }: MedicineSearchCellProps): JSX.Eleme
             style={getDropdownStyle()}
             className="max-h-48 overflow-auto rounded-md border border-hairline bg-background shadow-lg"
           >
-            {results.map((m) => (
+            {results.map((m, idx) => (
               <li key={m.id}>
                 <button
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
+                  onMouseEnter={() => setFocusedIdx(idx)}
                   onClick={() => handlePick(m)}
-                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
+                  className={cn(
+                    'flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition-colors',
+                    idx === focusedIdx ? 'bg-muted text-foreground' : 'hover:bg-muted',
+                  )}
                 >
                   <span>
                     <span className="font-medium">{m.name}</span>{' '}
@@ -220,6 +256,26 @@ function PrescriptionRow({ row, idx, allergies, onUpdate, onAddRow, onRemove }: 
 
   const allergyMatch = !isDraft ? findAllergyMatch(allergies, { id: row.medicineId, name: row.medicineNameSnapshot, strength: row.strength, severity: row.severity } as Medicine) : null;
   const blocked = !isDraft && isStockBlocked(row.severity);
+
+  /**
+   * Per-row banner dismissal. Banners (stock + allergy) appear by default;
+   * doctor can ✕ them — the corresponding badge on the medicine cell stays
+   * as the persistent indicator and re-toggles the banner when clicked.
+   * Resets whenever the medicine changes (fresh warnings for the new drug).
+   */
+  const [bannersDismissed, setBannersDismissed] = useState<Set<'stock' | 'allergy'>>(new Set());
+  useEffect(() => { setBannersDismissed(new Set()); }, [row.medicineId]);
+
+  const toggleBanner = (type: 'stock' | 'allergy'): void => {
+    setBannersDismissed((prev) => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type); else next.add(type);
+      return next;
+    });
+  };
+
+  const showStockBanner   = !isDraft && row.severity !== 'ok' && !bannersDismissed.has('stock');
+  const showAllergyBanner = !isDraft && !!allergyMatch       && !bannersDismissed.has('allergy');
 
   const handleCellClick = (field: string): void => {
     if (!isDraft && !editing) {
@@ -300,7 +356,28 @@ function PrescriptionRow({ row, idx, allergies, onUpdate, onAddRow, onRemove }: 
           {showEdit ? (
             <div className="flex flex-wrap items-center gap-1.5">
               <MedicineSearchCell row={row} onPick={handlePickMedicine} />
-              {!isDraft && <MedicineAvailabilityBadge severity={row.severity} compact />}
+              {!isDraft && (row.severity !== 'ok' ? (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); toggleBanner('stock'); }}
+                  title={bannersDismissed.has('stock') ? 'Show stock warning' : 'Hide stock warning'}
+                  className="rounded-full transition-shadow hover:ring-2 hover:ring-current/30"
+                >
+                  <MedicineAvailabilityBadge severity={row.severity} compact />
+                </button>
+              ) : (
+                <MedicineAvailabilityBadge severity={row.severity} compact />
+              ))}
+              {!isDraft && allergyMatch && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); toggleBanner('allergy'); }}
+                  title={bannersDismissed.has('allergy') ? 'Show allergy alert' : 'Hide allergy alert'}
+                  className="inline-flex items-center gap-0.5 rounded-full border border-danger/30 bg-danger/10 px-1.5 py-0.5 text-[10px] font-medium text-danger transition-shadow hover:ring-2 hover:ring-danger/30"
+                >
+                  <ShieldAlert className="h-2.5 w-2.5" /> Allergy
+                </button>
+              )}
               {row.overrideReason && (
                 <span
                   title={row.overrideReason}
@@ -316,7 +393,28 @@ function PrescriptionRow({ row, idx, allergies, onUpdate, onAddRow, onRemove }: 
                 <span className="font-medium">{row.medicineNameSnapshot}</span>{' '}
                 <span className="text-xs text-muted-foreground">{row.strength}</span>
               </span>
-              <MedicineAvailabilityBadge severity={row.severity} compact />
+              {row.severity !== 'ok' ? (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); toggleBanner('stock'); }}
+                  title={bannersDismissed.has('stock') ? 'Show stock warning' : 'Hide stock warning'}
+                  className="rounded-full transition-shadow hover:ring-2 hover:ring-current/30"
+                >
+                  <MedicineAvailabilityBadge severity={row.severity} compact />
+                </button>
+              ) : (
+                <MedicineAvailabilityBadge severity={row.severity} compact />
+              )}
+              {allergyMatch && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); toggleBanner('allergy'); }}
+                  title={bannersDismissed.has('allergy') ? 'Show allergy alert' : 'Hide allergy alert'}
+                  className="inline-flex items-center gap-0.5 rounded-full border border-danger/30 bg-danger/10 px-1.5 py-0.5 text-[10px] font-medium text-danger transition-shadow hover:ring-2 hover:ring-danger/30"
+                >
+                  <ShieldAlert className="h-2.5 w-2.5" /> Allergy
+                </button>
+              )}
               {row.overrideReason && (
                 <span
                   title={row.overrideReason}
@@ -460,18 +558,27 @@ function PrescriptionRow({ row, idx, allergies, onUpdate, onAddRow, onRemove }: 
         </td>
       </tr>
 
-      {/* Allergy / stock warning — spans full row */}
-      {!isDraft && (allergyMatch || row.severity !== 'ok') && (
+      {/* Allergy / stock warning — spans full row. Each banner is dismissible;
+          the badge on the medicine cell remains as the persistent indicator and
+          re-toggles the banner when clicked. */}
+      {(showAllergyBanner || showStockBanner) && (
         <tr className="border-b border-hairline">
           <td colSpan={10} className="pb-3 pt-1 pr-4">
-            {allergyMatch && <AllergyAlertBanner match={allergyMatch} medicine={{ id: row.medicineId, name: row.medicineNameSnapshot, strength: row.strength, severity: row.severity } as Medicine} />}
-            {row.severity !== 'ok' && (
+            {showAllergyBanner && (
+              <AllergyAlertBanner
+                match={allergyMatch!}
+                medicine={{ id: row.medicineId, name: row.medicineNameSnapshot, strength: row.strength, severity: row.severity } as Medicine}
+                onDismiss={() => toggleBanner('allergy')}
+              />
+            )}
+            {showStockBanner && row.severity !== 'ok' && (
               <StockWarningBanner
                 severity={row.severity}
                 medicineName={row.medicineNameSnapshot}
                 message={blocked
                   ? 'blocked: enter override reason in the instructions field.'
                   : `stock low — consider an alternative.`}
+                onDismiss={() => toggleBanner('stock')}
               />
             )}
           </td>
