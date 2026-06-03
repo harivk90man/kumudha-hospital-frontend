@@ -138,20 +138,21 @@ export function OtcInvoicesPage(): JSX.Element {
         </Button>
       </header>
 
-      {/* Shared tab strip across the three pharmacist surfaces — Rx
-          queue / OTC invoices (this page) / Refill — so they read as
-          one tabbed counter. */}
-      <PharmacyQueueTabs />
-
-      <div className="relative max-w-md">
-        <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-        <input
-          type="search"
-          value={q}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by OTC number, customer name, phone, or medicine..."
-          className="w-full rounded-md border bg-background py-2 pl-9 pr-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
-        />
+      {/* Unified filter row across the three pharmacist surfaces —
+          search on the left, PharmacyQueueTabs dropdown on the
+          right. Identical shape on Rx queue / OTC invoices / Refill. */}
+      <div className="flex flex-wrap items-end justify-between gap-3 border-t border-hairline pt-3">
+        <div className="relative flex items-end">
+          <Search className="pointer-events-none absolute left-0 bottom-2.5 h-4 w-4 text-muted-foreground" />
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="OTC number, customer, phone, medicine…"
+            className="w-72 rounded-none border-x-0 border-t-0 border-b border-hairline bg-transparent py-2 pl-6 pr-3 text-sm shadow-none focus:outline-none focus:border-primary"
+          />
+        </div>
+        <PharmacyQueueTabs />
       </div>
 
       {loading && sales.length === 0 ? (

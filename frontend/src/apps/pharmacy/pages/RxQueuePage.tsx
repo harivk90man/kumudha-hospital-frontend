@@ -213,23 +213,28 @@ export function RxQueuePage(): JSX.Element {
         </div>
       </header>
 
+      {/* Unified filter row across the three pharmacist surfaces —
+          count + search on the left, PharmacyQueueTabs dropdown on
+          the right. Same shape on Rx queue / OTC invoices / Refill
+          so the only thing the eye tracks between tabs is the
+          dropdown changing. */}
       <div className="flex flex-wrap items-end justify-between gap-3 border-t border-hairline pt-3">
         <div className="flex items-end gap-4">
           <span className="text-sm font-semibold text-foreground tabular-nums">
             {totalRows} {totalRows === 1 ? 'prescription' : 'prescriptions'}
           </span>
-          <PharmacyQueueTabs />
+          <div className="relative flex items-end">
+            <Search className="pointer-events-none absolute left-0 bottom-2.5 h-4 w-4 text-muted-foreground" />
+            <input
+              type="search"
+              value={q}
+              onChange={(e) => setParam('q', e.target.value || null)}
+              placeholder="Patient, UHID, OP, Rx…"
+              className="w-64 rounded-none border-x-0 border-t-0 border-b border-hairline bg-transparent py-2 pl-6 pr-3 text-sm shadow-none focus:outline-none focus:border-primary"
+            />
+          </div>
         </div>
-        <div className="relative flex items-end">
-          <Search className="pointer-events-none absolute left-0 bottom-2.5 h-4 w-4 text-muted-foreground" />
-          <input
-            type="search"
-            value={q}
-            onChange={(e) => setParam('q', e.target.value || null)}
-            placeholder="Patient, UHID, OP, Rx…"
-            className="w-64 rounded-none border-x-0 border-t-0 border-b border-hairline bg-transparent py-2 pl-6 pr-3 text-sm shadow-none focus:outline-none focus:border-primary"
-          />
-        </div>
+        <PharmacyQueueTabs />
       </div>
 
       {loading ? (

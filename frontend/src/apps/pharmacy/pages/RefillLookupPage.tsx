@@ -71,33 +71,34 @@ export function RefillLookupPage(): JSX.Element {
         </div>
       </header>
 
-      {/* Shared tab strip across the three pharmacist surfaces — Rx
-          queue / OTC invoices / Refill (this page) — so they read as
-          one tabbed counter. */}
-      <PharmacyQueueTabs />
-
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          void onLookup(lookup);
-        }}
-        className="flex max-w-2xl gap-2"
-      >
-        <label className="relative flex-1 min-w-[12rem]">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="search"
-            value={lookup}
-            onChange={(e) => setLookup(e.target.value)}
-            placeholder="Lookup by UHID (KH-...) or mobile (last 6 digits)"
-            className="w-full rounded-md border bg-background py-2 pl-9 pr-3 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
-          />
-        </label>
-        <Button type="submit" disabled={searching || !lookup.trim()}>
-          {searching ? <Spinner size="sm" /> : <Search />}
-          Search
-        </Button>
-      </form>
+      {/* Unified filter row across the three pharmacist surfaces —
+          lookup form on the left, PharmacyQueueTabs dropdown on the
+          right. Identical shape on Rx queue / OTC invoices / Refill. */}
+      <div className="flex flex-wrap items-end justify-between gap-3 border-t border-hairline pt-3">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void onLookup(lookup);
+          }}
+          className="flex items-end gap-2"
+        >
+          <label className="relative flex items-end">
+            <Search className="pointer-events-none absolute left-0 bottom-2.5 h-4 w-4 text-muted-foreground" />
+            <input
+              type="search"
+              value={lookup}
+              onChange={(e) => setLookup(e.target.value)}
+              placeholder="UHID (KH-…) or mobile (last 6 digits)"
+              className="w-72 rounded-none border-x-0 border-t-0 border-b border-hairline bg-transparent py-2 pl-6 pr-3 text-sm shadow-none focus:outline-none focus:border-primary"
+            />
+          </label>
+          <Button type="submit" size="sm" disabled={searching || !lookup.trim()}>
+            {searching ? <Spinner size="sm" /> : <Search />}
+            Search
+          </Button>
+        </form>
+        <PharmacyQueueTabs />
+      </div>
 
       {touched && !searching && results.length === 0 && lookup.trim() && (
         <Card>
