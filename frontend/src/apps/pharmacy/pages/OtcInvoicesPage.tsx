@@ -139,20 +139,26 @@ export function OtcInvoicesPage(): JSX.Element {
       </header>
 
       {/* Unified filter row across the three pharmacist surfaces —
-          search on the left, PharmacyQueueTabs dropdown on the
-          right. Identical shape on Rx queue / OTC invoices / Refill. */}
+          label on the left; search + PharmacyQueueTabs dropdown
+          right-aligned together. Mirrors the doctor / nurse queue
+          pattern. */}
       <div className="flex flex-wrap items-end justify-between gap-3 border-t border-hairline pt-3">
-        <div className="relative flex items-end">
-          <Search className="pointer-events-none absolute left-0 bottom-2.5 h-4 w-4 text-muted-foreground" />
-          <input
-            type="search"
-            value={q}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="OTC number, customer, phone, medicine…"
-            className="w-72 rounded-none border-x-0 border-t-0 border-b border-hairline bg-transparent py-2 pl-6 pr-3 text-sm shadow-none focus:outline-none focus:border-primary"
-          />
+        <span className="text-sm font-semibold text-foreground tabular-nums">
+          {filtered.length} {filtered.length === 1 ? 'invoice' : 'invoices'}
+        </span>
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="relative flex items-end">
+            <Search className="pointer-events-none absolute left-0 bottom-2.5 h-4 w-4 text-muted-foreground" />
+            <input
+              type="search"
+              value={q}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="OTC number, customer, phone, medicine…"
+              className="w-72 rounded-none border-x-0 border-t-0 border-b border-hairline bg-transparent py-2 pl-6 pr-3 text-sm shadow-none focus:outline-none focus:border-primary"
+            />
+          </div>
+          <PharmacyQueueTabs />
         </div>
-        <PharmacyQueueTabs />
       </div>
 
       {loading && sales.length === 0 ? (

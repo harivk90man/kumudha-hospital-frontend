@@ -72,32 +72,38 @@ export function RefillLookupPage(): JSX.Element {
       </header>
 
       {/* Unified filter row across the three pharmacist surfaces —
-          lookup form on the left, PharmacyQueueTabs dropdown on the
-          right. Identical shape on Rx queue / OTC invoices / Refill. */}
+          label on the left; lookup form + PharmacyQueueTabs dropdown
+          right-aligned together. Mirrors the doctor / nurse queue
+          pattern. */}
       <div className="flex flex-wrap items-end justify-between gap-3 border-t border-hairline pt-3">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void onLookup(lookup);
-          }}
-          className="flex items-end gap-2"
-        >
-          <label className="relative flex items-end">
-            <Search className="pointer-events-none absolute left-0 bottom-2.5 h-4 w-4 text-muted-foreground" />
-            <input
-              type="search"
-              value={lookup}
-              onChange={(e) => setLookup(e.target.value)}
-              placeholder="UHID (KH-…) or mobile (last 6 digits)"
-              className="w-72 rounded-none border-x-0 border-t-0 border-b border-hairline bg-transparent py-2 pl-6 pr-3 text-sm shadow-none focus:outline-none focus:border-primary"
-            />
-          </label>
-          <Button type="submit" size="sm" disabled={searching || !lookup.trim()}>
-            {searching ? <Spinner size="sm" /> : <Search />}
-            Search
-          </Button>
-        </form>
-        <PharmacyQueueTabs />
+        <span className="text-sm font-semibold text-foreground">
+          Lookup patient
+        </span>
+        <div className="flex flex-wrap items-end gap-4">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void onLookup(lookup);
+            }}
+            className="flex items-end gap-2"
+          >
+            <label className="relative flex items-end">
+              <Search className="pointer-events-none absolute left-0 bottom-2.5 h-4 w-4 text-muted-foreground" />
+              <input
+                type="search"
+                value={lookup}
+                onChange={(e) => setLookup(e.target.value)}
+                placeholder="UHID (KH-…) or mobile (last 6 digits)"
+                className="w-72 rounded-none border-x-0 border-t-0 border-b border-hairline bg-transparent py-2 pl-6 pr-3 text-sm shadow-none focus:outline-none focus:border-primary"
+              />
+            </label>
+            <Button type="submit" size="sm" disabled={searching || !lookup.trim()}>
+              {searching ? <Spinner size="sm" /> : <Search />}
+              Search
+            </Button>
+          </form>
+          <PharmacyQueueTabs />
+        </div>
       </div>
 
       {touched && !searching && results.length === 0 && lookup.trim() && (

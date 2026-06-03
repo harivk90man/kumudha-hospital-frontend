@@ -214,15 +214,15 @@ export function RxQueuePage(): JSX.Element {
       </header>
 
       {/* Unified filter row across the three pharmacist surfaces —
-          count + search on the left, PharmacyQueueTabs dropdown on
-          the right. Same shape on Rx queue / OTC invoices / Refill
-          so the only thing the eye tracks between tabs is the
-          dropdown changing. */}
+          count on the left; search + PharmacyQueueTabs dropdown
+          right-aligned together. Mirrors the doctor / nurse queue
+          pages so the eye doesn't have to retrain between
+          operational screens. */}
       <div className="flex flex-wrap items-end justify-between gap-3 border-t border-hairline pt-3">
-        <div className="flex items-end gap-4">
-          <span className="text-sm font-semibold text-foreground tabular-nums">
-            {totalRows} {totalRows === 1 ? 'prescription' : 'prescriptions'}
-          </span>
+        <span className="text-sm font-semibold text-foreground tabular-nums">
+          {totalRows} {totalRows === 1 ? 'prescription' : 'prescriptions'}
+        </span>
+        <div className="flex flex-wrap items-end gap-4">
           <div className="relative flex items-end">
             <Search className="pointer-events-none absolute left-0 bottom-2.5 h-4 w-4 text-muted-foreground" />
             <input
@@ -233,8 +233,8 @@ export function RxQueuePage(): JSX.Element {
               className="w-64 rounded-none border-x-0 border-t-0 border-b border-hairline bg-transparent py-2 pl-6 pr-3 text-sm shadow-none focus:outline-none focus:border-primary"
             />
           </div>
+          <PharmacyQueueTabs />
         </div>
-        <PharmacyQueueTabs />
       </div>
 
       {loading ? (
