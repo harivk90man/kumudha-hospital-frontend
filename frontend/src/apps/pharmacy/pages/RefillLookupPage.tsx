@@ -94,7 +94,7 @@ export function RefillLookupPage(): JSX.Element {
                 value={lookup}
                 onChange={(e) => setLookup(e.target.value)}
                 placeholder="UHID (KH-…) or mobile (last 6 digits)"
-                className="w-72 rounded-none border-x-0 border-t-0 border-b border-hairline bg-transparent py-2 pl-6 pr-3 text-sm shadow-none focus:outline-none focus:border-primary"
+                className="w-64 rounded-none border-x-0 border-t-0 border-b border-hairline bg-transparent py-2 pl-6 pr-3 text-sm shadow-none focus:outline-none focus:border-primary"
               />
             </label>
             <Button type="submit" size="sm" disabled={searching || !lookup.trim()}>

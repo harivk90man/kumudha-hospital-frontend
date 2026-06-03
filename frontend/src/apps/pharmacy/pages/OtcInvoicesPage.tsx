@@ -154,7 +154,7 @@ export function OtcInvoicesPage(): JSX.Element {
               value={q}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="OTC number, customer, phone, medicine…"
-              className="w-72 rounded-none border-x-0 border-t-0 border-b border-hairline bg-transparent py-2 pl-6 pr-3 text-sm shadow-none focus:outline-none focus:border-primary"
+              className="w-64 rounded-none border-x-0 border-t-0 border-b border-hairline bg-transparent py-2 pl-6 pr-3 text-sm shadow-none focus:outline-none focus:border-primary"
             />
           </div>
           <PharmacyQueueTabs />
