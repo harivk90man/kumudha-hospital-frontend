@@ -13,7 +13,7 @@ import { Card, CardHeader, CardLabel, CardTitle } from '@/components/layout';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/feedback/Spinner';
 import { cn } from '@/utils/cn';
-import { FormSelect } from '@/components/form';
+import { FormInput, FormSelect } from '@/components/form';
 import {
   dispenseOtcSale,
   fetchOtcUnitPrice,
@@ -385,146 +385,180 @@ export function CounterSalePage(): JSX.Element {
                 Search and add medicines to the cart.
               </p>
             ) : (
-              <ul className="flex flex-col divide-y">
-                {cart.map((l) => (
-                  <li key={l.medicine.id} className="flex items-center gap-3 py-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium">
-                        {l.medicine.name}{' '}
-                        <span className="text-xs text-muted-foreground">
-                          {l.medicine.strength}
-                        </span>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {formatCurrency(l.unitPrice)}/unit · stock{' '}
-                        {l.medicine.availableQty}
-                      </div>
-                    </div>
-                    <input
-                      type="number"
-                      min={1}
-                      max={l.medicine.availableQty}
-                      value={l.quantity}
-                      onChange={(e) =>
-                        setLineQty(l.medicine.id, Number(e.target.value) || 1)
-                      }
-                      className="w-16 rounded-md border bg-background px-2 py-1 text-right text-sm tabular-nums shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                    />
-                    <span className="w-20 text-right font-mono text-sm tabular-nums">
-                      {formatCurrency(l.unitPrice * l.quantity)}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => removeLine(l.medicine.id)}
-                      aria-label="Remove line"
-                    >
-                      <Trash2 />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
+              /* Same table shape as Rx dispense: Medicine / Stock /
+                 Qty / Unit / Line / Action — visual ditto so the
+                 pharmacist's eye doesn't have to retrain between
+                 the two pages. */
+              <div className="overflow-x-auto rounded-xl border bg-card">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="px-3 py-2.5 font-medium">Medicine</th>
+                      <th className="px-3 py-2.5 font-medium">Stock</th>
+                      <th className="px-3 py-2.5 font-medium">Qty</th>
+                      <th className="px-3 py-2.5 text-right font-medium">Unit</th>
+                      <th className="px-3 py-2.5 text-right font-medium">Line</th>
+                      <th className="px-3 py-2.5 text-right font-medium">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cart.map((l) => (
+                      <tr key={l.medicine.id} className="border-b align-top last:border-b-0">
+                        <td className="px-3 py-3">
+                          <div className="font-medium">
+                            {l.medicine.name}{' '}
+                            <span className="text-xs text-muted-foreground">
+                              {l.medicine.strength}
+                            </span>
+                          </div>
+                          {l.medicine.genericName && (
+                            <div className="text-[11px] text-muted-foreground">
+                              gen: {l.medicine.genericName}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-3 py-3">
+                          <StatusPill
+                            tone={l.medicine.availableQty >= l.quantity ? 'success' : 'danger'}
+                            size="sm"
+                          >
+                            {l.medicine.availableQty >= l.quantity
+                              ? `Stock · ${l.medicine.availableQty}`
+                              : `Short · ${l.medicine.availableQty}`}
+                          </StatusPill>
+                        </td>
+                        <td className="px-3 py-3">
+                          <input
+                            type="number"
+                            min={1}
+                            max={l.medicine.availableQty}
+                            value={l.quantity}
+                            onChange={(e) =>
+                              setLineQty(l.medicine.id, Number(e.target.value) || 1)
+                            }
+                            className="w-16 rounded-md border bg-background px-2 py-1 text-right text-sm tabular-nums shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                          />
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono tabular-nums">
+                          {formatCurrency(l.unitPrice)}
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono font-semibold tabular-nums">
+                          {formatCurrency(l.unitPrice * l.quantity)}
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeLine(l.medicine.id)}
+                            aria-label="Remove line"
+                          >
+                            <Trash2 />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </Card>
 
-          {/* Payment summary — sticky on tall viewports so totals stay
-              glanceable while the pharmacist edits the cart. */}
-          <Card className={cn('lg:sticky lg:top-4 lg:self-start')}>
-            <CardHeader>
-              <CardTitle>Counter sale</CardTitle>
-              <CardLabel>OTC</CardLabel>
-            </CardHeader>
-
-            <div className="flex flex-col gap-2">
-              <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium text-muted-foreground">
-                  Customer name (optional)
-                </span>
-                <input
-                  type="text"
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="For the receipt"
-                  className="rounded-md border bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-xs font-medium text-muted-foreground">
-                  Customer phone <span className="text-danger">*</span>
-                </span>
-                <input
-                  type="tel"
-                  value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
-                  placeholder="10-digit"
-                  aria-invalid={phoneShowError || undefined}
-                  className={cn(
-                    'rounded-md border bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring',
-                    phoneShowError && 'border-danger focus:ring-danger',
-                  )}
-                />
-                {phoneShowError && (
-                  <span className="text-xs text-danger">
-                    Enter at least 10 digits.
-                  </span>
-                )}
-              </label>
-            </div>
-
-            {/* Payment is captured in-line with the sale — OTC is
-                always paid at the counter, so "Record sale" and
-                "Collect payment" are one action, not two. */}
-            <div className="flex flex-col gap-2 border-t pt-3">
-              <FormSelect
-                label="Payment method"
-                value={paymentMethod}
-                onChange={(e) =>
-                  setPaymentMethod(e.target.value as OtcPaymentMethod)
-                }
-              >
-                <option value="cash">Cash</option>
-                <option value="upi">UPI</option>
-                <option value="card">Card</option>
-                <option value="netbanking">Net banking</option>
-              </FormSelect>
-              {paymentMethod !== 'cash' && (
+          {/* Right rail — same shape as Rx dispense: separate sticky
+              Cards stacked vertically. Customer → Totals → Payment.
+              The CTA stays in the page header above. */}
+          <aside className="flex flex-col gap-4 lg:sticky lg:top-4 lg:self-start">
+            <Card>
+              <CardHeader>
+                <CardTitle>Customer</CardTitle>
+                <CardLabel>OTC walk-in</CardLabel>
+              </CardHeader>
+              <div className="flex flex-col gap-2">
                 <label className="flex flex-col gap-1">
                   <span className="text-xs font-medium text-muted-foreground">
-                    Reference no (optional)
+                    Name (optional)
                   </span>
                   <input
                     type="text"
-                    value={paymentRef}
-                    onChange={(e) => setPaymentRef(e.target.value)}
-                    placeholder="UPI txn id, RRN…"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                    placeholder="For the receipt"
                     className="rounded-md border bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   />
                 </label>
-              )}
-            </div>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Phone <span className="text-danger">*</span>
+                  </span>
+                  <input
+                    type="tel"
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    placeholder="10-digit"
+                    aria-invalid={phoneShowError || undefined}
+                    className={cn(
+                      'rounded-md border bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring',
+                      phoneShowError && 'border-danger focus:ring-danger',
+                    )}
+                  />
+                  {phoneShowError && (
+                    <span className="text-xs text-danger">
+                      Enter at least 10 digits.
+                    </span>
+                  )}
+                </label>
+              </div>
+            </Card>
 
-            <div className="flex flex-col gap-1 border-t pt-3 text-sm">
-              <div className="flex justify-between text-muted-foreground">
-                <span>Subtotal</span>
-                <span className="font-mono tabular-nums">
-                  {formatCurrency(totals.subtotal)}
-                </span>
+            <Card>
+              <div className="flex flex-col gap-1.5 text-sm">
+                <div className="flex items-baseline justify-between">
+                  <span>Subtotal</span>
+                  <span className="font-mono tabular-nums">
+                    {formatCurrency(totals.subtotal)}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span>GST ({DEFAULT_OTC_GST_PCT}%)</span>
+                  <span className="font-mono tabular-nums">
+                    {formatCurrency(totals.gst)}
+                  </span>
+                </div>
+                <div className="mt-2 flex items-baseline justify-between border-t pt-2 text-base font-semibold">
+                  <span>Total</span>
+                  <span className="font-mono tabular-nums">
+                    {formatCurrency(totals.total)}
+                  </span>
+                </div>
               </div>
-              <div className="flex justify-between text-muted-foreground">
-                <span>GST ({DEFAULT_OTC_GST_PCT}%)</span>
-                <span className="font-mono tabular-nums">
-                  {formatCurrency(totals.gst)}
-                </span>
-              </div>
-              <div className="flex justify-between border-t pt-1 text-base font-semibold">
-                <span>Total</span>
-                <span className="font-mono tabular-nums">
-                  {formatCurrency(totals.total)}
-                </span>
-              </div>
-            </div>
-          </Card>
+            </Card>
+
+            {totals.total > 0 && (
+              <Card>
+                <h3 className="text-sm font-semibold">Payment</h3>
+                <FormSelect
+                  label="Method"
+                  value={paymentMethod}
+                  onChange={(e) =>
+                    setPaymentMethod(e.target.value as OtcPaymentMethod)
+                  }
+                >
+                  <option value="cash">Cash</option>
+                  <option value="upi">UPI</option>
+                  <option value="card">Card</option>
+                  <option value="netbanking">Net banking</option>
+                </FormSelect>
+                {paymentMethod !== 'cash' && (
+                  <FormInput
+                    label="Reference (optional)"
+                    value={paymentRef}
+                    onChange={(e) => setPaymentRef(e.target.value)}
+                    placeholder="UPI txn id, RRN, …"
+                  />
+                )}
+              </Card>
+            )}
+          </aside>
         </div>
       )}
     </div>
