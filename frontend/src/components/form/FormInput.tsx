@@ -50,6 +50,7 @@ export const FormInput = forwardRef<HTMLInputElement, FormInputProps>(function F
           id={inputId}
           ref={ref}
           aria-label={isFlat ? label : undefined}
+          aria-required={requiredMark || undefined}
           aria-invalid={Boolean(error)}
           aria-describedby={describedBy}
           className={cn(
@@ -58,6 +59,9 @@ export const FormInput = forwardRef<HTMLInputElement, FormInputProps>(function F
           )}
           {...rest}
         />
+        {isFlat && requiredMark && (
+          <span aria-hidden="true" className="text-danger">*</span>
+        )}
         {trailing}
       </span>
       {error ? (
