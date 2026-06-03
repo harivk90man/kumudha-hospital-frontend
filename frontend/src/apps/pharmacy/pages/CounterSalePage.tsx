@@ -131,8 +131,22 @@ export function CounterSalePage(): JSX.Element {
     return { subtotal, gst, total: subtotal + gst };
   }, [cart]);
 
+  /**
+   * Phone is mandatory on every OTC sale — issue #3. Receipt routing
+   * + future SMS reminders depend on it. Validation: at least 10
+   * digits (ignoring spaces/+/-) so "98...." style entries pass and
+   * single-digit typos don't. Submit is blocked until valid.
+   */
+  const phoneDigits = customerPhone.replace(/[^\d]/g, '');
+  const phoneValid = phoneDigits.length >= 10;
+  const phoneShowError = customerPhone.trim().length > 0 && !phoneValid;
+
   const onRecordSale = async (): Promise<void> => {
     if (cart.length === 0) return;
+    // Defence-in-depth — the submit button is already disabled while
+    // the phone is invalid, but a keyboard shortcut / programmatic
+    // click could bypass it. Bail before the API roundtrip.
+    if (!phoneValid) return;
     setBusy(true);
     try {
       const res = await dispenseOtcSale({
@@ -236,7 +250,8 @@ export function CounterSalePage(): JSX.Element {
             <Button
               type="button"
               onClick={() => void onRecordSale()}
-              disabled={busy}
+              disabled={busy || cart.length === 0 || !phoneValid}
+              title={!phoneValid ? 'Customer phone is required (10+ digits)' : undefined}
             >
               {busy ? <Spinner size="sm" /> : <CheckCircle2 />}
               {busy
@@ -436,15 +451,24 @@ export function CounterSalePage(): JSX.Element {
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-xs font-medium text-muted-foreground">
-                  Customer phone (optional)
+                  Customer phone <span className="text-danger">*</span>
                 </span>
                 <input
                   type="tel"
                   value={customerPhone}
                   onChange={(e) => setCustomerPhone(e.target.value)}
                   placeholder="10-digit"
-                  className="rounded-md border bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  aria-invalid={phoneShowError || undefined}
+                  className={cn(
+                    'rounded-md border bg-background px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-ring',
+                    phoneShowError && 'border-danger focus:ring-danger',
+                  )}
                 />
+                {phoneShowError && (
+                  <span className="text-xs text-danger">
+                    Enter at least 10 digits.
+                  </span>
+                )}
               </label>
             </div>
 
