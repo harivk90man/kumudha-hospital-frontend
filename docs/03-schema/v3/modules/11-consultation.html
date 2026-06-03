@@ -37,6 +37,7 @@
       <ol class="mb-0 small">
         <li><a href="#vitals">vitals</a> — nurse-recorded vital signs before consultation &nbsp;<span class="badge bg-success">signed off</span></li>
         <li><a href="#consultations">consultations</a> — doctor's clinical record: complaint, findings, ICD-10 diagnoses, plan &nbsp;<span class="badge bg-success">signed off</span></li>
+        <li><a href="#consultation_attachments">consultation_attachments</a> — images and videos the doctor uploads against the consultation (clinical photos, wound shots, examination clips) &nbsp;<span class="badge bg-warning text-dark">draft</span></li>
         <li><a href="#diagnosis_templates">diagnosis_templates</a> — reusable templates per specialty &nbsp;<span class="badge bg-success">signed off</span></li>
         <li><a href="#prescriptions">prescriptions</a> — prescription header; status drives pharmacy workflow &nbsp;<span class="badge bg-success">signed off</span></li>
         <li><a href="#prescription_items">prescription_items</a> — individual drug lines &nbsp;<span class="badge bg-success">signed off</span></li>
@@ -307,10 +308,114 @@
   </section>
 
   <!-- ================================================================ -->
-  <!-- 3. diagnosis_templates                                          -->
+  <!-- 3. consultation_attachments                                     -->
+  <!-- ================================================================ -->
+  <section id="consultation_attachments" class="mb-5">
+    <h2>3. consultation_attachments
+      <span class="badge bg-success">mutable</span>
+      <span class="badge bg-info">L1 audit</span>
+      <span class="badge bg-info">L3 audit</span>
+      <span class="badge bg-warning text-dark">soft-delete</span>
+      <span class="badge bg-warning text-dark">draft</span>
+    </h2>
+    <p>Files the doctor uploads against a <code>consultations</code> row during the visit — clinical photos (rash, wound, post-op site), short examination clips (gait, tremor, ROM), and scanned outside reports the patient brings on paper. One row per file; multiple files per consultation are common. Lives next to the parent consultation so it inherits the same lock semantics — <strong>uploads are frozen once the parent consultation is locked</strong> (enforced via the lock-guard trigger; see Triggers below).</p>
+    <p class="small text-muted"><strong>Files supported (v1):</strong> images (<code>image/jpeg</code>, <code>image/png</code>, <code>image/webp</code>), PDFs (<code>application/pdf</code>), short clinical videos (<code>video/mp4</code>, <code>video/webm</code>). MIME column records the format; the app enforces the allowlist at upload, the CHECK below is the DB-level guard. <strong>No file-size CHECK beyond <code>&gt; 0</code></strong> — the upper bound is intentionally app-layer config so it can be tuned per environment without a schema migration.</p>
+    <p class="small text-muted"><strong>Storage strategy:</strong> v1 stores the binary in <code>file_data bytea</code>, matching <code>radiology_attachments</code>. <code>file_url text</code> is <strong>provisioned from day 1</strong> so the future migration to S3 (or any object store) is a backfill — populate <code>file_url</code>, null out <code>file_data</code>, no schema change, no wire-format change. The <code>chk_consultation_attachments_storage</code> CHECK requires at least one of the two columns to be set; both can briefly coexist during the migration window. <strong>Video in <code>bytea</code> is a known short-term bloat</strong> and is the primary driver to migrate this table to object storage first.</p>
+
+    <h5>Columns (table-specific; uniform block also present)</h5>
+    <div class="table-responsive">
+    <table class="table table-striped table-sm align-middle">
+      <thead class="table-light">
+        <tr><th>Column</th><th>Type</th><th>Null</th><th>Constraint</th><th>Default</th><th>Comment</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>id</code></td><td>uuid</td><td>NO</td><td>PK</td><td><code>uuidv7()</code></td><td>Surrogate primary key</td></tr>
+        <tr><td><code>consultation_id</code></td><td>uuid</td><td>NO</td><td>FK → <code>consultations(id)</code> CASCADE</td><td>—</td><td>Parent consultation. If the consultation is hard-deleted (rare admin action) the attachments go with it. Soft-delete on the parent does NOT cascade; rows are reached via the parent's soft-deleted state.</td></tr>
+        <tr><td><code>file_name</code></td><td>text</td><td>NO</td><td>—</td><td>—</td><td>Original filename as uploaded (e.g. <code>wound_left_shin_20260603.jpg</code>, <code>gait_clip.mp4</code>, <code>outside_report_apollo.pdf</code>). Displayed in the doctor's file list.</td></tr>
+        <tr><td><code>file_type</code></td><td>text</td><td>NO</td><td>CHECK IN (…)</td><td>—</td><td>MIME type. App enforces the allowlist at upload; CHECK adds a DB-level guard.</td></tr>
+        <tr><td><code>file_data</code></td><td>bytea</td><td>YES</td><td>—</td><td>—</td><td>v1 in-DB binary. Nullable so that post-migration rows (with <code>file_url</code> only) are also valid. See storage strategy above.</td></tr>
+        <tr><td><code>file_url</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Future object-store URL (S3 or equivalent). Nullable while v1 stores in <code>file_data</code>. Provisioned from day 1 to keep migration as a backfill.</td></tr>
+        <tr><td><code>file_size_bytes</code></td><td>bigint</td><td>NO</td><td>CHECK &gt; 0</td><td>—</td><td>File size in bytes — displayed in the UI and used for storage quota monitoring. <code>bigint</code> (not <code>int</code>) because video clips can exceed the 2 GB <code>int</code> ceiling. Upper bound enforced at the app layer, not the schema.</td></tr>
+        <tr><td><code>caption</code></td><td>text</td><td>YES</td><td>—</td><td>—</td><td>Doctor's label for the file (e.g. <code>Wound day 3</code>, <code>Tremor — resting</code>, <code>Outside report — Apollo 2026-04</code>). Shown alongside the file in the consultation view and on the printed summary if relevant.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">+ the 7 uniform audit + soft-delete columns. Soft-delete allows the doctor to retract an accidentally uploaded file before locking the consultation without destroying the row (audit trail preserved).</p>
+
+    <h5>Constraints &amp; Indexes</h5>
+    <ul class="small">
+      <li><code>pk_consultation_attachments</code> — PRIMARY KEY (id)</li>
+      <li><code>chk_consultation_attachments_file_type</code> — CHECK <code>file_type IN ('image/jpeg','image/png','image/webp','application/pdf','video/mp4','video/webm')</code></li>
+      <li><code>chk_consultation_attachments_file_size</code> — CHECK <code>file_size_bytes &gt; 0</code> &nbsp;<span class="text-muted">— upper bound deliberately app-layer config</span></li>
+      <li><code>chk_consultation_attachments_storage</code> — CHECK <code>file_data IS NOT NULL OR file_url IS NOT NULL</code> &nbsp;<span class="text-muted">— at-least-one (not exactly-one) so both can coexist during S3 migration backfill</span></li>
+      <li><code>ix_consultation_attachments_consultation</code> — INDEX (consultation_id, created_at DESC) WHERE <code>deleted_at IS NULL</code> &nbsp;<span class="text-muted">— doctor's file list within a consultation, chronological order (newest first). No <code>sequence_no</code> — files render by upload time; soft-deletes leave no display gap.</span></li>
+    </ul>
+
+    <h5>Triggers</h5>
+    <ul class="small">
+      <li><code>tr_consultation_attachments_bu_touch</code> — BEFORE UPDATE → <code>fn_touch_updated()</code></li>
+      <li><code>tr_consultation_attachments_bi_bu_lock_guard</code> — BEFORE INSERT/UPDATE → raises exception if the parent <code>consultations.status = 'locked'</code> &nbsp;<span class="text-muted">— mirrors <code>tr_consultations_bu_lock_guard</code>; attachments are frozen when the consultation locks. Soft-delete (<code>UPDATE … SET deleted_at = now()</code>) on an attachment whose parent is locked is also blocked by this guard — retractions must happen before lock.</span></li>
+      <li><code>tr_consultation_attachments_au_audit</code> — AFTER INSERT/UPDATE/DELETE → <code>fn_audit_row()</code></li>
+    </ul>
+
+    <h5>Sample data — all columns</h5>
+    <div class="table-responsive sample-data">
+    <table class="table table-bordered table-sm">
+      <thead class="table-light">
+        <tr><th>id</th><th>consultation_id</th><th>file_name</th><th>file_type</th><th>file_data</th><th>file_url</th><th>file_size_bytes</th><th>caption</th><th>created_by</th><th>created_at</th><th>updated_by</th><th>updated_at</th><th>version</th><th>deleted_at</th><th>deleted_by</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>…ca001</code></td>
+          <td><code>…cn001 (Meena)</code></td>
+          <td>throat_meena_20260513.jpg</td><td>image/jpeg</td>
+          <td><code>[bytea]</code></td><td>NULL</td>
+          <td>312840</td>
+          <td>Pharyngeal erythema</td>
+          <td><code>…0002 (Dr Priya)</code></td><td>2026-05-13 10:18</td>
+          <td>NULL</td><td>2026-05-13 10:18</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…ca002</code></td>
+          <td><code>…cn001 (Meena)</code></td>
+          <td>tympanic_membrane_right.jpg</td><td>image/jpeg</td>
+          <td><code>[bytea]</code></td><td>NULL</td>
+          <td>284100</td>
+          <td>R TM — normal</td>
+          <td><code>…0002 (Dr Priya)</code></td><td>2026-05-13 10:20</td>
+          <td>NULL</td><td>2026-05-13 10:20</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…ca003</code></td>
+          <td><code>…cn002 (Rajan)</code></td>
+          <td>outside_lipid_apollo_2026apr.pdf</td><td>application/pdf</td>
+          <td><code>[bytea]</code></td><td>NULL</td>
+          <td>418200</td>
+          <td>Outside lipid panel — Apollo Apr 2026</td>
+          <td><code>…0003 (Dr Arjun)</code></td><td>2026-05-13 10:33</td>
+          <td>NULL</td><td>2026-05-13 10:33</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td><code>…ca004</code></td>
+          <td><code>…cn002 (Rajan)</code></td>
+          <td>gait_clip_rajan.mp4</td><td>video/mp4</td>
+          <td><code>[bytea]</code></td><td>NULL</td>
+          <td>18452900</td>
+          <td>Gait — 12 sec, AP corridor</td>
+          <td><code>…0003 (Dr Arjun)</code></td><td>2026-05-13 10:36</td>
+          <td>NULL</td><td>2026-05-13 10:36</td><td>0</td><td>NULL</td><td>NULL</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <p class="small text-muted">Rows 1–2 hang off Meena's <code>locked</code> consultation — uploaded before lock; further inserts against <code>…cn001</code> would now be blocked by the lock-guard trigger. Rows 3–4 hang off Rajan's <code>draft</code> consultation — the doctor can still add or retract until he clicks Complete; files render in upload-time order. Row 4 is a ~18 MB gait clip and illustrates the v1 bytea bloat that motivates the S3 migration; <code>file_url</code> stays NULL until that migration runs.</p>
+  </section>
+
+  <!-- ================================================================ -->
+  <!-- 4. diagnosis_templates                                          -->
   <!-- ================================================================ -->
   <section id="diagnosis_templates" class="mb-5">
-    <h2>3. diagnosis_templates
+    <h2>4. diagnosis_templates
       <span class="badge bg-success">mutable</span>
       <span class="badge bg-info">L1 audit</span>
       <span class="badge bg-info">L3 audit</span>
@@ -415,10 +520,10 @@
   </section>
 
   <!-- ================================================================ -->
-  <!-- 4. prescriptions                                                -->
+  <!-- 5. prescriptions                                                -->
   <!-- ================================================================ -->
   <section id="prescriptions" class="mb-5">
-    <h2>4. prescriptions
+    <h2>5. prescriptions
       <span class="badge bg-success">mutable</span>
       <span class="badge bg-info">L1 audit</span>
       <span class="badge bg-info">L3 audit</span>
@@ -500,10 +605,10 @@
   </section>
 
   <!-- ================================================================ -->
-  <!-- 5. prescription_items                                           -->
+  <!-- 6. prescription_items                                           -->
   <!-- ================================================================ -->
   <section id="prescription_items" class="mb-5">
-    <h2>5. prescription_items
+    <h2>6. prescription_items
       <span class="badge bg-success">mutable</span>
       <span class="badge bg-info">L1 audit</span>
       <span class="badge bg-info">L3 audit</span>
@@ -590,10 +695,10 @@
   </section>
 
   <!-- ================================================================ -->
-  <!-- 6. doctor_recommendations                                       -->
+  <!-- 7. doctor_recommendations                                       -->
   <!-- ================================================================ -->
   <section id="doctor_recommendations" class="mb-5">
-    <h2>6. doctor_recommendations
+    <h2>7. doctor_recommendations
       <span class="badge bg-success">mutable</span>
       <span class="badge bg-info">L1 audit</span>
       <span class="badge bg-info">L3 audit</span>
@@ -679,7 +784,7 @@
 
   <!-- consultation_drafts dropped — status column on consultations covers draft vs locked -->
   <section id="consultation_drafts" class="mb-5" style="display:none">
-    <h2>7. consultation_drafts
+    <h2>8. consultation_drafts
       <span class="badge bg-success">mutable</span>
       <span class="badge bg-info">L1 audit</span>
       <span class="badge bg-info">L3 audit</span>
