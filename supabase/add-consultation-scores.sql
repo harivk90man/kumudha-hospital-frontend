@@ -13,8 +13,15 @@
 -- exists`. Re-running is a no-op.
 -- =====================================================================
 
+-- pgcrypto is always available on Supabase; gen_random_uuid() ships
+-- with it. We use it instead of the project's bespoke uuidv7() so
+-- the migration runs cleanly on any database state — including the
+-- one the user is seeing right now where the helpers migration
+-- hasn't been applied.
+create extension if not exists pgcrypto;
+
 create table if not exists consultation_scores (
-  id              uuid          primary key default uuidv7(),
+  id              uuid          primary key default gen_random_uuid(),
   consultation_id uuid          not null references consultations(id) on delete cascade,
   scale_code      text          not null,
   scale_version   text          not null default 'v1',
@@ -56,8 +63,32 @@ create index if not exists ix_consultation_scores_consultation
   on consultation_scores (consultation_id)
   where deleted_at is null;
 
--- Touch trigger so updated_at moves on every UPDATE without each
--- caller having to remember to set it.
+-- Touch trigger: bumps updated_at + version on every UPDATE.
+-- Re-uses the project-wide fn_touch_updated() when it's already been
+-- installed by 20260101000100_helpers.sql. When that migration
+-- hasn't run yet (fresh DB), we install a local copy here so this
+-- file stays self-contained.
+do $$
+begin
+  if not exists (
+    select 1 from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+     where p.proname = 'fn_touch_updated' and n.nspname = 'public'
+  ) then
+    execute $f$
+      create or replace function fn_touch_updated() returns trigger
+      language plpgsql
+      as $body$
+      begin
+        new.updated_at := now();
+        new.version    := coalesce(old.version, 0) + 1;
+        return new;
+      end
+      $body$;
+    $f$;
+  end if;
+end $$;
+
 drop trigger if exists tr_consultation_scores_bu_touch on consultation_scores;
 create trigger tr_consultation_scores_bu_touch
   before update on consultation_scores
