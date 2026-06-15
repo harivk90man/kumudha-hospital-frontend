@@ -22,6 +22,7 @@ export { VitalsEditSheet } from './components/VitalsEditSheet';
 export { ConsultationNotesForm } from './components/ConsultationNotesForm';
 export { DiagnosisForm } from './components/DiagnosisForm';
 export { FollowUpAdvicePanel } from './components/FollowUpAdvicePanel';
+export { FunctionalScoringPanel } from './components/FunctionalScoringPanel';
 export { AdmissionAdvicePanel } from './components/AdmissionAdvicePanel';
 export { AmendWithReasonSheet } from './components/AmendWithReasonSheet';
 export { VisitHistoryPanel } from './components/VisitHistoryPanel';
@@ -65,4 +66,6 @@ export type {
   ConsultationDraft,
   ConsultationContextBase,
   ConsultationAmendment,
+  FunctionalScore,
+  FunctionalScaleCode,
 } from './consultationTypes';

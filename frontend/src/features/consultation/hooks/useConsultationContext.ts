@@ -52,6 +52,7 @@ const toDraftData = (ctx: ConsultationContext): Partial<ConsultationContextBase>
   admission: ctx.admission,
   recommendations: ctx.recommendations,
   nextAction: ctx.nextAction,
+  functionalScores: ctx.functionalScores,
 });
 
 /**

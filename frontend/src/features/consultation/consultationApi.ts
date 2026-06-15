@@ -318,7 +318,8 @@ const blankContextFromSupabase = async (
           id, status, chief_complaint, history_of_present_illness,
           examination_findings, clinical_notes, advice, diagnoses,
           follow_up_required, follow_up_date, locked_at,
-          prescriptions ( id, status, prescription_items ( id, medicine_id, medicine_name_snapshot, dosage, frequency, duration_days, quantity_prescribed, sequence_no ) )
+          prescriptions ( id, status, prescription_items ( id, medicine_id, medicine_name_snapshot, dosage, frequency, duration_days, quantity_prescribed, sequence_no ) ),
+          consultation_scores ( id, scale_code, scale_version, raw_answers, computed_score, severity_band, recorded_at, recorded_by )
         ),
         lab_orders ( id, status, priority, created_at,
           lab_order_items (
@@ -354,6 +355,16 @@ const blankContextFromSupabase = async (
             dosage: string; frequency: string; duration_days: number;
             quantity_prescribed: number; sequence_no: number;
           }>;
+        }>;
+        consultation_scores: Array<{
+          id: string;
+          scale_code: string;
+          scale_version: string;
+          raw_answers: Record<string, number>;
+          computed_score: number | string;
+          severity_band: string | null;
+          recorded_at: string;
+          recorded_by: string | null;
         }>;
       }>;
       lab_orders: Array<{
@@ -530,6 +541,16 @@ const blankContextFromSupabase = async (
       prescriptionItems,
       labOrders,
       radiologyOrders,
+      functionalScores: (cons?.consultation_scores ?? []).map((s) => ({
+        id:            s.id,
+        scaleCode:     s.scale_code as import('./consultationTypes').FunctionalScaleCode,
+        scaleVersion:  s.scale_version,
+        rawAnswers:    s.raw_answers ?? {},
+        computedScore: Number(s.computed_score),
+        severityBand:  s.severity_band ?? undefined,
+        recordedAt:    s.recorded_at,
+        recordedBy:    s.recorded_by ?? undefined,
+      })),
       recommendations: [],
       recommendationsNotes: '',
       criticalNotifications: [],
@@ -1151,6 +1172,25 @@ export const lockConsultation = async (opNumber: string): Promise<ConsultationCo
             break;
           }
         }
+      }
+
+      // Functional-assessment scores (VAS, ODI, …). Upsert one row per
+      // (consultation_id, scale_code, scale_version) — re-locking after
+      // an amend replaces the prior row's answers via the unique key.
+      if (consultationId && (next.functionalScores?.length ?? 0) > 0) {
+        const rows = (next.functionalScores ?? []).map((s) => ({
+          consultation_id: consultationId,
+          scale_code:      s.scaleCode,
+          scale_version:   s.scaleVersion,
+          raw_answers:     s.rawAnswers,
+          computed_score:  s.computedScore,
+          severity_band:   s.severityBand ?? null,
+          recorded_by:     row.doctor_id,
+          created_by:      bs,
+        }));
+        await supabase
+          .from('consultation_scores')
+          .upsert(rows, { onConflict: 'consultation_id,scale_code,scale_version' });
       }
     }
   } catch (e) {

@@ -38,6 +38,7 @@ import {
   CriticalResultBanner,
   DiagnosisForm,
   FollowUpAdvicePanel,
+  FunctionalScoringPanel,
   OrdersPanel,
   PrescriptionBuilder,
   VisitHistoryPanel,
@@ -57,7 +58,8 @@ import { Breadcrumb, type BreadcrumbItem } from '@/components/data-display';
 const SECTIONS = [
   { id: 'sec-notes',        label: 'Notes',                   icon: ClipboardList },
   { id: 'sec-diagnosis',    label: 'Diagnosis / Impression',  icon: Stethoscope   },
-  { id: 'sec-orders',       label: 'Labs & Tests', icon: FlaskConical  },
+  { id: 'sec-scoring',      label: 'Functional Assessment',   icon: Gauge         },
+  { id: 'sec-orders',       label: 'Labs & Tests',            icon: FlaskConical  },
   { id: 'sec-prescription', label: 'Prescription',            icon: Pill          },
   { id: 'sec-advice',       label: 'Advice Given',            icon: MessageSquare },
 ] as const;
@@ -785,6 +787,15 @@ export function ConsultationPage(): JSX.Element {
                       onAdd={addDiagnosis}
                       onUpdate={updateDiagnosis}
                       onRemove={removeDiagnosis}
+                    />
+                  </SectionCard>
+
+                  <div className="border-t border-hairline" />
+                  <SectionCard id="sec-scoring" icon={Gauge} title="Functional Assessment"
+                    isOpen={openSections.has('sec-scoring')} onToggle={() => toggleSection('sec-scoring')}>
+                    <FunctionalScoringPanel
+                      scores={data.functionalScores ?? []}
+                      onChange={(next) => void patch({ functionalScores: next })}
                     />
                   </SectionCard>
 

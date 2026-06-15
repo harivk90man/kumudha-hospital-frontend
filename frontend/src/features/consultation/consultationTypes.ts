@@ -257,6 +257,31 @@ export type NextAction =
   | 'referred_external'
   | 'no_action';
 
+/* ---------- Functional scores ---------- */
+
+/**
+ * Ortho-toolkit-style functional-assessment instruments captured
+ * during a consultation. Stored on `consultation_scores` (one row
+ * per scale per consultation) so the doctor can compare across
+ * visits. `rawAnswers` holds the per-question selections so a
+ * past-visit reopen can re-render the exact questionnaire state.
+ */
+export type FunctionalScaleCode = 'VAS' | 'ODI' | 'DASH' | 'WOMAC';
+
+export interface FunctionalScore {
+  id?: Uuid;
+  scaleCode: FunctionalScaleCode;
+  scaleVersion: string;
+  /** Per-question answers — shape depends on scale. ODI: `{q1..q10: 0-5}`. VAS: `{value: 0-10}`. */
+  rawAnswers: Record<string, number>;
+  /** Native-scale total — VAS 0-10, ODI 0-100, etc. */
+  computedScore: number;
+  /** Optional band label the scale's score band maps to. */
+  severityBand?: string;
+  recordedAt?: Iso8601;
+  recordedBy?: Uuid;
+}
+
 /* ---------- Draft (TSD-07 §4.7 consultation_drafts) ---------- */
 
 /**
@@ -287,6 +312,7 @@ export interface ConsultationContextBase {
   admission?: AdmissionAdvice;
   recommendations?: DoctorRecommendation[];
   nextAction?: NextAction;
+  functionalScores?: FunctionalScore[];
 }
 
 /* ---------- Aggregate consultation context ---------- */
@@ -302,6 +328,11 @@ export interface ConsultationContext {
   prescriptionItems: PrescriptionItem[];
   labOrders: LabOrder[];
   radiologyOrders: RadiologyOrder[];
+  /**
+   * Functional-assessment scores keyed by scale (one per scale). VAS
+   * pain and Oswestry ODI today; DASH / WOMAC reserved.
+   */
+  functionalScores?: FunctionalScore[];
   followUp?: FollowUpAdvice;
   admission?: AdmissionAdvice;
   /**
